@@ -189,9 +189,7 @@ describe('brand palette', () => {
     ['--primary-foreground', '--primary-hover', 4.5],
     ['--foreground', '--selection', 4.5],
     ['--primary-ink', '--surface', 4.5],
-    ['--text-tertiary', '--selection', 3],
     ['--muted-foreground', '--surface-subtle', 4.5],
-    ['--profit', '--profit-surface', 4.5],
     ['--warning', '--surface', 4.5],
     ['--text-secondary', '--canvas', 4.5],
     ['--ring', '--canvas', 3],
@@ -199,14 +197,14 @@ describe('brand palette', () => {
     ['--ring', '--selection', 3],
     ['--ring', '--surface', 3],
     ['--input', '--surface', 3],
-    ...SERIES_COLORS.map((token): [string, string, number] => [token, '--surface', 3]),
-    ['--text-tertiary', '--surface', 4.5],
+    ['--chart-edge', '--surface', 3],
+    ...SERIES_COLORS.map((token): [string, string, number] => ['--chart-edge', token, 3]),
   ])('keeps %s legible on %s', (token, background, minimum) => {
     expect(contrastRatio(tokenValue(token), tokenValue(background))).toBeGreaterThanOrEqual(minimum)
   })
 
   // Tailwind only emits utilities for tokens exposed through @theme.
-  it.each([...VALUE_COLORS, ...SERIES_COLORS])('exposes %s as a utility', (token) => {
+  it.each([...VALUE_COLORS, ...SERIES_COLORS, '--chart-edge'])('exposes %s as a utility', (token) => {
     expect(themeMappings.get(`--color${token.slice(1)}`)).toBe(`var(${token})`)
   })
 
@@ -226,13 +224,13 @@ describe('brand palette', () => {
     expect(mark).toEqual(['#f0872e', '#f3b845'])
     expect(tokenValue('--primary')).toBe(mark[0])
     const nonAction = [
-      '--canvas', '--selection', '--surface-subtle', '--profit-surface',
+      '--canvas', '--selection', '--surface-subtle', '--chart-edge',
       ...VALUE_COLORS, '--warning', ...SERIES_COLORS,
     ]
     for (const name of nonAction) expect(mark).not.toContain(tokenValue(name))
-    const profit = [tokenValue('--profit'), tokenValue('--profit-surface')]
-    for (const name of ['--selection', '--warning-surface', ...SERIES_COLORS]) {
-      expect(profit).not.toContain(tokenValue(name))
+    const profit = tokenValue('--profit')
+    for (const name of ['--selection', '--warning-surface', '--chart-edge', ...SERIES_COLORS]) {
+      expect(profit).not.toBe(tokenValue(name))
     }
     const allocation = SERIES_COLORS.map((name) => tokenValue(name))
     expect(new Set(allocation).size).toBe(allocation.length)

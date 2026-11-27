@@ -34,7 +34,7 @@ describe('shared primary navigation', () => {
       const selected = attributes.includes(`href="${activeHref}"`)
       expect(attributes.includes('aria-current="page"')).toBe(selected)
       expect(attributes).toContain('route-choice')
-      expect(attributes).not.toMatch(/underline|bg-primary/)
+      expect(attributes).not.toMatch(/underline|bg-primary|before:/)
       expect(contents).toContain('aria-hidden="true"')
     }
   })
