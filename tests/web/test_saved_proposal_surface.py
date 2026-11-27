@@ -13,10 +13,21 @@ from baibai_engine.storage.paths import APPLICATION_DB_PATH, MARKET_DB_PATH
 from baibai_engine.storage.sqlite.application.write import initialize_database
 from baibai_web.contracts_export import ROOT_VIEWS
 from baibai_web.materialize import export_read_models
+from baibai_web.readmodel.models import DashboardView, OutcomesView
+from baibai_web.readmodel.proposal_models import LatestProposalView, ProposalHistoryView
+from baibai_web.readmodel.us_proposal_models import LatestUSProposalView
 
 
 def test_materialized_route_keys_match_the_generated_root_contract():
     routes = json.loads(Path("web/contracts/routes.json").read_text())["routes"]
+    # A key permutation preserves the set of outputs but delivers the wrong model to a client.
+    assert {route: ROOT_VIEWS[key] for route, key in routes.items()} == {
+        "/api/dashboard": DashboardView,
+        "/api/outcomes": OutcomesView,
+        "/api/proposal/latest": LatestProposalView,
+        "/api/proposal/history": ProposalHistoryView,
+        "/api/us-proposal/latest": LatestUSProposalView,
+    }
     assert set(routes.values()) == set(ROOT_VIEWS)
     assert routes["/api/proposal/latest"] == "views/latest-proposal.json"
     assert routes["/api/us-proposal/latest"] == "views/latest-us-proposal.json"

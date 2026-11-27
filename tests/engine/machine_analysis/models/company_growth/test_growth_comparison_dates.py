@@ -2,6 +2,13 @@ from datetime import date, timedelta
 from itertools import permutations
 
 import pytest
+from tests.engine.machine_analysis.models.company_growth.test_company_growth import (
+    amount,
+    change,
+    document,
+    observation,
+    states,
+)
 
 from baibai_engine.machine_analysis.models.company_growth.calculations import build_changes
 from baibai_engine.machine_analysis.models.company_growth.models import (
@@ -120,3 +127,64 @@ def test_sector_inapplicability_never_overrides_a_missing_or_incomparable_prior(
     ):
         comparison = build_changes((*priors, current))[-1]
         assert (comparison.difference, comparison.reason) == (None, reason)
+
+
+@pytest.mark.parametrize("reported_shares", [None, 1_000])
+@pytest.mark.parametrize(
+    ("kind", "basis", "standard", "unavailable"),
+    [
+        (
+            "1QFinancialStatements_NonConsolidated_JP",
+            "nonconsolidated",
+            "JP",
+            "statement_basis_incomparable",
+        ),
+        (
+            "1QFinancialStatements_Consolidated_IFRS",
+            "consolidated",
+            "IFRS",
+            "accounting_standard_incomparable",
+        ),
+        ("1QFinancialStatements_Consolidated_JP", "consolidated", "JP", None),
+    ],
+)
+def test_latest_statement_scope_is_independent_of_unrelated_share_field(
+    kind, basis, standard, unavailable, reported_shares
+):
+    prior = document(2023, 1, 80, 11, 5)
+    original = document(2024, 1, 100, 10, 7, ShOutFY=1_000)
+    correction = document(
+        2024,
+        1,
+        None,
+        DiscNo="scope-only",
+        DiscDate="2024-09-01",
+        DocType=kind,
+        ShOutFY=reported_shares,
+    )
+    cohorts = states([prior, original, correction])
+    latest = cohorts[-1]
+    reported = observation(latest, "reported")
+    assert (reported.statement_basis, reported.accounting_standard) == (basis, standard)
+    for metric, prior_amount, current_amount in (("sales", 80, 100), ("parent_profit", 5, 7)):
+        reading = reported.metrics[metric]
+        comparison = change(build_changes(cohorts), latest.period_end, metric)
+        if unavailable is None:
+            assert reading.value == current_amount
+            assert comparison.rate == pytest.approx((current_amount - prior_amount) / prior_amount)
+        else:
+            assert reading.value is comparison.rate is comparison.difference is None
+            assert reading.reason == comparison.reason == unavailable
+    assert amount(latest, "balance", "issued_shares").value == 1_000
+
+
+@pytest.mark.parametrize("notice", ["EarnForecastRevision", "DividendForecastRevision"])
+def test_notice_without_actuals_cannot_change_scope_or_create_period(notice):
+    original = document(2024, 1, 0, 0)
+    revision = document(2024, 1, None, DiscNo="revision", DiscDate="2024-09-01", DocType=notice)
+    unobserved = document(2024, 2, None, DocType="2QFinancialStatements_NonConsolidated_IFRS")
+    (cohort,) = states([original, revision, unobserved])
+    reported = observation(cohort, "reported")
+    assert (reported.statement_basis, reported.accounting_standard) == ("consolidated", "JP")
+    assert reported.metrics["sales"].value == 0
+    assert reported.metrics["parent_profit"].value is None

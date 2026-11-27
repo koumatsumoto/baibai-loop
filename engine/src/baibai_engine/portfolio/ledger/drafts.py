@@ -807,13 +807,8 @@ def apply_draft(
         if isinstance(event, ShareConversionEvent):
             _validate_report_time(event.confirmed_at, now=reported_at, instant_field="confirmed_at")
             continue
-        if isinstance(event, ReleaseEvent):
-            if event.reason != "expired":
-                continue
-        elif not isinstance(event, HumanEvent):
-            continue
         _validate_report_time(event.occurred_on or event.occurred_at, now=reported_at)
-        if isinstance(event, ReleaseEvent):
+        if isinstance(event, ReleaseEvent) and event.reason == "expired":
             _require_date_only_expiry_reached(
                 reservation_id=event.reservation_id,
                 expires_at=expiries.get(event.reservation_id),

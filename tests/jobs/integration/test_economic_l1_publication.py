@@ -118,6 +118,56 @@ def test_l1_and_every_input_publish_without_market_runs_lake_or_models(tmp_path,
             )
 
 
+@pytest.mark.parametrize("restore", [False, True])
+def test_l1_initial_read_cannot_accept_another_same_size_generation(
+    tmp_path, setup, monkeypatch, restore
+):
+    store, _, _ = setup
+    bodies = []
+    for value in ("A", "B"):
+        path = tmp_path / f"seed-{value}.sqlite"
+        with closing(initialize_database(path)) as connection, connection:
+            confirm_source_response(
+                connection,
+                source_id=SOURCE,
+                fetched_at=AT,
+                records_by_day={DAY: [{"value": value}]},
+            )
+        bodies.append(path.read_bytes())
+    first, second = bodies
+    assert first != second
+    assert len(first) == len(second)
+    store.store_object("indicators.sqlite", first)
+    download = store.download_file
+
+    def replace_at_get(key, *args, **kwargs):
+        if key != "indicators.sqlite":
+            return download(key, *args, **kwargs)
+        store.store_object(key, second)
+        try:
+            return download(key, *args, **kwargs)
+        finally:
+            if restore:
+                store.store_object(key, first)
+
+    with monkeypatch.context() as race:
+        race.setattr(store, "download_file", replace_at_get)
+        before = list(store.put_keys)
+        with pytest.raises(LakeCASConflict):
+            run(tmp_path, setup)
+        assert store.put_keys == before
+        assert not (tmp_path / "run.sqlite").exists()
+
+    report = run(tmp_path, setup, "retry")
+    assert report["canonical_generations"] == {
+        "economic_etag": store.head("indicators.sqlite").etag
+    }
+    with closing(sqlite3.connect(tmp_path / "retry.sqlite")) as conn:
+        assert next(read_snapshots(conn, DAY, DAY, source_id=SOURCE)).records == (
+            {"value": "A" if restore else "B"},
+        )
+
+
 def test_l1_put_unknown_ack_is_resolved_by_bytes(tmp_path, setup, monkeypatch):
     store, _, _ = setup
     stage(tmp_path, store)

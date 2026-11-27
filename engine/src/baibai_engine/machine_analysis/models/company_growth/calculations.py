@@ -22,6 +22,7 @@ from baibai_engine.machine_analysis.observations.financials.financial_documents 
     accounting_standard,
     certainly_disclosed_by,
     comparable_reporting_basis,
+    is_financial_statement,
     latest_disclosure_candidates,
     latest_reporting_basis_matches,
     reporting_basis_rows,
@@ -373,12 +374,21 @@ def _derived(
 def build_period_states(
     documents: Sequence[JQuantsFinancialSummary], *, sector: str | None
 ) -> tuple[PeriodState, ...]:
-    valid = [
-        r
-        for r in documents
-        if period_days(r) is not None
-        and (r.unresolved_actual_fields or any(getattr(r, f) is not None for f in ACTUAL_FIELDS))
-    ]
+    valid: list[JQuantsFinancialSummary] = []
+    scope_only: list[JQuantsFinancialSummary] = []
+    for row in documents:
+        if period_days(row) is None:
+            continue
+        if row.unresolved_actual_fields or any(getattr(row, f) is not None for f in ACTUAL_FIELDS):
+            valid.append(row)
+        elif is_financial_statement(row):
+            scope_only.append(row)
+    if scope_only:
+        # 数値のない決算訂正も同じ期の連結範囲・会計基準を更新する。空の期は作らない。
+        observed_periods = {accounting_period_identity(row) for row in valid}
+        valid.extend(
+            row for row in scope_only if accounting_period_identity(row) in observed_periods
+        )
     rows = resolve_actual_conflicts(valid)
     grouped: dict[AccountingPeriodKey, list[JQuantsFinancialSummary]] = {}
     for row in rows:

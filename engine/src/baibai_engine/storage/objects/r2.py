@@ -196,6 +196,19 @@ class ObjectStore(Protocol):
     ) -> RemoteObject: ...
 
 
+class PinnedDownloadStore(ObjectStore, Protocol):
+    """The streamed response must be the selected object generation."""
+
+    def download_file(
+        self,
+        key: str,
+        path: Path,
+        *,
+        expect_bytes: int | None = None,
+        expect_etag: str | None = None,
+    ) -> None: ...
+
+
 def _refuse_exact_reissue(
     *,
     operation: OperationModel,
