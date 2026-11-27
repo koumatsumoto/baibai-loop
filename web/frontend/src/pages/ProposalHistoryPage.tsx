@@ -60,8 +60,8 @@ export function ProposalHistory({ data, proposalId = null, ticker = null }: {
     <div className="grid gap-2 text-xs leading-6 text-muted-foreground">
       <p>発行日時（JST）の新しい順。午前は0〜11時、午後は12〜23時です。提案基準日や再生成日時とは異なります。</p>
       <p>同じ銘柄でも過去のレポートは別に残しています。現在の売買推奨・注文可否ではありません。</p>
-      {data.unavailable_proposal_ids.length > 0 && <p role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-foreground">読取不能の提案が{data.unavailable_proposal_ids.length}件あります。その提案に含まれる銘柄は一覧に表示できていません。</p>}
-      {malformedCount > 0 && <p role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-foreground">配信データの形式が不正な提案が{malformedCount}件あります。訂正・人間の報告を確認できないため表示していません。</p>}
+      {data.unavailable_proposal_ids.length > 0 && <p role="status" className="rounded-lg border border-warning/30 bg-warning-surface px-4 py-3 text-sm text-warning-ink">読取不能の提案が{data.unavailable_proposal_ids.length}件あります。その提案に含まれる銘柄は一覧に表示できていません。</p>}
+      {malformedCount > 0 && <p role="status" className="rounded-lg border border-warning/30 bg-warning-surface px-4 py-3 text-sm text-warning-ink">配信データの形式が不正な提案が{malformedCount}件あります。訂正・人間の報告を確認できないため表示していません。</p>}
     </div>
     {groups.length === 0 && malformedCount === 0 && <SectionCard padded title="日本株の保存済みレポートはありません"><p className="text-sm text-muted-foreground">表示データ生成時点で、正式に保存された提案はありません。</p></SectionCard>}
     {groups.map(group => <section className="grid min-w-0 gap-3" key={group.key} aria-labelledby={`reports-${group.key}`}>
