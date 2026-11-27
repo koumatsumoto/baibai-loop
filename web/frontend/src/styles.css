@@ -103,11 +103,11 @@
     /* An offset, opaque focus outline reads against the surrounding surface,
        including on buttons whose fill is already the action color. */
     --ring: var(--primary-ink);
-    /* Amber shares, light cream cash, and mid-tone honey reserves. A fine edge defines pale slices. */
-    --chart-1: #c98d52;
-    --chart-2: #f1e6c0;
-    --chart-3: #d7b771;
-    --chart-edge: #644521;
+    /* Allocation takes the logo's warm hues at different lightness and chroma, not the artwork swatches. */
+    --chart-1: #ef983e;
+    --chart-2: #f9e6ab;
+    --chart-3: #f4c358;
+    --chart-edge: #755223;
     --radius: 0.625rem;
 }
 
