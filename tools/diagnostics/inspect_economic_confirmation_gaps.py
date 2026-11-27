@@ -30,7 +30,7 @@ from baibai_engine.storage.objects.json import read_private
 from baibai_engine.storage.objects.r2 import RemoteObject
 from baibai_engine.storage.snapshots.sources import sha256_file
 from baibai_jobs.acquisition.economic_staging import stage_prefix
-from baibai_jobs.acquisition.receipts import download_fixed
+from baibai_jobs.acquisition.receipts import _integration_marker, download_fixed
 from baibai_jobs.integration.economic_handoff import validate_handoff
 from baibai_jobs.integration.economic_sources import _read
 
@@ -253,15 +253,14 @@ def inspect(
             marker = read_private(reader, stage_prefix(stage.stage_id) + "/integrated.json")
             status = "not_supplied"
             if marker is not None:
-                saved = json.loads(marker.payload)
-                if (
-                    saved.get("manifest_sha256") != stage.manifest_sha256
-                    or saved.get("source") != "economic-" + group
-                    or saved.get("started_at") != result["started_at"]
-                    or saved.get("status") not in {"integrated", "needs_explicit_recovery"}
-                ):
-                    raise ValueError("marker differs from the fixed handoff")
-                status = saved["status"]
+                saved = _integration_marker(
+                    marker.payload,
+                    digest=stage.manifest_sha256,
+                    source="economic-" + group,
+                    started_at=_clock(result["started_at"]),
+                    strict_source=True,
+                )
+                status = str(saved["status"])
             raw = packet / "receipts.sqlite"
             with closing(open_read_only_connection(raw)) as conn:
                 for event in _events(conn, source_id, start, end):
