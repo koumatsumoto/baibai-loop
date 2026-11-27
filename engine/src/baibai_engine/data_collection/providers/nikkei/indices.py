@@ -83,6 +83,8 @@ def parse_nikkei_valuation(
     parser = _ValuationRows()
     parser.feed(text)
     parser.close()
+    if parser.row_open:
+        raise IndicatorsProviderError("Nikkei valuation response ends inside a table row")
     if not parser.rows:
         raise IndicatorsProviderError("Nikkei valuation data rows missing")
     records: dict[date, list[dict[str, object]]] = defaultdict(list)
@@ -111,11 +113,13 @@ class _ValuationRows(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.rows: list[list[str]] = []
         self.cells: list[str] = []
+        self.row_open = False
         self.data_row = False
         self.cell: list[str] | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag == "tr":
+            self.row_open = True
             self.cells = []
             self.data_row = False
         elif tag == "td":
@@ -133,8 +137,11 @@ class _ValuationRows(HTMLParser):
         if tag == "td" and self.cell is not None:
             self.cells.append("".join(self.cell))
             self.cell = None
-        elif tag == "tr" and self.cells:
-            if self.data_row or re.fullmatch(r"\d{4}\.\d{2}\.\d{2}", self.cells[0].strip()):
+        elif tag == "tr":
+            self.row_open = False
+            if self.cells and (
+                self.data_row or re.fullmatch(r"\d{4}\.\d{2}\.\d{2}", self.cells[0].strip())
+            ):
                 self.rows.append(self.cells)
             self.cells = []
 

@@ -656,6 +656,65 @@ def test_retained_acquisition_failure_is_a_gap_not_failed_publication(
     assert "private provider failure" not in json.dumps(report)
 
 
+@pytest.mark.parametrize("source", ["multpl-shiller-pe", "nikkei-per"])
+def test_incomplete_valuation_markup_is_a_gap_not_an_empty_revision(
+    tmp_path, setup, monkeypatch, capsys, source
+):
+    from baibai_engine.data_collection.providers import multpl
+    from baibai_engine.data_collection.providers.nikkei import indices
+    from baibai_jobs.integration.economic_handoff import acquire as acquire_source
+    from baibai_jobs.integration.sources import main as check
+
+    asof, retained_day = date(2026, 10, 15), date(2026, 10, 1)
+    if source == "multpl-shiller-pe":
+        provider, group, field, missing = multpl, "multpl", "value_text", "null"
+        prefix = '<table id="datatable"><tr><td>Oct 15, 2026</td><td>41.1</td></tr>'
+        earlier = "<tr><td>Oct 1, 2026</td><td>{value}</td></tr></table>"
+        truncated = prefix + "<tr><td>Oct 1, 2026</td><td>"
+    else:
+        provider, group, field, missing = indices, "nikkei_indexes", "weighted_text", "-"
+        # Nikkei can return a fragment containing completed rows, with no outer table.
+        prefix = "<tr><td>2026.10.15</td><td>41.1</td><td>46.9</td></tr>"
+        earlier = "<tr><!--daily_changing--><td>2026.10.01</td><td>{value}</td><td>21</td></tr>"
+        truncated = prefix + earlier.split("{value}")[0]
+    responses = iter(
+        [prefix + earlier.format(value="20.0"), truncated, prefix + earlier.format(value=missing)]
+    )
+    monkeypatch.setattr(provider, "fetch_text", lambda *a, **kw: next(responses))
+    store, _, _ = setup
+    database = tmp_path / "source.sqlite"
+    with closing(initialize_database(database)):
+        pass
+
+    def stage_acquisition(label, expected_exit):
+        packet = tmp_path / (label + "-packet")
+        assert acquire_source(group, source, asof, packet, database) == expected_exit
+        save_handoff(store, group + "-" + label, packet)
+        report = run(tmp_path, setup, label, asof=asof)
+        assert report["l1_published"]
+        assert report["l1_sealed"]
+        assert not available_handoffs(store, market=False)
+        assert not report["handoffs"][0]["failed"]
+        with closing(sqlite3.connect(tmp_path / (label + ".sqlite"))) as conn:
+            row = next(read_snapshots(conn, retained_day, retained_day, source_id=source))
+        return report, row
+
+    _, original = stage_acquisition("initial-receive", 0)
+    assert original.records[0][field] == "20.0"
+    report, after_failure = stage_acquisition("truncated", 1)
+    assert after_failure == original
+    assert report["handoffs"][0]["result"]["acquisition_failures"] == [
+        {"source_id": source, "status": "failed", "error_types": ["IndicatorsProviderError"]}
+    ]
+    capsys.readouterr()
+    assert check(["check", "--directory", str(tmp_path / "truncated")]) == 0
+    assert json.loads(capsys.readouterr().out)["integration_status"] == "completed_with_source_gaps"
+    report, after_complete = stage_acquisition("complete", 0)
+    assert after_complete.records[0][field] == missing
+    assert after_complete.fetched_at > original.fetched_at
+    assert report["handoffs"][0]["result"]["acquisition_failures"] == []
+
+
 def test_legacy_browser_diagnostic_survives_l1_handoff(tmp_path, setup, monkeypatch, capsys):
     from unittest.mock import Mock
 
