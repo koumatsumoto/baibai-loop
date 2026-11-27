@@ -20,6 +20,8 @@ from pydantic import (
     Field,
     HttpUrl,
     StringConstraints,
+    TypeAdapter,
+    ValidationError,
     model_validator,
 )
 
@@ -404,6 +406,8 @@ def render_reviewed_report(report: ReviewedReport) -> bytes:
 
 
 type USProposalId = Annotated[str, Field(pattern=r"^us-proposal-[a-z0-9-]{1,64}$")]
+_US_PROPOSAL_ID: TypeAdapter[str] = TypeAdapter(USProposalId)
+_NEWEST_US_PROPOSAL_FIRST = "ORDER BY published_at DESC, proposal_id DESC"
 
 
 class USProposalDraft(_Record):
@@ -440,7 +444,7 @@ def _require_future_horizon(
         and comparison is not None
         and comparison.horizon_et <= at.astimezone(_ET).date()
     ):
-        raise ValueError("no_action requires a comparison horizon after the current ET date")
+        raise ValueError("no_action requires a comparison horizon after the recorded ET date")
 
 
 def _decision_digest(draft: USProposalDraft, analysis: ReviewedReport) -> str:
@@ -483,6 +487,7 @@ class USProposal(_Record):
             or not draft.prepared_at <= review.reviewed_at <= self.published_at
         ):
             raise ValueError("independent review does not bind the exact US decision")
+        _require_future_horizon(draft, self.analysis, at=self.published_at)
         return self
 
 
@@ -505,7 +510,6 @@ def save_us_proposal(
     proposal = USProposal(
         decision=draft, analysis=analysis, review=review, published_at=published_at
     )
-    _require_future_horizon(draft, analysis, at=proposal.published_at)
     payload = canonical_json(proposal.model_dump(mode="json"))
     with closing(connect_existing(path)) as connection:
         connection.execute(
@@ -534,11 +538,36 @@ def load_us_proposal(connection: sqlite3.Connection, proposal_id: str) -> USProp
     )
 
 
+def published_us_proposal_ids(
+    connection: sqlite3.Connection, *, limit: int
+) -> tuple[str | None, ...]:
+    """List bounded publication slots; a malformed ID is an unnamed unreadable slot."""
+    if limit < 1:
+        raise ValueError("US publication list needs a positive limit")
+    ids: list[str | None] = []
+    known: set[str] = set()
+    for (raw_id,) in connection.execute(
+        "SELECT proposal_id FROM us_equity_proposal " + _NEWEST_US_PROPOSAL_FIRST + " LIMIT ?",
+        (limit,),
+    ):
+        try:
+            proposal_id = _US_PROPOSAL_ID.validate_python(raw_id, strict=True)
+        except ValidationError:
+            ids.append(None)
+            continue
+        if proposal_id in known:
+            raise ValueError("duplicate US publication ID")
+        known.add(proposal_id)
+        ids.append(proposal_id)
+    return tuple(ids)
+
+
 def load_latest_us_proposal(connection: sqlite3.Connection) -> USProposal | None:
     """Read the latest US decision by UTC publication, without falling back if unreadable."""
     return _load_row(
         connection.execute(
             "SELECT proposal_id, published_at, payload FROM us_equity_proposal "
-            "ORDER BY published_at DESC, proposal_id DESC LIMIT 1"
+            + _NEWEST_US_PROPOSAL_FIRST
+            + " LIMIT 1"
         ).fetchone()
     )
