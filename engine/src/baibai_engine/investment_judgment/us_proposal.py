@@ -112,6 +112,9 @@ class _Scenario(_Record):
     def total(self) -> Decimal:
         return self.terminal_value_usd_per_share + self.eligible_distributions_usd_per_share
 
+    def difference_from_cash(self, cash_usd_per_share: Decimal) -> Decimal:
+        return self.total - cash_usd_per_share
+
 
 class _Comparison(_Record):
     horizon_et: date
@@ -367,7 +370,8 @@ def render(draft: ReportDraft, review: ReportReview) -> bytes:
             lines.append(
                 f"- {label}: 終価 USD {scenario.terminal_value_usd_per_share}、"
                 f"取得権のある分配 USD {scenario.eligible_distributions_usd_per_share}、"
-                f"現金との差 USD {scenario.total - close.price_usd:+f}（各1株当たりの仮定）。"
+                f"現金との差 USD {scenario.difference_from_cash(close.price_usd):+f}"
+                "（各1株当たりの仮定）。"
             )
             lines.extend(f"  - 仮定: {_line(value)}" for value in scenario.assumptions)
     if draft.unresolved:

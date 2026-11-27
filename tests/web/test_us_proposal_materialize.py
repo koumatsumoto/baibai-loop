@@ -1,6 +1,7 @@
 """Synthetic App projection: exact USD identity without widening the JP views."""
 
 import json
+import re
 import sqlite3
 from contextlib import closing
 from datetime import date, datetime, timedelta
@@ -31,6 +32,7 @@ from baibai_engine.investment_judgment.us_proposal import (
 from baibai_engine.portfolio.performance.store import PortfolioOutcomeStore
 from baibai_engine.storage.paths import APPLICATION_DB_PATH
 from baibai_engine.storage.sqlite.application.write import initialize_database
+from baibai_web.contracts_export import build_schema
 from baibai_web.materialize import export_read_models
 from baibai_web.readmodel.builders import dashboard
 from baibai_web.sources import proposal as proposal_source
@@ -46,11 +48,21 @@ JP_OBJECTS = {
 }
 
 
-def _save_us(app, proposal_id, *, comparable=True, published_at=PUBLISHED_US, sip_proof=None):
+def _save_us(
+    app,
+    proposal_id,
+    *,
+    comparable=True,
+    action=None,
+    precise=False,
+    published_at=PUBLISHED_US,
+    sip_proof=None,
+):
+    action = action or ("no_action" if comparable else "defer")
     official_close = {
         "basis": "regular_session_unadjusted",
         "session_et": "2026-06-02",
-        "price_usd": "120.22",
+        "price_usd": "100.50",
         "source_url": "https://www.nasdaq.com/synthetic-official",
         "observed_at": PRICE_CLOCK,
     }
@@ -66,8 +78,8 @@ def _save_us(app, proposal_id, *, comparable=True, published_at=PUBLISHED_US, si
             )
         )
     scenario = {
-        "terminal_value_usd_per_share": "128.27",
-        "eligible_distributions_usd_per_share": "0.50",
+        "terminal_value_usd_per_share": "100.50" if precise else "105.75",
+        "eligible_distributions_usd_per_share": "1.0E-13" if precise else "1.25",
         "assumptions": ["synthetic comparison; not a Web input"],
     }
     draft = ReportDraft.model_validate(
@@ -112,7 +124,11 @@ def _save_us(app, proposal_id, *, comparable=True, published_at=PUBLISHED_US, si
                 "horizon_et": "2027-05-31",
                 "cash_basis": "same_usd_no_interest_tax_or_fees",
                 "base": scenario,
-                "downside": {**scenario, "terminal_value_usd_per_share": "83.70"},
+                "downside": {
+                    **scenario,
+                    "terminal_value_usd_per_share": "80",
+                    "eligible_distributions_usd_per_share": "0E-14" if precise else "0",
+                },
             }
             if comparable
             else None,
@@ -135,8 +151,14 @@ def _save_us(app, proposal_id, *, comparable=True, published_at=PUBLISHED_US, si
             "proposal_id": proposal_id,
             "author_identity": "synthetic formal author",
             "prepared_at": "2026-06-03T16:20:00Z",
-            "action": "no_action" if comparable else "defer",
-            "reason": "現金比較で見送り。" if comparable else "取引所終値未確認のため保留。",
+            "action": action,
+            "reason": (
+                "現金比較で見送り。"
+                if action == "no_action"
+                else "事業前提の未確認が残るため保留。"
+                if comparable
+                else "取引所終値未確認のため保留。"
+            ),
             "revisit_when": "一次資料と価格を確認する。",
         }
     )
@@ -205,7 +227,7 @@ def test_projection_uses_exact_formal_proof_no_hidden_body_or_legacy_change(tmp_
         "reason": "現金比較で見送り。",
         "revisit_when": "一次資料と価格を確認する。",
         "official_close": {
-            "price_usd": "120.22",
+            "price_usd": "100.50",
             "origin": "listing_exchange",
             "observed_at": "2026-06-03T13:00:00Z",
         },
@@ -218,12 +240,28 @@ def test_projection_uses_exact_formal_proof_no_hidden_body_or_legacy_change(tmp_
             "last_usd": "118.40",
         },
         "comparison_horizon_et": "2027-05-31",
+        "comparison": {
+            "cash_basis": "same_usd_no_interest_tax_or_fees",
+            "base": {
+                "terminal_value_usd_per_share": "105.75",
+                "eligible_distributions_usd_per_share": "1.25",
+                "difference_from_cash_usd_per_share": "6.50",
+            },
+            "downside": {
+                "terminal_value_usd_per_share": "80",
+                "eligible_distributions_usd_per_share": "0",
+                "difference_from_cash_usd_per_share": "-20.50",
+            },
+        },
         "unresolved": [],
     }
     assert app.read_bytes() == original_app_bytes
 
 
-def test_projection_keeps_verified_sip_origin_distinct_and_omits_the_raw_receipt(tmp_path, mocker):
+@pytest.mark.parametrize("action", ["no_action", "defer"])
+def test_projection_keeps_verified_sip_origin_distinct_and_omits_the_raw_receipt(
+    tmp_path, mocker, action
+):
     app = tmp_path / APPLICATION_DB_PATH
     initialize_database(app)
     mocker.patch.object(proposal_source, "datetime").now.return_value = STAMP
@@ -236,7 +274,7 @@ def test_projection_keeps_verified_sip_origin_distinct_and_omits_the_raw_receipt
       "symbol":"GOOGL","next_page_token":null,"auctions":[{
       "d":"2026-06-02","o":null,"c":[
         {"x":"Q","c":"6","p":117.31,"t":"2026-06-02T20:00:00.221350239Z"},
-        {"x":"Q","c":"M","p":120.0100,"t":"2026-06-02T20:00:00.221350240Z"}
+        {"x":"Q","c":"M","p":100.5000,"t":"2026-06-02T20:00:00.221350240Z"}
       ]}]
     }"""
     digest = sha256(original).hexdigest()
@@ -246,7 +284,10 @@ def test_projection_keeps_verified_sip_origin_distinct_and_omits_the_raw_receipt
             query.url(), query.url(), 200, PRICE_CLOCK, digest, True, False, original
         ),
     )
-    saved = _save_us(app, "us-proposal-synthetic-sip-view", sip_proof=proof)
+    precise = action == "defer"
+    saved = _save_us(
+        app, "us-proposal-synthetic-sip-view", action=action, precise=precise, sip_proof=proof
+    )
     before = app.read_bytes()
     raw = _export(tmp_path, tmp_path / "served")["latest-us-proposal.json"]
     view = json.loads(raw)
@@ -257,15 +298,73 @@ def test_projection_keeps_verified_sip_origin_distinct_and_omits_the_raw_receipt
     assert proposal["currency"] == "USD"
     assert proposal["official_close"] == {
         "origin": "alpaca_sip_nasdaq_official_close",
-        "price_usd": "120.0100",
+        "price_usd": "100.5000",
         "observed_at": "2026-06-03T13:00:00Z",
     }
     assert proposal["iex_band"]["last_usd"] == "118.40"
     assert proposal["comparison_horizon_et"] == "2027-05-31"
+    assert proposal["action"] == action
+    assert proposal["comparison"] == {
+        "cash_basis": "same_usd_no_interest_tax_or_fees",
+        "base": {
+            "terminal_value_usd_per_share": "100.50" if precise else "105.75",
+            "eligible_distributions_usd_per_share": "1.0E-13" if precise else "1.25",
+            "difference_from_cash_usd_per_share": "1.0E-13" if precise else "6.5000",
+        },
+        "downside": {
+            "terminal_value_usd_per_share": "80",
+            "eligible_distributions_usd_per_share": "0E-14" if precise else "0",
+            "difference_from_cash_usd_per_share": "-20.50000000000000" if precise else "-20.5000",
+        },
+    }
     assert digest.encode() not in raw
     assert b"alpaca.markets" not in raw
     assert b"221350240" not in raw
     assert b"/auctions/" not in raw
+    assert app.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("comparable", "action"), [(True, "defer"), (False, "defer"), (True, "no_action")]
+)
+def test_saved_comparison_is_not_computed_from_action_or_todays_price(tmp_path, comparable, action):
+    app = tmp_path / APPLICATION_DB_PATH
+    app.parent.mkdir(parents=True, exist_ok=True)
+    initialize_database(app)
+    saved = _save_us(
+        app, "us-proposal-saved-basis", comparable=comparable, action=action, precise=True
+    )
+    before = app.read_bytes()
+    # A historic comparison is evidence from the saved decision, not today's eligibility.
+    _, us = proposal_source.read_serving_proposal_views(
+        app, generated_at=datetime.fromisoformat("2028-01-01T01:00:00Z")
+    )
+    assert us.proposal is not None
+    assert us.proposal.action == action
+    assert us.proposal.draft_sha256 == saved.review.draft_sha256
+    view = us.proposal.model_dump(mode="json")
+    if comparable:
+        assert view["comparison_horizon_et"] == "2027-05-31"
+        comparison = view["comparison"]
+        assert comparison["base"] == {
+            "terminal_value_usd_per_share": "100.50",
+            "eligible_distributions_usd_per_share": "1.0E-13",
+            "difference_from_cash_usd_per_share": "1.0E-13",
+        }
+        assert comparison["downside"]["eligible_distributions_usd_per_share"] == "0E-14"
+        defs = build_schema()["$defs"]
+        properties = defs["USProposalComparisonScenarioView"]["properties"]
+        for name in ("base", "downside"):
+            for field, value in comparison[name].items():
+                schema = properties[field]
+                if ref := schema.get("$ref"):
+                    schema = defs[ref.rsplit("/", 1)[-1]]
+                assert re.fullmatch(schema["pattern"], value)
+    else:
+        assert view["official_close"] is None
+        assert view["iex_band"]["last_usd"] == "118.40"
+        assert view["comparison_horizon_et"] is None
+        assert view["comparison"] is None
     assert app.read_bytes() == before
 
 
@@ -296,6 +395,7 @@ def test_proposals_share_snapshot_even_with_a_concurrent_us_append(tmp_path, moc
     assert us.proposal.action == "defer"
     assert us.proposal.official_close is None
     assert us.proposal.comparison_horizon_et is None
+    assert us.proposal.comparison is None
     _, following = proposal_source.read_serving_proposal_views(app, generated_at=STAMP)
     assert following.proposal is not None
     assert following.proposal.proposal_id == "us-proposal-second"

@@ -2,9 +2,9 @@
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, WithJsonSchema
 
 
 class USProposalOfficialCloseView(BaseModel):
@@ -20,6 +20,29 @@ class USProposalIexBandView(BaseModel):
     low_usd: Decimal
     high_usd: Decimal
     last_usd: Decimal
+
+
+# Decimal JSON can use exponents for small exact values. Describe that output
+# instead of rounding or changing its precision to fit the default Decimal schema.
+type USProposalComparisonAmount = Annotated[
+    Decimal,
+    WithJsonSchema(
+        {"type": "string", "pattern": r"^-?\d+(?:\.\d+)?(?:E[+-]?\d+)?$"},
+        mode="serialization",
+    ),
+]
+
+
+class USProposalComparisonScenarioView(BaseModel):
+    terminal_value_usd_per_share: USProposalComparisonAmount
+    eligible_distributions_usd_per_share: USProposalComparisonAmount
+    difference_from_cash_usd_per_share: USProposalComparisonAmount
+
+
+class USProposalComparisonView(BaseModel):
+    cash_basis: Literal["same_usd_no_interest_tax_or_fees"]
+    base: USProposalComparisonScenarioView
+    downside: USProposalComparisonScenarioView
 
 
 class USProposalView(BaseModel):
@@ -39,6 +62,7 @@ class USProposalView(BaseModel):
     official_close: USProposalOfficialCloseView | None
     iex_band: USProposalIexBandView | None
     comparison_horizon_et: date | None
+    comparison: USProposalComparisonView | None
     unresolved: list[str]
 
 
