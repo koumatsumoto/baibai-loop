@@ -110,7 +110,7 @@ class ReportDraft(_Record):
     report_id: ReportId
     author_identity: Text
     venue: Literal["XNAS", "XNYS"]
-    ticker: Annotated[str, Field(pattern=r"^[A-Z][A-Z0-9.]{0,7}$")]
+    ticker: Annotated[str, Field(pattern=r"^[A-Z][A-Z0-9]*(?:\.[A-Z0-9]+)?$", max_length=8)]
     cik: Annotated[str, Field(pattern=r"^[0-9]{10}$")]
     share_class: Text
     currency: Literal["USD"]

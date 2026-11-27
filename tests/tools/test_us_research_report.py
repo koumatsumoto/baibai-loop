@@ -92,8 +92,22 @@ def _prepare(tmp_path, capsys, payload):
 
 
 @pytest.mark.parametrize("has_close", [True, False])
-def test_reviewed_report_round_trips_without_substitution_or_overwrite(tmp_path, capsys, has_close):
+@pytest.mark.parametrize("ticker", ["GOOGL", "GOOG", "BRK.B", "AB12.CD3"])
+def test_reviewed_report_round_trips_without_substitution_or_overwrite(
+    tmp_path, capsys, has_close, ticker
+):
     payload = _draft()
+    payload["ticker"] = ticker
+    if ticker == "GOOG":
+        payload["share_class"] = "Class C common"
+    elif ticker == "BRK.B":
+        payload.update(
+            venue="XNYS",
+            cik="0000000001",
+            share_class="Class B common",
+            calendar_source_url="https://www.nyse.com/synthetic-calendar",
+        )
+        payload["official_close"]["source_url"] = "https://www.nyse.com/synthetic-close"
     if not has_close:
         payload.update(official_close=None, comparison=None, unresolved=["取引所終値未確認。"])
     draft, review = _prepare(tmp_path, capsys, payload)
@@ -107,7 +121,8 @@ def test_reviewed_report_round_trips_without_substitution_or_overwrite(tmp_path,
     shown = captured.out
     assert review["report_id"] in shown
     assert review["draft_sha256"] in shown
-    assert "GOOGL" in shown
+    assert shown.startswith(f"# {ticker} ")
+    assert json.loads(before)["draft"]["ticker"] == ticker
     assert "正式提案未発行" in shown
     assert "USD 110 ～ 124 / 株、末尾 USD 119 / 株" in shown
     assert "2026-11-27T13:00:00-05:00" in shown
@@ -138,6 +153,16 @@ def test_reviewed_report_round_trips_without_substitution_or_overwrite(tmp_path,
     ("fields", "value"),
     [
         (("currency",), "JPY"),
+        (("ticker",), "A."),
+        (("ticker",), "A..B"),
+        (("ticker",), "A.B.C"),
+        (("ticker",), ".ABC"),
+        (("ticker",), "BRK-B"),
+        (("ticker",), "BRK/B"),
+        (("ticker",), "BRK.B "),
+        (("ticker",), "brk.b"),
+        (("ticker",), "ＡAPL"),
+        (("ticker",), "ABC12.CD3"),
         (("buy_quantity",), 100),
         (("official_close", "basis"), "split_adjusted_closes"),
         (("official_close", "price_usd"), 0),
