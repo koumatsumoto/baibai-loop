@@ -189,7 +189,10 @@ def test_real_materialize_protects_private_validation_and_preserves_success(
             "outcomes.json",
             "latest-proposal.json",
             "proposal-history.json",
+            "latest-us-proposal.json",
         }
+    us_view = json.loads((tmp_path / "serving/views/latest-us-proposal.json").read_text())
+    assert us_view["status"] == "empty"
     for source in (tmp_path / "direct/views").iterdir():
         assert canary not in source.read_text()
         expected = json.loads(source.read_text())

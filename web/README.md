@@ -8,6 +8,7 @@ Webは[エンジン](../docs/architecture.md#変更する場所)が保存した�
 | --- | --- |
 | 資産状況 `/` | 人間が報告した台帳を再生し、市場の未調整終値と株数の単位が合う保有だけを時価評価する。台帳の更新日と株価の日付は別。運用成績は新たに計算せず、保存済みの結果を表示する。[台帳・時価・成績の意味](../.agents/skills/ledger-record/SKILL.md) |
 | 売買提案 `/proposal` | [保存提案](../docs/reference/trade-proposal.md)の履歴を発行時刻の新しい順に、JSTの日付・午前/午後でまとめる。銘柄を選ぶと、その提案IDと銘柄に対応する当時の評価・独立検証・条件を読む。現在価格や現在の注文可否を再判定しない。 |
+| 米国株 `/us-proposal` | [保存済みのUSD判断](../docs/reference/us-research-mvp.md)の最新1件。見送り・判断保留、根拠と見直し条件を読み、日本株の提案、発注、口座、台帳とは分ける。 |
 
 ## 提案レポートの読み方
 
@@ -21,7 +22,9 @@ Webは[エンジン](../docs/architecture.md#変更する場所)が保存した�
 
 - [表示生成](backend/src/baibai_web/materialize.py)は[読取元](backend/src/baibai_web/sources/)から[表示モデル](backend/src/baibai_web/readmodel/)を作る。生成、公開、認証済みレスポンスの読戻しは別の段階である。
 - [履歴画面](frontend/src/pages/ProposalHistoryPage.tsx)は発行履歴を使う。`/api/proposal/latest` は履歴の先頭ではない。訂正対象を除き、提案基準日を優先して選ぶ正式な最新一件で、[配信照合](../tools/diagnostics/check_served_proposal.py)も区別して検証する。
-- 提案の「表示データ生成」は一つのAppスナップショットを読んで二つの表示を作った時刻であり、提案発行時刻や過去時点の絞り込みではない。配信照合では、訂正された提案も含め、表示の生成が履歴内の発行より前でないことを確認する。
+- 提案の「表示データ生成」は一つのAppスナップショットから日本株の最新・履歴と米国株の最新を作った時刻であり、提案発行時刻や過去時点の絞り込みではない。配信照合では、訂正された提案も含め、表示の生成が履歴内の発行より前でないことを確認する。
 - [生成ツール](backend/src/baibai_web/contracts_export.py)がPython表示モデルからschema・TypeScriptを作る。生成物は手編集しない。[Worker](edge/src/index.ts)は[配信経路](contracts/routes.json)の全viewに共通認証を適用する。
+
+- 米国株は認証が必要な `/api/us-proposal/latest` のみで配信する。未配信・読取不能と保存済み判断0件は別。初回のWeb配備前に米国株の表示データを公開し、配備後は保存元と認証済みレスポンスの判断IDと査読SHAを照合する。
 
 環境準備とViteで確認できる範囲は[開発手順](../docs/development.md#webの確認)、本番での生成・公開・読戻し・Worker配備は[運用手順](../jobs/OPERATIONS.md#web-serving)へ。

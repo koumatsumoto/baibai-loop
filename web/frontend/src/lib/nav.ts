@@ -12,4 +12,5 @@ export interface NavTab {
 export const NAV_TABS: readonly NavTab[] = [
   { to: '/', label: '資産状況', match: (pathname) => pathname === '/' },
   { to: '/proposal', label: '売買提案', match: (pathname) => pathname === '/proposal' },
+  { to: '/us-proposal', label: '米国株', match: (pathname) => pathname === '/us-proposal' },
 ]

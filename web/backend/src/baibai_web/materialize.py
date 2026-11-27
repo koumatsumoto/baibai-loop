@@ -14,7 +14,7 @@ from baibai_engine.storage.paths import (
 from baibai_web.readmodel.builders.dashboard import build_dashboard
 from baibai_web.readmodel.builders.outcomes import build_outcomes
 from baibai_web.sources.db_sources import DbLedgerSource, DbMarketSource
-from baibai_web.sources.proposal import read_proposal_views
+from baibai_web.sources.proposal import read_serving_proposal_views
 
 
 def export_read_models(root: Path, output_dir: Path) -> list[Path]:
@@ -26,12 +26,13 @@ def export_read_models(root: Path, output_dir: Path) -> list[Path]:
     # unavailable; builders retain the independent facts and expose missing sections.
     dashboard = build_dashboard(ledger, market)
     outcomes = build_outcomes(app)
-    latest, history = read_proposal_views(app)
+    (latest, history), latest_us = read_serving_proposal_views(app)
     views = {
         "portfolio-dashboard": dashboard,
         "outcomes": outcomes,
         "latest-proposal": latest,
         "proposal-history": history,
+        "latest-us-proposal": latest_us,
     }
     directory = output_dir / "views"
     directory.mkdir(parents=True, exist_ok=True)

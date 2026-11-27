@@ -1,6 +1,23 @@
 """Current application-store schema; opening an older store never migrates it."""
 
-APPLICATION_SCHEMA_VERSION = 30
+APPLICATION_SCHEMA_VERSION = 31
+
+US_EQUITY_PROPOSAL_SCHEMA_STATEMENTS = (
+    """
+CREATE TABLE us_equity_proposal (
+    proposal_id TEXT PRIMARY KEY,
+    published_at TEXT NOT NULL,
+    payload TEXT NOT NULL CHECK (json_valid(payload))
+) STRICT;
+""",
+    """
+CREATE TRIGGER us_equity_proposal_immutable
+BEFORE UPDATE ON us_equity_proposal
+BEGIN
+    SELECT RAISE(ABORT, 'published US proposal is immutable');
+END;
+""",
+)
 
 SELECTION_IDENTITY_MIGRATION_SCHEMA_SQL = """
 CREATE TABLE selection_identity_migration (
@@ -260,6 +277,7 @@ ON portfolio_outcome(period_end_date, horizon, outcome_id);
     + JUDGMENT_RETROSPECTIVE_SCHEMA_SQL
     + PROPOSAL_RECORDS_SCHEMA_SQL
     + SELECTION_IDENTITY_MIGRATION_SCHEMA_SQL
+    + "".join(US_EQUITY_PROPOSAL_SCHEMA_STATEMENTS)
 )
 
 __all__ = [
@@ -268,4 +286,5 @@ __all__ = [
     "JUDGMENT_RETROSPECTIVE_SCHEMA_SQL",
     "SCHEMA_SQL",
     "SELECTION_IDENTITY_MIGRATION_SCHEMA_SQL",
+    "US_EQUITY_PROPOSAL_SCHEMA_STATEMENTS",
 ]

@@ -16,6 +16,8 @@ describe('NAV_TABS active matching', () => {
     ['/tasks', []],
     ['/proposal', ['売買提案']],
     ['/proposal/unknown', []],
+    ['/us-proposal', ['米国株']],
+    ['/us-proposal/unknown', []],
     ['/nowhere', []],
     ['/tasks/unknown', []],
   ])('selects only the current page for %s', (pathname, labels) => {
@@ -27,16 +29,17 @@ describe('shared primary navigation', () => {
   it.each([
     ['/', '/'],
     ['/proposal?view=all#top', '/proposal'],
+    ['/us-proposal', '/us-proposal'],
     ['/nowhere', null],
-  ])('keeps the same two page links and marks only the current page at %s', (entry, activeHref) => {
+  ])('marks only the current page at %s', (entry, activeHref) => {
     const html = renderToStaticMarkup(createElement(MemoryRouter, { initialEntries: [entry] }, createElement(AppShell)))
     const nav = html.match(/<nav\b[^>]*>[\s\S]*?<\/nav>/)?.[0] ?? ''
     const links = [...nav.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g)]
 
-    expect(links).toHaveLength(2)
-    expect(links.map((link) => link[1].match(/href="([^"]*)"/)?.[1])).toEqual(['/', '/proposal'])
-    expect(links.map((link) => link[2].replace(/<[^>]*>/g, ''))).toEqual(['資産状況', '売買提案'])
-    expect(nav).toContain('grid-cols-2')
+    expect(links).toHaveLength(3)
+    expect(links.map((link) => link[1].match(/href="([^"]*)"/)?.[1])).toEqual(['/', '/proposal', '/us-proposal'])
+    expect(links.map((link) => link[2].replace(/<[^>]*>/g, ''))).toEqual(['資産状況', '売買提案', '米国株'])
+    expect(nav).toContain('grid-cols-3')
     for (const [, attributes, contents] of links) {
       expect(attributes).toContain('min-h-10')
       expect(attributes).toContain('justify-center')

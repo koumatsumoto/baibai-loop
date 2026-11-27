@@ -322,15 +322,17 @@ pull_app() {
 
 # Only refresh the current views; a serving upload does not clean up other keys.
 upload_portfolio_views() {
-  local directory="$1" name
-  for name in portfolio-dashboard outcomes latest-proposal proposal-history; do
-    [[ -s "${directory}/views/${name}.json" ]] || {
+  local directory="$1" name view_file
+  local -a names=(portfolio-dashboard outcomes latest-proposal proposal-history latest-us-proposal)
+  for name in "${names[@]}"; do
+    view_file="${directory}/views/${name}.json"
+    [[ -f "${view_file}" && -s "${view_file}" ]] || {
       printf 'missing portfolio view: %s\n' "${name}" >&2
       return 2
     }
   done
   transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
-  for name in portfolio-dashboard outcomes latest-proposal proposal-history; do
+  for name in "${names[@]}"; do
     verify_publication_lease
     if ! aws_s3 cp "${directory}/views/${name}.json" \
       "s3://${R2_SERVING_BUCKET:-baibai-serving}/views/${name}.json" \
@@ -342,7 +344,7 @@ upload_portfolio_views() {
   done
   # Verify the actual serving bytes while the caller still holds its publication
   # lease. Never print the payload or a diff: these views contain private assets.
-  for name in portfolio-dashboard outcomes latest-proposal proposal-history; do
+  for name in "${names[@]}"; do
     if ! aws_s3 cp "s3://${R2_SERVING_BUCKET:-baibai-serving}/views/${name}.json" \
       "${transfer_staging}/${name}.json" >> "${transfer_staging}/transfer.log" 2>&1; then
       printf 'portfolio view readback failed: %s\n' "${name}" >&2
@@ -356,7 +358,7 @@ upload_portfolio_views() {
   cleanup_staging
   transfer_staging=""
   verify_publication_lease
-  printf 'portfolio views verified from remote readback: 4\n'
+  printf 'portfolio views verified from remote readback: %s\n' "${#names[@]}"
 }
 
 usage() {

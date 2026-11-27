@@ -6,7 +6,12 @@ from contextlib import closing
 import pytest
 
 from baibai_engine.storage.sqlite.application import write as application_write
-from baibai_engine.storage.sqlite.application.schema import APPLICATION_SCHEMA_VERSION, SCHEMA_SQL
+from baibai_engine.storage.sqlite.application.read import connect_read_only
+from baibai_engine.storage.sqlite.application.schema import (
+    APPLICATION_SCHEMA_VERSION,
+    SCHEMA_SQL,
+    US_EQUITY_PROPOSAL_SCHEMA_STATEMENTS,
+)
 from baibai_engine.storage.sqlite.application.write import initialize_database
 
 EXPECTED_TABLES = (
@@ -26,6 +31,7 @@ EXPECTED_TABLES = (
     "investment_proposal_item",
     "position_decision_reference",
     "operation_session",
+    "us_equity_proposal",
 )
 
 
@@ -83,6 +89,101 @@ def test_schema_has_only_current_research_and_fact_tables(tmp_path):
         assert connection.execute("PRAGMA user_version").fetchone()[0] == APPLICATION_SCHEMA_VERSION
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+
+
+def test_isolated_v30_cutover_adds_only_us_table_and_leaves_existing_jp_rows(tmp_path):
+    path = tmp_path / "isolated.sqlite"
+
+    def snapshot(connection):
+        return (
+            connection.execute(
+                "SELECT type,name,tbl_name,sql FROM sqlite_schema "
+                "WHERE tbl_name <> 'us_equity_proposal' ORDER BY name"
+            ).fetchall(),
+            {
+                name: connection.execute(f'SELECT * FROM "{name}"').fetchall()
+                for name in EXPECTED_TABLES
+                if name != "us_equity_proposal"
+            },
+        )
+
+    with closing(sqlite3.connect(path, autocommit=True)) as original:
+        original.execute("PRAGMA foreign_keys=ON")
+        original.executescript(
+            SCHEMA_SQL.removesuffix("".join(US_EQUITY_PROPOSAL_SCHEMA_STATEMENTS))
+        )
+        original.execute("PRAGMA user_version=30")
+        case_id, proposal_id = assessment(original), proposal(original)
+        original.execute(
+            "INSERT INTO investment_proposal_item VALUES (?,?,?,?,?)",
+            (proposal_id, 0, "1234", "defer", case_id),
+        )
+        original.execute(
+            "INSERT INTO operation_session VALUES (?,?,?,?,?,?,?,?)",
+            (
+                "synthetic-operation",
+                "position-review",
+                "active",
+                "2026-10-14",
+                "1234",
+                "2026-10-14T09:00:00+09:00",
+                None,
+                "{}",
+            ),
+        )
+        original.execute(
+            "INSERT INTO ledger_event VALUES (?,?,?,?,?,?,?,?)",
+            (
+                1,
+                "synthetic-jpy",
+                "2026-10-14T09:00:00+09:00",
+                0,
+                "opening_balance",
+                None,
+                None,
+                '{"currency":"JPY","synthetic":true}',
+            ),
+        )
+        before = snapshot(original)
+        before_bytes = path.read_bytes()
+        for opener in (connect_read_only, application_write.connect_existing, initialize_database):
+            with pytest.raises(RuntimeError, match="user_version=30"):
+                opener(path)
+        assert path.read_bytes() == before_bytes
+
+        original.execute("BEGIN IMMEDIATE")
+        for statement in US_EQUITY_PROPOSAL_SCHEMA_STATEMENTS:
+            original.execute(statement)
+        original.execute(f"PRAGMA user_version={APPLICATION_SCHEMA_VERSION}")
+        original.execute("ROLLBACK")
+        assert original.execute("PRAGMA user_version").fetchone() == (30,)
+        assert snapshot(original) == before
+        assert (
+            original.execute(
+                "SELECT 1 FROM sqlite_schema WHERE tbl_name='us_equity_proposal'"
+            ).fetchone()
+            is None
+        )
+
+        original.execute("BEGIN IMMEDIATE")
+        for statement in US_EQUITY_PROPOSAL_SCHEMA_STATEMENTS:
+            original.execute(statement)
+        original.execute(f"PRAGMA user_version={APPLICATION_SCHEMA_VERSION}")
+        original.execute("COMMIT")
+        assert snapshot(original) == before
+        assert original.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+        assert original.execute("PRAGMA foreign_key_check").fetchall() == []
+
+    with closing(connect_read_only(path)) as upgraded:
+        assert upgraded.execute("PRAGMA user_version").fetchone()[0] == 31
+        assert upgraded.execute("SELECT * FROM us_equity_proposal").fetchall() == []
+        assert [
+            tuple(row)
+            for row in upgraded.execute(
+                "SELECT type,name FROM sqlite_schema WHERE tbl_name='us_equity_proposal' "
+                "AND sql IS NOT NULL ORDER BY type"
+            )
+        ] == [("table", "us_equity_proposal"), ("trigger", "us_equity_proposal_immutable")]
 
 
 def test_ledger_keeps_fact_reference_separate_from_proposal_identity(connection):
