@@ -221,7 +221,7 @@ function assertNoAssessment(ticker: string) {
     item: { ...unassessedDeferFixture, ticker },
   }))
   expect(html).toContain(ticker)
-  expect(html).not.toContain('7モデルの観点')
+  expect(html).not.toContain('売買判断の7つの観点')
   expect(html).not.toContain('data-evidence="observation"')
 }
 

@@ -79,6 +79,61 @@ it('shows the exact older owner with its SIP source, saved ID, SHA and a list ba
   expect(combined(snapshot, 'proposal=' + previous.proposal_id)).toContain(previous.draft_sha256)
 })
 
+it('opens only the selected US decision’s seven perspectives, with its source observation time, not the newest report’s view', () => {
+  const data: LatestUSProposalView = {
+    ...snapshot,
+    proposal: { ...current, model_perspectives: [
+      { model: 'company_financials', assessment: 'mixed', summary: '最新の利益率と現金回収の評価。', sources: [{ label: '四半期決算資料', observed_at: '2026-11-27T16:00:00Z' }] },
+    ] },
+    history: { ...snapshot.history, proposals: [{ ...previous, model_perspectives: [
+      { model: 'technical_analysis', assessment: 'insufficient', summary: '観測窓が短く、価格帯は市場全体の終値ではない。', sources: [] },
+      { model: 'social_trends', assessment: 'not_applicable', summary: 'この制度改正は対象事業には適用されない。', sources: [{ label: '公表済みの制度資料', observed_at: '2026-11-27T15:31:10Z' }] },
+    ] }] },
+  }
+  const selected = combined(data, previousQuery)
+  const latest = combined(data, 'proposal=' + current.proposal_id)
+  expect(selected).toContain('売買判断の7つの観点')
+  expect(selected.indexOf('同期間のUSD現金との比較')).toBeLessThan(selected.indexOf('売買判断の7つの観点'))
+  const labels = [...selected.matchAll(/<th[^>]*scope="row"[^>]*>([^<]+)<\/th>/g)].map(match => match[1])
+  expect(labels).toEqual(['企業財務', '企業成長', '市場環境', '外部評価', 'テクニカル', '産業動向', '社会動向'])
+  const selectedRow = (model: string) => selected.split('data-model="' + model + '"')[1].split('</tr>')[0]
+  expect(selectedRow('technical_analysis')).toContain('>情報不足<')
+  expect(selectedRow('social_trends')).toContain('>対象外<')
+  expect(selectedRow('market_context')).toContain('>未記録<')
+  expect(selected).toContain('観測窓が短く')
+  expect(selected).toContain('公表済みの制度資料')
+  expect(selected).toContain('dateTime="2026-11-27T15:31:10Z"')
+  expect(selected).toContain('2026-11-28 00:31')
+  expect(selected).not.toContain('最新の利益率')
+  expect(latest).toContain('最新の利益率')
+  expect(latest).not.toContain('観測窓が短く')
+  expect(selected).not.toContain('data-evidence="observation"')
+  expect(selected).not.toContain('EPS（1株当たり利益）')
+})
+
+it('does not invent seven judgments from IEX or the decision when the saved record has no authored rows', () => {
+  const html = combined(snapshot, previousQuery)
+  expect(html).toContain('この判断には観点別の評価が保存されていません。')
+  expect(html).toContain(previous.reason)
+  expect(html).toContain('Alpaca IEXの分割調整済み観測')
+  expect(html).not.toContain('data-evidence="author"')
+})
+
+it.each(['missing', 'bad-clock', 'duplicate'] as const)('isolates the %s perspective data, keeping the selected core and not borrowing the latest rows', bad => {
+  const row = { model: 'social_trends' as const, assessment: 'mixed' as const, summary: '壊れた欄の推測禁止。',
+    sources: [{ label: '資料', observed_at: bad === 'bad-clock' ? 'invalid' : '2026-11-27T15:31:10Z' }] }
+  const report = { ...previous, model_perspectives: bad === 'duplicate' ? [row, row] : [row] }
+  if (bad === 'missing') Reflect.deleteProperty(report, 'model_perspectives')
+  const data: LatestUSProposalView = {
+    ...snapshot, proposal: { ...current, model_perspectives: [{ ...row, summary: '現在側の評価。', sources: [{ label: '資料', observed_at: '2026-11-27T15:31:10Z' }] }] },
+    history: { ...snapshot.history, proposals: [report] },
+  }
+  const html = combined(data, previousQuery)
+  for (const text of [previous.proposal_id, previous.draft_sha256, previous.reason, '同期間のUSD現金との比較', '観点別の評価を読み取れません。']) expect(html).toContain(text)
+  for (const text of [current.proposal_id, '現在側の評価。', '壊れた欄の推測禁止。', '観点別の評価が保存されていません。', 'data-evidence="author"']) expect(html).not.toContain(text)
+  expect(combined(data, 'proposal=' + current.proposal_id)).toContain('現在側の評価。')
+})
+
 it('explains which comparison input is missing on the selected deferred report, without borrowing a close from another report', () => {
   const unknown = { action: 'defer', comparison: null, comparison_horizon_et: null } as const
   const data: LatestUSProposalView = {

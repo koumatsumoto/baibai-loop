@@ -3,10 +3,12 @@ import { ArrowLeft, ArrowUpRight } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router'
 
 import { ApiError, fetchJson } from '../api/client'
-import type { LatestUSProposalView, USProposalComparisonScenarioView, USProposalComparisonView, USProposalView } from '../api/types'
+import type { LatestUSProposalView, USProposalComparisonScenarioView, USProposalComparisonView, USProposalPerspectiveView, USProposalView } from '../api/types'
 import { LoadingPage } from '../components/LoadingIndicator'
 import { PageShell } from '../components/PageShell'
 import { SectionCard } from '../components/SectionCard'
+import { PERSPECTIVE_JUDGMENTS, REPORT_MODELS } from '../lib/report-perspectives'
+import { USReportPerspectives } from '../components/USReportPerspectives'
 import { formatJstDateTime } from '../lib/format'
 import { PROPOSAL_MARKETS } from '../lib/nav'
 
@@ -30,6 +32,13 @@ function hasScenarioAmounts(scenario: USProposalComparisonScenarioView | undefin
   return hasDecimalText(scenario?.terminal_value_usd_per_share)
     && hasDecimalText(scenario?.eligible_distributions_usd_per_share)
     && hasDecimalText(scenario?.difference_from_cash_usd_per_share)
+}
+
+function readablePerspectives(rows: USProposalPerspectiveView[]): boolean {
+  return Array.isArray(rows) && rows.every(row => row != null && REPORT_MODELS.some(({ model }) => model === row.model)
+    && Object.hasOwn(PERSPECTIVE_JUDGMENTS, row.assessment) && hasText(row.summary)
+    && Array.isArray(row.sources) && row.sources.every(source => source != null && hasText(source.label) && hasZonedClock(source.observed_at)))
+    && new Set(rows.map(row => row.model)).size === rows.length
 }
 
 function renderableProposal(proposal: USProposalView | null | undefined) {
@@ -146,6 +155,7 @@ export function USProposal({ state, above, historyUnavailable }: {
                       : '公式終値は確認済みです。基本・下方ケースとUSD現金を同じ終期で比べた結果は、この判断にはありません。'}
                   </p>}
             </section>
+            <USReportPerspectives perspectives={readablePerspectives(proposal.model_perspectives) ? proposal.model_perspectives : null} />
             <section className="grid min-w-0 gap-2 border-t pt-4">
               <h4 className="font-medium">査読と未確認事項</h4>
               <dl className="grid min-w-0 gap-3 sm:grid-cols-2">

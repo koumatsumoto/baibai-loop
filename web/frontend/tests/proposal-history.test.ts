@@ -93,8 +93,8 @@ describe('stock report list and selection', () => {
     expect(html).toContain('提案本文の準備時刻')
     expect(html).toContain(`dateTime="${older.prepared_at}"`)
     expect(html).toContain('href="/proposal"')
-    expect(html.indexOf('data-report-summary')).toBeLessThan(html.indexOf('7モデルの評価チャート'))
-    expect(html.indexOf('7モデルの評価チャート')).toBeLessThan(html.indexOf('data-proposal-details'))
+    expect(html.indexOf('data-report-summary')).toBeLessThan(html.indexOf('観点別の評価表'))
+    expect(html.indexOf('観点別の評価表')).toBeLessThan(html.indexOf('data-proposal-details'))
     expect(html).not.toMatch(/<details[^>]*\bopen(?:=|\s|>)/)
   })
 

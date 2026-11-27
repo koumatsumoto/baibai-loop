@@ -16,6 +16,7 @@ from baibai_web.readmodel.us_proposal_models import (
     USProposalHistoryView,
     USProposalIexBandView,
     USProposalOfficialCloseView,
+    USProposalPerspectiveView,
     USProposalView,
 )
 
@@ -56,6 +57,10 @@ def _project(record: USProposal) -> USProposalView:
         action=decision.action,
         reason=decision.reason,
         revisit_when=decision.revisit_when,
+        model_perspectives=[
+            USProposalPerspectiveView.model_validate(row, from_attributes=True)
+            for row in decision.model_perspectives
+        ],
         official_close=None
         if close is None
         else USProposalOfficialCloseView(

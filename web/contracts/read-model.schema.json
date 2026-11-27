@@ -4093,6 +4093,73 @@
       "title": "USProposalOfficialCloseView",
       "type": "object"
     },
+    "USProposalPerspectiveSourceView": {
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "observed_at"
+      ],
+      "title": "USProposalPerspectiveSourceView",
+      "type": "object"
+    },
+    "USProposalPerspectiveView": {
+      "properties": {
+        "model": {
+          "enum": [
+            "company_financials",
+            "company_growth",
+            "market_context",
+            "external_assessment",
+            "technical_analysis",
+            "industry_trends",
+            "social_trends"
+          ],
+          "title": "Model",
+          "type": "string"
+        },
+        "assessment": {
+          "enum": [
+            "supportive",
+            "mixed",
+            "adverse",
+            "neutral",
+            "insufficient",
+            "not_applicable"
+          ],
+          "title": "Assessment",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/USProposalPerspectiveSourceView"
+          },
+          "title": "Sources",
+          "type": "array"
+        }
+      },
+      "required": [
+        "model",
+        "assessment",
+        "summary",
+        "sources"
+      ],
+      "title": "USProposalPerspectiveView",
+      "type": "object"
+    },
     "USProposalView": {
       "properties": {
         "proposal_id": {
@@ -4160,6 +4227,13 @@
           "title": "Revisit When",
           "type": "string"
         },
+        "model_perspectives": {
+          "items": {
+            "$ref": "#/$defs/USProposalPerspectiveView"
+          },
+          "title": "Model Perspectives",
+          "type": "array"
+        },
         "official_close": {
           "anyOf": [
             {
@@ -4224,6 +4298,7 @@
         "action",
         "reason",
         "revisit_when",
+        "model_perspectives",
         "official_close",
         "iex_band",
         "comparison_horizon_et",

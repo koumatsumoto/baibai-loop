@@ -11,25 +11,14 @@ from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
     ProposalCorrection,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.models import ConsensusEPS
+from baibai_web.readmodel.perspective_vocabulary import PerspectiveAssessment, PerspectiveModel
 
 type EconomicBuyDecision = Literal["price_conditional_allocation"]
-
-PerspectiveModel = Literal[
-    "company_financials",
-    "company_growth",
-    "market_context",
-    "external_assessment",
-    "technical_analysis",
-    "industry_trends",
-    "social_trends",
-]
 
 
 class SavedModelPerspectiveView(BaseModel):
     model: PerspectiveModel
-    assessment: Literal[
-        "supportive", "mixed", "adverse", "neutral", "insufficient", "not_applicable"
-    ]
+    assessment: PerspectiveAssessment
     summary: str
     source_ids: list[str]
 

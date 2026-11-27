@@ -645,6 +645,18 @@ export interface USProposalOfficialCloseView {
   observed_at: string
 }
 
+export interface USProposalPerspectiveSourceView {
+  label: string
+  observed_at: string
+}
+
+export interface USProposalPerspectiveView {
+  model: 'company_financials' | 'company_growth' | 'market_context' | 'external_assessment' | 'technical_analysis' | 'industry_trends' | 'social_trends'
+  assessment: 'supportive' | 'mixed' | 'adverse' | 'neutral' | 'insufficient' | 'not_applicable'
+  summary: string
+  sources: USProposalPerspectiveSourceView[]
+}
+
 export interface USProposalView {
   proposal_id: string
   draft_sha256: string
@@ -659,6 +671,7 @@ export interface USProposalView {
   action: 'defer' | 'no_action'
   reason: string
   revisit_when: string
+  model_perspectives: USProposalPerspectiveView[]
   official_close: USProposalOfficialCloseView | null
   iex_band: USProposalIexBandView | null
   comparison_horizon_et: string | null

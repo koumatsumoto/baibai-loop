@@ -34,7 +34,7 @@ describe('保存提案レポート', () => {
         for (const other of proposal.items.filter(other => other.action !== item.action)) {
           expect(html).not.toContain(other.rationale)
         }
-        expect(html.includes('7モデルの観点')).toBe(item.assessment !== null)
+        expect(html.includes('売買判断の7つの観点')).toBe(item.assessment !== null)
         expect(html.match(/<main\b/g)).toHaveLength(1)
       }
     }

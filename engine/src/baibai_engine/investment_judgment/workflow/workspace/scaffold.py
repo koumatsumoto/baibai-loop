@@ -13,12 +13,12 @@ from pydantic import BaseModel
 
 from baibai_engine.investment_judgment.company_research.document import ResearchRecord
 from baibai_engine.investment_judgment.company_research.store import load_research
+from baibai_engine.investment_judgment.contracts import PerspectiveModel
 from baibai_engine.investment_judgment.draft_files import load_draft
 from baibai_engine.investment_judgment.independent_review.contracts import (
     AssessmentReview,
 )
 from baibai_engine.investment_judgment.stock_assessment.document import (
-    PerspectiveModel,
     StockAssessmentDocument,
     assessment_core_hash,
 )
