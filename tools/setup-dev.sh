@@ -41,6 +41,8 @@ export UV_PYTHON_INSTALL_DIR="$BAIBAI_DEV_ROOT/python"
 export UV_PYTHON_BIN_DIR="$BAIBAI_DEV_ROOT/bin"
 export UV_TOOL_DIR="$BAIBAI_DEV_ROOT/tools"
 export UV_TOOL_BIN_DIR="$BAIBAI_DEV_ROOT/bin"
+# An inherited absolute project environment can overwrite a different checkout.
+export UV_PROJECT_ENVIRONMENT=.venv
 export PLAYWRIGHT_BROWSERS_PATH="$BAIBAI_DEV_ROOT/cache/ms-playwright"
 export XDG_CACHE_HOME="$BAIBAI_DEV_ROOT/cache"
 export XDG_CONFIG_HOME="$BAIBAI_DEV_ROOT/config"
