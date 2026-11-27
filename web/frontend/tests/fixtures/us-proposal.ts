@@ -30,6 +30,7 @@ export const usProposalFixture: LatestUSProposalView = {
         terminal_value_usd_per_share: '80', eligible_distributions_usd_per_share: '0', difference_from_cash_usd_per_share: '-20.50',
       },
     },
+    model_perspectives: [],
     unresolved: [],
   },
   history: { status: 'ready', error: null, proposals: [], unavailable_proposal_ids: [], has_more: false },

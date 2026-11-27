@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
@@ -22,6 +23,7 @@ from pydantic import (
     StringConstraints,
     TypeAdapter,
     ValidationError,
+    field_validator,
     model_validator,
 )
 
@@ -31,6 +33,7 @@ from baibai_engine.data_collection.providers.alpaca_auctions import (
     SipAuctionReceipt,
     read_nasdaq_official_close,
 )
+from baibai_engine.investment_judgment.contracts import PerspectiveAssessment, PerspectiveModel
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.numbers import finite_decimal
 from baibai_engine.storage.sqlite.application.write import connect_existing
@@ -409,6 +412,59 @@ type USProposalId = Annotated[str, Field(pattern=r"^us-proposal-[a-z0-9-]{1,64}$
 _US_PROPOSAL_ID: TypeAdapter[str] = TypeAdapter(USProposalId)
 
 
+class _PerspectiveSource(_Record):
+    """A public, human-findable citation. The private source document is not a Web field."""
+
+    label: Annotated[Text, Field(max_length=180)]
+    observed_at: AwareDatetime
+
+    @field_validator("label")
+    @classmethod
+    def _no_raw_url(cls, value: str) -> str:
+        if "://" in value:
+            raise ValueError("cite the public document title and section, not its raw URL")
+        return value
+
+    @field_validator("observed_at", mode="before")
+    @classmethod
+    def _source_clock(cls, value: object) -> object:
+        # A date/epoch is not an explicit offset clock; sub-microsecond drift may cross cutoff.
+        if isinstance(value, datetime) and value.utcoffset() is not None:
+            stamp = value
+        elif (
+            isinstance(value, str)
+            and not value.endswith("-00:00")
+            and re.fullmatch(
+                r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
+                r"(?:\.[0-9]{1,6}0*)?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])",
+                value,
+            )
+        ):
+            stamp = datetime.fromisoformat(value)
+        else:
+            raise ValueError("cite an exact, offset-aware observation time")
+        try:
+            # Not every tzinfo offset survives JSON rendering; bind the actual instant in UTC.
+            return stamp.astimezone(UTC)
+        except OverflowError as exc:
+            raise ValueError("observation time outside representable UTC range") from exc
+
+
+class _USProposalPerspective(_Record):
+    model: PerspectiveModel
+    assessment: PerspectiveAssessment
+    # Twenty complete decisions share one serving object. Publish a brief and key citations,
+    # not all underlying research; the private report is unaffected by these limits.
+    summary: Annotated[Text, Field(max_length=480)]
+    sources: Annotated[tuple[_PerspectiveSource, ...], Field(max_length=4)]
+
+    @model_validator(mode="after")
+    def _citations(self) -> Self:
+        if self.assessment not in {"insufficient", "not_applicable"} and not self.sources:
+            raise ValueError("assessed model perspective requires a public source citation")
+        return self
+
+
 class USProposalDraft(_Record):
     proposal_id: USProposalId
     author_identity: Text
@@ -416,6 +472,17 @@ class USProposalDraft(_Record):
     action: Literal["no_action", "defer"]
     reason: Text
     revisit_when: Text
+    # Absent authored rows must not change the digest of an existing reviewed decision.
+    model_perspectives: tuple[_USProposalPerspective, ...] = Field(
+        default=(), exclude_if=lambda value: not value
+    )
+
+    @model_validator(mode="after")
+    def _unique_perspectives(self) -> Self:
+        models = [row.model for row in self.model_perspectives]
+        if len(models) != len(set(models)):
+            raise ValueError("a US decision may review each model only once")
+        return self
 
 
 class USProposalReview(_Record):
@@ -428,6 +495,12 @@ class USProposalReview(_Record):
 
 
 def _validate_decision(draft: USProposalDraft, analysis: ReviewedReport) -> None:
+    if any(
+        source.observed_at > analysis.draft.cutoff_at.astimezone(UTC)
+        for row in draft.model_perspectives
+        for source in row.sources
+    ):
+        raise ValueError("US perspective citation was not observed by the report cutoff")
     if draft.prepared_at < analysis.review.reviewed_at:
         raise ValueError("decision must follow the analysis review")
     if draft.action == "no_action" and analysis.draft.comparison is None:

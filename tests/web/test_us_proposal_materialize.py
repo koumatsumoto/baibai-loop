@@ -6,6 +6,7 @@ import sqlite3
 from contextlib import closing
 from datetime import date, datetime, timedelta
 from hashlib import sha256
+from typing import get_args
 
 import pytest
 from tests.helpers.outcome_publication import _publication
@@ -16,6 +17,7 @@ from baibai_engine.data_collection.providers.alpaca_auctions import (
     SipAuctionReceipt,
     read_nasdaq_official_close,
 )
+from baibai_engine.investment_judgment.contracts import PerspectiveAssessment, PerspectiveModel
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.investment_judgment.us_proposal import (
     ReportDraft,
@@ -36,6 +38,8 @@ from baibai_engine.storage.sqlite.application.write import initialize_database
 from baibai_web.contracts_export import build_schema
 from baibai_web.materialize import export_read_models
 from baibai_web.readmodel.builders import dashboard
+from baibai_web.readmodel.proposal_models import SavedModelPerspectiveView
+from baibai_web.readmodel.us_proposal_models import USProposalPerspectiveView
 from baibai_web.sources import proposal as proposal_source
 from baibai_web.sources import us_proposal as us_source
 
@@ -48,6 +52,14 @@ JP_OBJECTS = {
     "latest-proposal.json",
     "proposal-history.json",
 }
+
+
+def test_public_perspective_schemas_match_the_formal_decision_vocabulary() -> None:
+    expected = {"model": get_args(PerspectiveModel), "assessment": get_args(PerspectiveAssessment)}
+    for view in (SavedModelPerspectiveView, USProposalPerspectiveView):
+        properties = view.model_json_schema()["properties"]
+        for name, values in expected.items():
+            assert properties[name]["enum"] == list(values)
 
 
 def _save_us(
@@ -212,6 +224,10 @@ def test_projection_uses_exact_formal_proof_no_hidden_body_or_legacy_change(tmp_
     }
 
     saved = _save_us(app, "us-proposal-view-synthetic")
+    # Byte-for-byte pre-perspective fixture binding: no manufactured judgement on old records.
+    assert saved.review.draft_sha256 == (
+        "4726d2a668171d06d12b4567942f0915de31d62db48dacb7ce42fa29954b33b4"
+    )
     original_app_bytes = app.read_bytes()
     after = _export(tmp_path, tmp_path / "after")
     assert before.keys() == after.keys() == {*JP_OBJECTS, "latest-us-proposal.json"}
@@ -242,6 +258,7 @@ def test_projection_uses_exact_formal_proof_no_hidden_body_or_legacy_change(tmp_
         "action": "no_action",
         "reason": "現金比較で見送り。",
         "revisit_when": "一次資料と価格を確認する。",
+        "model_perspectives": [],
         "official_close": {
             "price_usd": "100.50",
             "origin": "listing_exchange",
