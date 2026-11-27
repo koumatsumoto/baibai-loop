@@ -30,7 +30,8 @@ from baibai_engine.investment_judgment.draft_files import parse_authored_yaml
 from baibai_engine.investment_judgment.stock_assessment.store import load_reviewed_assessment
 from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.primitives.time import JST
-from baibai_engine.storage.filesystem import write_text_new
+from baibai_engine.storage.filesystem import paths_refer_to_same_file, write_text_new
+from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 
 
@@ -73,8 +74,11 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     args = build_parser().parse_args(argv)
     instant = now or datetime.now(JST)
     try:
-        if args.out is not None and (args.out.exists() or args.out.is_symlink()):
-            raise ResearchConflictError(f"output already exists: {args.out}")
+        if args.out is not None:
+            if args.out.exists() or args.out.is_symlink():
+                raise ResearchConflictError(f"output already exists: {args.out}")
+            if paths_refer_to_same_file(args.out, database_path(args.db)):
+                raise ResearchConflictError("output must be separate from the application database")
         if args.command in {"latest", "catalog", "scaffold"} and args.known_at is not None:
             _datetime(args.known_at)
         payload: object
