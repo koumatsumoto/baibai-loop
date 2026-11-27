@@ -202,3 +202,9 @@ SECは指定CIKの [CompanyFacts](https://www.sec.gov/search-filings/edgar-appli
 `public_index` はCompanyFactsや提出情報とは別の受領。正規HTTPS URLへ、リダイレクトせず `Accept-Encoding: identity` でGETし、全文受領した時だけ `complete: true` とする。実際の応答URL・本文SHA・[索引](https://www.sec.gov/Archives/edgar/data/320193/000032019325000073/0000320193-25-000073-index.htm)のaccessionタイトルと同じ提出の全文リンクを照合する。取得時に実応答にあった `Content-Type`、`Content-Length`、`Content-Encoding`、`Content-Range`、`Transfer-Encoding` を `headers` にそのまま保存する。送られていない値は追加せず、`Content-Length` を保存ファイルのサイズやcurlのダウンロード量で補わない。部分応答、圧縮、内容長の矛盾や本文の手書き・転記を原本にしない。入力の取得・銘柄対応・公表証拠は供給元で固定し、このCLIは再認証しない。cutoffより遅い索引・原本受領で、当時の不足を埋めない。
 
 SECが `text/html` で返す索引では、[HTMLで省略可能な外側の終了タグ](https://www.w3.org/TR/html4/struct/global.html#h-7.3)が原本にないことがある。省略形を読むには、実応答の `Content-Type: text/html` と `Content-Length` を両方保存し、その長さと原本のバイト数が一致している必要がある。EDGARの区切りを認識した場合は、外側の終了タグの有無にかかわらず、書類一覧の全文リンクと空でない提出者情報があり、`contentDiv` の末尾まで閉じていることを確認する。原本にタグを補わない。XHTMLでは外側の終了タグを省略できない。
+
+## Nasdaqの公式終値を固定受領から読む（アダプターのみ）
+
+既存のIEX日足や実験CLIの出力は変えない。上場銘柄・株式クラスとNY取引日の立会終了時刻を別の証拠で確認できるXNAS銘柄に限り、`alpaca_auctions.read_nasdaq_official_close` が[Alpacaの固定されたSIP auction応答](https://docs.alpaca.markets/us/reference/stockauctionsingle-1)を読める。[UTPのQ/M](https://www.utpplan.com/DOC/UtpBinaryOutputSpec_3.0.pdf)はNasdaqの公式終値を示し、他の取引所のMやNasdaqの条件6は代用しない。これは取引所由来の値をSIP経由で読んだもので、取引所からの直接受領、約定、統合終値とは異なる。
+
+指定するNY日内の終了時刻を覆うUTC区間、単一シンボル、`feed=sip`、`currency=USD`、`asof=-` が固定要求URL、実要求URL、最終応答URLで一致することが前提。HTTP 200と本文SHAだけでは、全文受領・非リダイレクトを確かめたことにならない。取得時に確認した完全な原本とその記録があり、終端ページに同一日・同一銘柄のQ/Mが一つの場合だけ、未調整のUSD/株として採用する。イベント時刻のナノ秒、実受領時刻、本文SHAと該当行のJSONポインターを区別して残す。イベントは確認済みの立会終了時刻から要求区間の終端までを両端込みで読む。条件不足では取引価格を作らない。まだ正式提案・App保存・Web配信には接続しない。

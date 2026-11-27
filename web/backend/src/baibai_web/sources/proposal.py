@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Sequence
-from contextlib import closing
+from collections.abc import Iterator, Sequence
+from contextlib import closing, contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple
@@ -25,6 +25,11 @@ from baibai_web.readmodel.proposal_models import (
     SavedMarketContextView,
     SavedProposalView,
 )
+from baibai_web.readmodel.us_proposal_models import LatestUSProposalView
+from baibai_web.sources.us_proposal import (
+    read_us_proposal_in_snapshot,
+    unavailable_us_proposal,
+)
 
 _READ_ERRORS = (OSError, ValueError, RuntimeError, sqlite3.Error)
 
@@ -34,14 +39,38 @@ class ProposalViews(NamedTuple):
     history: ProposalHistoryView
 
 
+@contextmanager
+def _proposal_snapshot(db_path: Path) -> Iterator[sqlite3.Connection]:
+    with closing(connect_read_only(db_path)) as connection:
+        connection.execute("BEGIN")
+        yield connection
+
+
 def read_proposal_views(db_path: Path, *, generated_at: datetime | None = None) -> ProposalViews:
     """Project a verified publication once; latest and history keep distinct status and order."""
     try:
-        with closing(connect_read_only(db_path)) as connection:
-            connection.execute("BEGIN")
+        with _proposal_snapshot(db_path) as connection:
             return _read_snapshot(connection, generated_at)
     except _READ_ERRORS:
         return _views(generated_at)
+
+
+def read_serving_proposal_views(
+    db_path: Path, *, generated_at: datetime | None = None
+) -> tuple[ProposalViews, LatestUSProposalView]:
+    """Use one App read transaction for JP latest/history and independent USD latest."""
+    try:
+        with _proposal_snapshot(db_path) as connection:
+            try:
+                japan = _read_snapshot(connection, generated_at)
+            except _READ_ERRORS:
+                japan = _views(generated_at)
+            return japan, read_us_proposal_in_snapshot(
+                connection, generated_at=japan.latest.generated_at
+            )
+    except _READ_ERRORS:
+        japan = _views(generated_at)
+        return japan, unavailable_us_proposal(japan.latest.generated_at)
 
 
 def _read_snapshot(connection: sqlite3.Connection, generated_at: datetime | None) -> ProposalViews:

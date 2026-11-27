@@ -19,6 +19,7 @@ def test_materialized_route_keys_match_the_generated_root_contract():
     routes = json.loads(Path("web/contracts/routes.json").read_text())["routes"]
     assert set(routes.values()) == set(ROOT_VIEWS)
     assert routes["/api/proposal/latest"] == "views/latest-proposal.json"
+    assert routes["/api/us-proposal/latest"] == "views/latest-us-proposal.json"
 
 
 @pytest.mark.parametrize("state", ["empty", "missing", "broken_schema"])
@@ -64,7 +65,7 @@ def test_export_replaces_old_ready_with_unavailable_when_latest_is_corrupt(tmp_p
         )
     before = app.read_bytes()
     paths = export_read_models(tmp_path, output)
-    assert len(paths) == 4
+    assert len(paths) == 5
     damaged = json.loads(proposal_path.read_text())
     assert damaged["status"] == "unavailable"
     assert damaged["proposal"] is None
