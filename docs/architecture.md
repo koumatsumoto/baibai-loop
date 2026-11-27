@@ -47,7 +47,7 @@
 
 [Generationの実装](../engine/src/baibai_engine/machine_analysis/generation/assembly.py)が、次の[モデル](../engine/src/baibai_engine/machine_analysis/models/)の担当単位とモデルIDを決める。個々の値の意味・不足理由は[観測リファレンス](reference/model-observations.md)へ。
 
-- **個社**：企業財務 `company_financials`、企業成長 `company_growth`、テクニカル分析 `technical_analysis`、外部評価 `external_assessment`。
+- **個社**：企業財務 `company_financials`、企業成長 `company_growth`、テクニカル `technical_analysis`、外部評価 `external_assessment`。
 - **個社と市場**：市場環境 `market_context`。個社の相対・価格観測と市場全体の観測は別の対象に保存する。
 - **L3で調べるもの**：記事に基づく産業・社会の動向は、判断に必要な場合だけ原典を調べる。日次は記事から `industry_trends` や `social_trends` を新規生成しない。保存済みのモデルは元のGeneration/Selectionから読める。
 
