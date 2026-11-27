@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import pytest
 from tests.helpers.master import insert_master_rows
-from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
+from tests.helpers.screening_sqlite import insert_daily_bars_from_closes, seed_daily_bars
 
 from baibai_engine.cli.market_snapshot import (
     build_parser,
@@ -21,7 +21,10 @@ from baibai_engine.cli.market_snapshot import (
 from baibai_engine.machine_analysis.generation.runners import market_snapshot as snapshot_runner
 from baibai_engine.machine_analysis.generation.runners.market_snapshot import (
     build_market_snapshot,
+    prepare_market_context_from_bars,
 )
+from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
+from baibai_engine.machine_analysis.observations.stocks.reader import read_master_snapshot
 from baibai_engine.primitives.time import JST
 from baibai_engine.primitives.yaml import safe_load
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
@@ -433,6 +436,86 @@ def test_breadth_uses_each_points_common_stock_membership(tmp_path):
     assert [point["breadth_sample_size"] for point in result["points"]] == [1, 1]
     assert [point["breadth_pct_above_ma20"] for point in result["points"]] == [1.0, 0.0]
     assert [sector["sector_33"] for sector in result["sectors"]] == ["小売業"]
+
+
+@pytest.mark.parametrize("prepared_read", [False, True])
+@pytest.mark.parametrize("has_friday_master", [False, True])
+def test_breadth_never_uses_a_master_snapshot_later_than_its_benchmark_close(
+    tmp_path, prepared_read, has_friday_master
+):
+    path = tmp_path / "market.sqlite"
+    friday = _ASOF
+    monday = friday + timedelta(days=3)
+    for ticker, closes in (
+        ("1321", [100.0] * 65),
+        ("1234", [100.0] * 64 + [125.0]),
+        ("5678", [100.0] * 65),
+    ):
+        _insert_bars(path, ticker, closes, end=friday)
+    with closing(open_connection(path)) as connection, connection:
+        if has_friday_master:
+            insert_master_rows(
+                connection,
+                [
+                    (str(friday), "1234", "Friday ordinary share", "Prime", "機械", "011"),
+                    (str(friday), "5678", "Friday other line", "Prime", "小売業", "014"),
+                ],
+            )
+        insert_master_rows(
+            connection,
+            [
+                (str(monday), "1234", "Monday other line", "Prime", "機械", "014"),
+                (str(monday), "5678", "Monday ordinary share", "Prime", "小売業", "011"),
+            ],
+        )
+    # Even if another receipt is already stored, it cannot fill the requested cutoff.
+    seed_daily_bars(path, [("1321", str(monday + timedelta(days=1)), 200, 1)])
+
+    def snapshot(asof):
+        prepared = (
+            prepare_market_context_from_bars(
+                sqlite_path=path,
+                asof_date=asof,
+                master=read_master_snapshot(path, as_of=asof),
+                bars_by_ticker=read_price_bars(path, start=date.min, end=asof),
+                subjects=("1234", "5678"),
+                history_weeks=1,
+            )
+            if prepared_read
+            else None
+        )
+        return build_market_snapshot(
+            sqlite_path=path,
+            asof_date=asof,
+            history_weeks=1,
+            min_breadth_sample=1,
+            prepared=prepared,
+        )
+
+    before = snapshot(friday)
+    delayed = snapshot(monday)
+    old = before["points"][0]
+    assert old["breadth_pct_above_ma20"] == (1.0 if has_friday_master else None)
+    assert old["breadth_sample_size"] == int(has_friday_master)
+    assert delayed["points"][0] == {**old, "date": str(monday)}
+    # The independent as-of sector table may still use the current master.
+    assert [row["sector_33"] for row in delayed["sectors"]] == ["小売業"]
+    assert delayed["master_snapshot_date"] == str(monday)
+
+    # The fresh cohort really does change after the matching closes arrive. The
+    # retired ordinary share and Tuesday's receipt cannot change that comparison.
+    seed_daily_bars(
+        path,
+        [
+            (ticker, str(monday), close, 1)
+            for ticker, close in (("1321", 110), ("1234", 175), ("5678", 100))
+        ],
+    )
+    fresh = snapshot(monday)["points"][0]
+    assert fresh["observation_date"] == str(monday)
+    assert fresh["breadth_sample_size"] == 1
+    assert fresh["breadth_pct_above_ma20"] == 0.0
+    assert fresh["benchmark_return_20d"] == pytest.approx(0.1)
 
 
 def test_sector_sample_sizes_follow_each_metric_not_the_short_return_population(tmp_path):

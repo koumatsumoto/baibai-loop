@@ -342,6 +342,8 @@ uv run baibai-jobs article-evidence --source <SOURCE> --stage-id <STAGE_ID> --ma
 
 JPX決算予定/規制は `uv run python -m baibai_jobs.integration.source_handoff acquire --source <SOURCE> --asof <DATE> --directory <PRIVATE_DIRECTORY>` で原本だけ取得する。SOURCEは `jpx-earnings` または `jpx-regulations`。部分受領も同じモジュールの `stage --source <SOURCE> --stage-id <UNIQUE_ID> --directory <PRIVATE_DIRECTORY>` で保存し、L2は通常の統合で作る。
 
+決算予定・規制の加工表は、提案が直接参照しなくても[現行Lakeの必須データ](src/baibai_jobs/publication/policy.py)である。表示だけの時価更新はJPXのParquetを取得しないが、現行releaseが参照するmanifestは照合する。JPX原本のLake表には、監理・整理の確認や企業財務・資本異動に使う本文も混在する。これらを退役するなら取得・公開・読戻しを先に切り替え、現行参照と未統合の受領に不要になった対象だけを整理する。
+
 失敗seal済みのJPX stageを限定回復する場合は、原本とmarkerをread-onlyで照合してからexact source・stage ID・manifest hashを指定する。複数件はoptionを繰り返す。
 
 ```bash

@@ -7,10 +7,10 @@ import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timezone
-from decimal import Decimal
+from decimal import Context, Decimal, localcontext
 from hashlib import sha256
 from pathlib import Path
-from typing import Annotated, ClassVar, Literal, Self
+from typing import Annotated, ClassVar, Literal, Self, cast
 from zoneinfo import ZoneInfo
 
 from pydantic import (
@@ -23,6 +23,8 @@ from pydantic import (
     StringConstraints,
     TypeAdapter,
     ValidationError,
+    ValidatorFunctionWrapHandler,
+    WrapValidator,
     field_validator,
     model_validator,
 )
@@ -44,7 +46,34 @@ _EXCHANGE_HOST = {"XNAS": "nasdaq.com", "XNYS": "nyse.com"}
 type Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 type ReportId = Annotated[str, Field(pattern=r"^us-report-[a-z0-9-]{1,64}$")]
 type Digest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
-type USD = Annotated[Decimal, BeforeValidator(finite_decimal), Field(ge=0, max_digits=16)]
+_USD_INPUT_DIGITS = 16
+# Align the largest admitted integer and fractional scales, with one carry digit.
+_USD_SCENARIO_CONTEXT = Context(prec=2 * _USD_INPUT_DIGITS + 1)
+
+
+def _exact_usd(value: object, validate: ValidatorFunctionWrapHandler) -> Decimal:
+    amount = finite_decimal(value)
+    if amount:
+        # Pydantic's fallback Decimal.normalize() can round before counting.
+        # Count without arithmetic and keep the original Decimal for serialization.
+        _, digits, exponent = amount.as_tuple()
+        assert isinstance(exponent, int)
+        significant = len(digits)
+        while digits[significant - 1] == 0:
+            significant -= 1
+            exponent += 1
+        if max(significant + max(0, exponent), -exponent) > _USD_INPUT_DIGITS:
+            raise ValueError(f"Decimal input should have no more than {_USD_INPUT_DIGITS} digits")
+    with localcontext(_USD_SCENARIO_CONTEXT):
+        return cast("Decimal", validate(amount))
+
+
+type USD = Annotated[
+    Decimal,
+    BeforeValidator(finite_decimal),
+    Field(ge=0, max_digits=_USD_INPUT_DIGITS),
+    WrapValidator(_exact_usd),
+]
 type Price = Annotated[USD, Field(gt=0)]
 
 
@@ -158,10 +187,12 @@ class _Scenario(_Record):
 
     @property
     def total(self) -> Decimal:
-        return self.terminal_value_usd_per_share + self.eligible_distributions_usd_per_share
+        with localcontext(_USD_SCENARIO_CONTEXT):
+            return self.terminal_value_usd_per_share + self.eligible_distributions_usd_per_share
 
     def difference_from_cash(self, cash_usd_per_share: Decimal) -> Decimal:
-        return self.total - cash_usd_per_share
+        with localcontext(_USD_SCENARIO_CONTEXT):
+            return self.total - cash_usd_per_share
 
 
 class _Comparison(_Record):

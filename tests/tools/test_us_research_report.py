@@ -4,6 +4,7 @@ import json
 import sqlite3
 from contextlib import closing
 from datetime import UTC, datetime, timedelta, timezone
+from decimal import Decimal, localcontext
 from hashlib import sha256
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -580,6 +581,111 @@ def test_saved_no_action_is_unreadable_if_its_recorded_publication_never_had_a_f
         assert captured.out == ""
         assert captured.err == "FAIL US App read\n"
     assert db.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("precision", "principal", "distribution", "downside", "expected_downside"),
+    [
+        (5, "120.50", "0.0001", "120.49", "-0.0099"),
+        (28, "9999999999999999", "1E-16", "9999999999999998", "-0.9999999999999999"),
+    ],
+)
+def test_cash_comparison_keeps_exact_admitted_usd_delta_and_rejects_reversed_cases(
+    tmp_path, capsys, precision, principal, distribution, downside, expected_downside
+):
+    raw = _draft()
+    raw["official_close"]["price_usd"] = principal
+    comparison = raw["comparison"]
+    comparison["base"].update(
+        terminal_value_usd_per_share=principal,
+        eligible_distributions_usd_per_share=distribution,
+    )
+    comparison["downside"].update(
+        terminal_value_usd_per_share=downside,
+        eligible_distributions_usd_per_share=distribution,
+    )
+    with localcontext(prec=precision):
+        draft_path, report_review = _prepare(tmp_path, capsys, raw)
+        report_review_path = _write(tmp_path / "report-review.json", report_review)
+        saved = tmp_path / "reviewed.json"
+        assert main(["save", draft_path, report_review_path, "--output", str(saved)]) == 0
+        assert main(["render", str(saved)]) == 0
+        shown = capsys.readouterr().out
+        assert f"現金との差 USD {Decimal(distribution):+f}" in shown
+        assert f"現金との差 USD {Decimal(expected_downside):+f}" in shown
+
+        analysis = ReviewedReport.model_validate_json(saved.read_bytes())
+        decision = USProposalDraft(
+            proposal_id="us-proposal-exact-usd",
+            author_identity="synthetic decision author",
+            prepared_at=datetime.fromisoformat("2026-11-28T17:00:00Z"),
+            action="no_action",
+            reason="保存した元手・期間と同じ現金との比較。",
+            revisit_when="前提が変わったとき。",
+        )
+        review = USProposalReview(
+            proposal_id=decision.proposal_id,
+            draft_sha256=prepare_us_proposal(decision, analysis),
+            reviewer_identity="synthetic decision peer",
+            reviewed_at=datetime.fromisoformat("2026-11-28T18:00:00Z"),
+            conclusion="pass",
+            notes="根拠と同元手比較を別に確認。",
+        )
+        db = tmp_path / APPLICATION_DB_PATH
+        initialize_database(db)
+        save_us_proposal(
+            db,
+            decision,
+            analysis,
+            review,
+            published_at=datetime.fromisoformat("2026-11-28T19:00:00Z"),
+        )
+        export_read_models(tmp_path, tmp_path / "serving")
+        view = json.loads((tmp_path / "serving/views/latest-us-proposal.json").read_bytes())[
+            "proposal"
+        ]
+        assert view["currency"] == "USD"
+        assert view["official_close"]["price_usd"] == principal
+        assert view["comparison_horizon_et"] == comparison["horizon_et"]
+        assert Decimal(view["comparison"]["base"]["difference_from_cash_usd_per_share"]) == Decimal(
+            distribution
+        )
+        assert Decimal(
+            view["comparison"]["downside"]["difference_from_cash_usd_per_share"]
+        ) == Decimal(expected_downside)
+
+        # A genuinely higher downside must not become equal after a rounded addition.
+        comparison["base"]["eligible_distributions_usd_per_share"] = "0"
+        comparison["downside"]["terminal_value_usd_per_share"] = principal
+        with pytest.raises(ValidationError, match="coherent scenarios"):
+            ReportDraft.model_validate(raw)
+
+
+@pytest.mark.parametrize(
+    ("precision", "value", "admitted"),
+    [
+        (2, "9999999999999999.0000", True),
+        (5, "0.0000000000000001000", True),
+        (28, "999999999999999.1234", False),
+        (2, "999999999999999.1234", False),
+        (28, "0.10000000000000000000000000000000000000001", False),
+        (2, "0.001234567890123456789012345", False),
+        (28, "1E-17", False),
+        (28, "1E+16", False),
+    ],
+)
+def test_cash_comparison_digit_bound_is_exact_and_preserves_valid_input(precision, value, admitted):
+    raw = _draft()
+    raw["comparison"]["base"]["eligible_distributions_usd_per_share"] = value
+    with localcontext(prec=precision):
+        if admitted:
+            report = ReportDraft.model_validate(raw).model_dump(mode="json")
+            assert report["comparison"]["base"]["eligible_distributions_usd_per_share"] == str(
+                Decimal(value)
+            )
+        else:
+            with pytest.raises(ValidationError, match="16 digits"):
+                ReportDraft.model_validate(raw)
 
 
 def _finance_perspective():
