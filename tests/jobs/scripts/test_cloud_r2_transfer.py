@@ -285,7 +285,8 @@ def test_indicator_download_refuses_unproven_body(tmp_path, operation, failure):
     assert not list(root.glob(".r2-transfer.*"))
 
 
-def test_indicator_pull_installs_the_single_pinned_get(tmp_path):
+def test_indicator_pull_installs_the_single_pinned_get(tmp_path, monkeypatch):
+    monkeypatch.setenv("R2_STORES_BUCKET", "operator-selected-stores")
     root = _fake_repo(tmp_path)
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
@@ -591,8 +592,9 @@ def test_transfer_lease_verifies_the_selected_stores_bucket_not_a_late_env_overr
 )
 @pytest.mark.parametrize("in_actions", [False, True])
 def test_portfolio_publication_never_overwrites_the_deployed_legacy_dashboard(
-    tmp_path, invalid, shape, in_actions
+    tmp_path, invalid, shape, in_actions, monkeypatch
 ):
+    monkeypatch.setenv("R2_SERVING_BUCKET", "operator-selected-serving")
     root = _fake_repo(tmp_path)
     bin_dir, log = _fake_aws(tmp_path)
     environment = _environment(bin_dir, log)

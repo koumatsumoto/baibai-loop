@@ -282,7 +282,9 @@ def _environment(bin_dir: Path, log: Path) -> dict[str, str]:
         "R2_SECRET_ACCESS_KEY": "secret-for-test",
         "PUBLICATION_LEASE_HANDLE": str(handle),
     }
-    environment.pop("GITHUB_ACTIONS", None)
+    # Exercise script defaults, not the operator's local bucket selection.
+    for name in ("GITHUB_ACTIONS", "R2_STORES_BUCKET", "R2_SERVING_BUCKET"):
+        environment.pop(name, None)
     return environment
 
 
