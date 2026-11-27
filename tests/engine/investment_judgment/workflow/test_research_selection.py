@@ -11,6 +11,7 @@ from baibai_engine.investment_judgment.workflow.operation.service import Operati
 from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelectionDraft,
     GeneratedResearchSelectionV5,
+    ResearchRequest,
     ResearchSelection,
     parse_selection,
     selection_sha256,
@@ -66,6 +67,58 @@ def test_invalid_request_scope_time_and_reason_rejected(change):
     raw.update(change)
     with pytest.raises(ValueError, match=r"validation error|capacity"):
         parse_selection(raw)
+
+
+@pytest.mark.parametrize("ticker", ["AAPL", "NVDA", "86A7", "8B97", "869E"])
+def test_new_japanese_research_draft_rejects_non_japanese_codes(ticker):
+    with pytest.raises(ValueError, match="not a Japanese stock code"):
+        GeneratedResearchSelectionDraft(
+            schema_version=2,
+            request=ResearchRequest(
+                text="指定銘柄を調査", scope="specified_stocks", requested_tickers=(ticker,)
+            ),
+            research_as_of=NOW.date(),
+            input_known_at=NOW,
+            generation_id="synthetic",
+            selection_summary="指定銘柄",
+            targets=(selected_target(ticker),),
+        )
+
+
+def test_new_operation_does_not_admit_non_japanese_code_from_saved_shape(tmp_path):
+    runs = tmp_path / "runs"
+    saved = seed_generated_selection(
+        runs=runs, now=NOW, tickers=("AAPL",), scope="specified_stocks"
+    )
+    assert parse_selection(saved.model_dump(mode="json")) == saved
+    app = tmp_path / "app"
+    with pytest.raises(ValueError, match="not a Japanese stock code"):
+        OperationService(app, runs_path=runs).start(
+            session_kind="capital-allocation",
+            as_of=NOW.date(),
+            started_at=NOW,
+            payload=OperationPayload(
+                checkpoint="start", artifacts=(saved.model_dump(mode="json"),)
+            ),
+        )
+    assert not app.exists()
+
+
+@pytest.mark.parametrize(
+    ("code", "ticker"),
+    [("8697", "8697"), (" 285a ", "285A"), ("9a76", "9A76"), ("9a7a", "9A7A")],
+)
+def test_japanese_holding_draft_accepts_standard_code_forms(code, ticker):
+    draft = GeneratedResearchSelectionDraft(
+        schema_version=2,
+        request=ResearchRequest(text="保有を点検", scope="review_positions"),
+        research_as_of=NOW.date(),
+        input_known_at=NOW,
+        generation_id="synthetic",
+        selection_summary="保有点検",
+        targets=(selected_target(code, "holding"),),
+    )
+    assert draft.targets[0].ticker == ticker
 
 
 def test_draft_four_parses_but_canonical_and_new_write_reject_it(tmp_path):

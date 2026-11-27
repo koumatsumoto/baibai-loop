@@ -23,7 +23,11 @@ from baibai_engine.investment_judgment.workflow.discovery import (
     PriceCoordinateMinimum,
     discovery_context,
 )
-from baibai_engine.investment_judgment.workflow.selection import CaseScreening, ResearchRequest
+from baibai_engine.investment_judgment.workflow.selection import (
+    CaseScreening,
+    ResearchRequest,
+    validate_japanese_research_codes,
+)
 from baibai_engine.investment_judgment.workflow.selection_policy import research_capacity
 from baibai_engine.machine_analysis.generation.contracts import ModelInputSlice
 from baibai_engine.machine_analysis.screening.contracts import ScreeningResult
@@ -70,6 +74,8 @@ def load_generated_selection_context(
         raise ValueError("input cutoff must have a timezone")
     if screening_page < 0:
         raise ValueError("screening page must be nonnegative")
+    comparison_tickers = tuple(normalize_ticker(ticker) for ticker in comparison_tickers)
+    validate_japanese_research_codes((*request.requested_tickers, *comparison_tickers))
     as_of = research_as_of or known_at.astimezone(JST).date()
     if as_of > known_at.astimezone(JST).date():
         raise ValueError("Research date/cutoff is invalid")
@@ -246,7 +252,7 @@ def _evidence_subjects(
     if request.scope == "review_positions":
         targets.intersection_update(held or ())
     # A named contrast is not a requested holding and never changes its status.
-    return requested, tuple(sorted(targets | {normalize_ticker(t) for t in comparisons}))
+    return requested, tuple(sorted(targets.union(comparisons)))
 
 
 def _holding_context(

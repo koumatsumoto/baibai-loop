@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import sqlite3
 from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
@@ -49,6 +48,7 @@ from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelectionV5,
     ResearchSelectionRecord,
     SelectedTarget,
+    validate_japanese_research_codes,
 )
 from baibai_engine.investment_judgment.workflow.selection_policy import research_capacity
 from baibai_engine.machine_analysis.generation.query import (
@@ -136,6 +136,7 @@ class OperationService:
             raise OperationConflictError("Operation kind/ticker differs from Research scope")
         # 共有scopeは元の完全headerから解く。入力sliceの共有モデル欠落を見逃さない。
         subjects = selection.evidence_subjects()
+        validate_japanese_research_codes((*selection.request.requested_tickers, *subjects))
         # 受付は準備とは独立に、GenerationとSelectionを同じRuns断面で照合する。
         with closing(connect_runs_read_only(self._runs_path)) as runs:
             runs.execute("BEGIN")
@@ -172,10 +173,6 @@ class OperationService:
                     raise OperationConflictError(
                         "screening selection differs from chosen generation"
                     )
-        if ticker is not None and re.fullmatch(r"[0-9A-Z]{4}", ticker) is None:
-            raise OperationConflictError(
-                "current ticker must be a four-character alphanumeric code"
-            )
         if session_kind == "position-review" and any(
             item.purpose != "holding" for item in selection.targets
         ):

@@ -35,6 +35,19 @@ def context(path, *, selected=None, known_at=NOW, comparisons=(), scope="discove
     )
 
 
+@pytest.mark.parametrize(
+    ("requested", "comparisons"),
+    [(("AAPL",), ()), (("8697",), ("NVDA",))],
+)
+def test_selection_context_rejects_non_japanese_codes_before_reading_inputs(
+    tmp_path, requested, comparisons
+):
+    with pytest.raises(ValueError, match="not a Japanese stock code"):
+        context(
+            tmp_path / "runs", scope="specified_stocks", tickers=requested, comparisons=comparisons
+        )
+
+
 def test_missing_generation_and_empty_published_candidates_are_distinct(tmp_path):
     path = tmp_path / "runs"
     assert context(path)["missing_inputs"] == [{"code": "no_model_publication"}]
@@ -176,5 +189,7 @@ def test_selection_context_keeps_ledger_metadata_and_events_in_one_snapshot(tmp_
     selected = seed_generated_selection(runs=runs, now=NOW, tickers=("1234",))
     result = context(runs, selected=selected, scope="review_positions")
     assert result["status"] == "ready"
+    assert result["holding_scope"] == "current_ledger_replayed_to_fact_cutoff"
+    assert result["held_tickers"] == ("2331",)
     assert committed == [True]
     assert writer.load() == replacement

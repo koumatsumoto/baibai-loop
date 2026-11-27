@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -47,6 +48,18 @@ def _ticker(value: object) -> str:
 type Ticker = Annotated[str, BeforeValidator(_ticker), Field(pattern=r"^[0-9A-Z]{4}$")]
 type Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 type ResearchScope = Literal["discover_new", "specified_stocks", "review_positions"]
+
+
+# SICC permits letters only in the second/fourth slot of Japanese stock codes.
+# https://www.jpx.co.jp/sicc/code-pr/
+_JAPANESE_STOCK_CODE = re.compile(r"(?:[0-9][0-9ACDFGHJKLMNPRSTUWXY]){2}")
+
+
+def validate_japanese_research_codes(tickers: Sequence[str]) -> None:
+    """Check code form, not listing, product classification or buy eligibility."""
+    for ticker in tickers:
+        if _JAPANESE_STOCK_CODE.fullmatch(ticker) is None:
+            raise ValueError(f"not a Japanese stock code: {ticker!r}")
 
 
 def validate_input_known_at(known_at: datetime, *, now: datetime) -> None:
@@ -219,6 +232,13 @@ class GeneratedResearchSelectionDraft(_Contract):
 
     @model_validator(mode="after")
     def validate_selection(self) -> Self:
+        validate_japanese_research_codes(
+            (
+                *self.request.requested_tickers,
+                *(target.ticker for target in self.targets),
+                *self.comparison_tickers,
+            )
+        )
         _validate_comparisons(
             self.comparison_tickers,
             self.targets,
