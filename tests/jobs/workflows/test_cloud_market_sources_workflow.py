@@ -4,7 +4,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pyarrow as pa
@@ -483,20 +483,32 @@ def test_price_probe_runs_only_cold_read_command_and_keeps_failure_output_privat
     assert "private-input" in (tmp_path / "readback.log").read_text()
 
 
+def _ready_probe_case(changed_at, *, adopted="private-id", receipt_time="未確認"):
+    scope = {"adopted": adopted, "confirmed_at": "2024-03-01T18:00:00+09:00"}
+    if changed_at is not None:
+        scope["changed_at"] = changed_at
+    return 1, "ok", scope, 0, "ok", True, receipt_time
+
+
 @pytest.mark.parametrize(
-    ("rows", "projection", "scope", "incomplete", "display_status", "healthy"),
+    ("rows", "projection", "scope", "incomplete", "display_status", "healthy", "receipt_time"),
     [
-        (1, "ok", {"adopted": "private-id"}, 0, "ok", True),
-        (0, "ok", {"adopted": "private-id"}, 0, "empty", False),
-        (0, "unavailable", {}, 0, "unavailable", False),
-        (1, "partial", {"adopted": "private-id"}, 0, "partial", False),
-        (1, "private-status", {"adopted": "private-id"}, 0, "unknown", False),
-        (1, "ok", {"adopted": "private-id", "held": "private-hold"}, 0, "ok", False),
-        (1, "ok", {"adopted": "private-id", "failure": "private-failure"}, 1, "ok", False),
+        _ready_probe_case("2024-03-01T16:45:00+09:00", receipt_time="2024-03-01T07:45:00+00:00"),
+        _ready_probe_case(None),
+        _ready_probe_case("private-malformed-clock"),
+        _ready_probe_case("2024-03-01T07:45:00"),
+        _ready_probe_case("9999-12-31T23:59:59Z"),
+        _ready_probe_case("2024-03-01T07:45:00Z", adopted="private-other-id", receipt_time=None),
+        (0, "ok", {"adopted": "private-id"}, 0, "empty", False, None),
+        (0, "unavailable", {}, 0, "unavailable", False, None),
+        (1, "partial", {"adopted": "private-id"}, 0, "partial", False, None),
+        (1, "private-status", {"adopted": "private-id"}, 0, "unknown", False, None),
+        (1, "ok", {"adopted": "private-id", "held": "private-hold"}, 0, "ok", False, None),
+        (1, "ok", {"adopted": "private-id", "failure": "private-failure"}, 1, "ok", False, None),
     ],
 )
 def test_price_probe_summary_requires_target_rows_and_unresolved_free_adoption(
-    tmp_path, rows, projection, scope, incomplete, display_status, healthy
+    tmp_path, rows, projection, scope, incomplete, display_status, healthy, receipt_time
 ):
     target = "2024-03-01"
     prior = "2024-02-29"
@@ -506,7 +518,14 @@ def test_price_probe_summary_requires_target_rows_and_unresolved_free_adoption(
     output = tmp_path / "output"
     output.mkdir()
     (output / "input.json").write_text(
-        json.dumps({"acquisition": {prior: {"adopted": "private-prior"}, target: scope}})
+        json.dumps(
+            {
+                "acquisition": {
+                    prior: {"adopted": "private-prior", "changed_at": "2024-02-29T08:00:00Z"},
+                    target: scope,
+                }
+            }
+        )
     )
     pq.write_table(
         pa.table(
@@ -526,6 +545,7 @@ def test_price_probe_summary_requires_target_rows_and_unresolved_free_adoption(
         output / "price_receipt_status.parquet",
     )
     summary = tmp_path / "summary"
+    before = datetime.now(UTC)
     result = _probe_step(
         "summary",
         {
@@ -544,3 +564,21 @@ def test_price_probe_summary_requires_target_rows_and_unresolved_free_adoption(
     assert result.stdout.startswith(report)
     assert ("::error::" in result.stdout[len(report) :]) is not healthy
     assert "private-" not in report + result.stdout + result.stderr
+    assert "2024-02-29T08:00:00" not in report
+    assert "2024-03-01T09:00:00" not in report  # Reconfirmation is not a new arrival.
+    receipt_prefix = "- 対象日の現採用内容の受領完了（UTC）: "
+    verification_prefix = "- 対象日の読戻し確認（UTC）: "
+    if receipt_time is None:
+        assert receipt_prefix not in report
+        assert verification_prefix not in report
+    else:
+        assert f"{receipt_prefix}{receipt_time}\n" in report
+        receipt_checks = [
+            line.removeprefix(verification_prefix)
+            for line in report.splitlines()
+            if line.startswith(verification_prefix)
+        ]
+        assert len(receipt_checks) == 1
+        verified_at = datetime.fromisoformat(receipt_checks[0])
+        assert verified_at.utcoffset() == timedelta(0)
+        assert before <= verified_at <= datetime.now(UTC)
