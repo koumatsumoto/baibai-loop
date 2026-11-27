@@ -6,6 +6,7 @@ import sqlite3
 from collections.abc import Callable, Sequence
 from contextlib import closing
 from pathlib import Path
+from stat import S_ISREG
 from typing import Protocol
 
 
@@ -32,7 +33,7 @@ def written_schema_version(connection: sqlite3.Connection) -> int | None:
     """未初期化だけをNoneとし、tableを持つversion 0を未公開へ落とさない。"""
     version = int(connection.execute("PRAGMA user_version").fetchone()[0] or 0)
     table = connection.execute(
-        "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1"
+        "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name NOT GLOB 'sqlite_*' LIMIT 1"
     ).fetchone()
     return None if version == 0 and table is None else version
 
@@ -54,6 +55,16 @@ def is_unwritten_store(error: sqlite3.OperationalError, path: Path) -> bool:
     return is_missing_table_error(error) and is_unwritten_database(path)
 
 
+def _store_is_present(path: Path) -> bool:
+    try:
+        mode = path.stat().st_mode
+    except FileNotFoundError:
+        return False
+    if not S_ISREG(mode):
+        raise sqlite3.OperationalError("SQLite store path is not a regular file")
+    return True
+
+
 def read_rows(
     path: Path,
     sql: str,
@@ -63,7 +74,7 @@ def read_rows(
 ) -> list[sqlite3.Row]:
     """Run one query, reading an absent file or an unwritten table as no rows."""
 
-    if not path.is_file():
+    if not _store_is_present(path):
         return []
     try:
         with closing(connector(path)) as connection:
@@ -76,7 +87,7 @@ def read_rows(
 
 def read_store_if_written[T](path: Path, read: Callable[[], T]) -> T | None:
     """Absent/unwritten stores are optional; corrupt or partially missing stores raise."""
-    if not path.is_file():
+    if not _store_is_present(path):
         return None
     try:
         return read()
