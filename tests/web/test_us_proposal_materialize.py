@@ -71,6 +71,7 @@ def _save_us(
     precise=False,
     published_at=PUBLISHED_US,
     sip_proof=None,
+    perspectives=(),
 ):
     action = action or ("no_action" if comparable else "defer")
     official_close = {
@@ -174,6 +175,7 @@ def _save_us(
                 else "取引所終値未確認のため保留。"
             ),
             "revisit_when": "一次資料と価格を確認する。",
+            "model_perspectives": perspectives,
         }
     )
     review = USProposalReview.model_validate(
@@ -195,7 +197,26 @@ def _export(root, out):
     return {path.name: path.read_bytes() for path in export_read_models(root, out)}
 
 
-def test_projection_uses_exact_formal_proof_no_hidden_body_or_legacy_change(tmp_path, mocker):
+@pytest.mark.parametrize(
+    "perspectives",
+    [
+        pytest.param([], id="unrecorded"),
+        pytest.param(
+            [
+                {
+                    "model": "market_context",
+                    "assessment": "insufficient",
+                    "summary": "東京寄り前の米国市場全体の動きは未確認。",
+                    "sources": [],
+                }
+            ],
+            id="preopen-unavailable",
+        ),
+    ],
+)
+def test_projection_uses_exact_formal_proof_no_hidden_body_or_legacy_change(
+    tmp_path, mocker, perspectives
+):
     # Existing independently generated Japanese outputs include a real synthetic
     # proposal, portfolio and outcomes. Their serialized bytes must not change.
     case = backend_case(tmp_path)
@@ -223,11 +244,12 @@ def test_projection_uses_exact_formal_proof_no_hidden_body_or_legacy_change(tmp_
         },
     }
 
-    saved = _save_us(app, "us-proposal-view-synthetic")
+    saved = _save_us(app, "us-proposal-view-synthetic", perspectives=perspectives)
     # Byte-for-byte pre-perspective fixture binding: no manufactured judgement on old records.
-    assert saved.review.draft_sha256 == (
-        "4726d2a668171d06d12b4567942f0915de31d62db48dacb7ce42fa29954b33b4"
-    )
+    if not perspectives:
+        assert saved.review.draft_sha256 == (
+            "4726d2a668171d06d12b4567942f0915de31d62db48dacb7ce42fa29954b33b4"
+        )
     original_app_bytes = app.read_bytes()
     after = _export(tmp_path, tmp_path / "after")
     assert before.keys() == after.keys() == {*JP_OBJECTS, "latest-us-proposal.json"}
@@ -258,7 +280,7 @@ def test_projection_uses_exact_formal_proof_no_hidden_body_or_legacy_change(tmp_
         "action": "no_action",
         "reason": "現金比較で見送り。",
         "revisit_when": "一次資料と価格を確認する。",
-        "model_perspectives": [],
+        "model_perspectives": perspectives,
         "official_close": {
             "price_usd": "100.50",
             "origin": "listing_exchange",
