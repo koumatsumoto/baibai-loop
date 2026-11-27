@@ -1,0 +1,42 @@
+name: us-iex-acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_date:
+        description: "Expected IEX trading date in New York (YYYY-MM-DD)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  check-iex-session:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'koumatsumoto/baibai-loop' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          enable-cache: false
+
+      - name: Prepare locked dependencies
+        run: uv sync --locked --no-dev
+
+      - name: Verify IEX session dates without retaining price data
+        env:
+          EXPECTED_NY_DATE: ${{ inputs.expected_date }}
+          APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+        run: uv run --offline --no-sync python -m tools.experiments.us_iex_acceptance --expected-date="$EXPECTED_NY_DATE"

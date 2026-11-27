@@ -10,6 +10,7 @@ repository rootのBashで、依頼された対象だけを操作する。[archit
 | 公開済みの内容を読む | [固定release](#fixed-release-read)。release IDとmanifest SHAを固定する。 |
 | 反映が一部だけ成功した | [machine公開の結果不明](#machine公開の結果不明)／[seal・次input](#machine公開後の失敗再開)／[経済単独の再開](#経済単独公開と失敗再開)。日次を丸ごと再送しない。 |
 | 日本株の新規提案を本番データで検証する | [本番データで新規の売買提案を受け入れる](#production-proposal-acceptance)。日次成功・保存済み提案の表示とは別。 |
+| 米国株のAlpaca実接続を確認する | [Paper口座のIEX日足を手動確認](../docs/reference/us-research-mvp.md#us-iex-live-acceptance)。日本株の日次とは別。 |
 | 提案・台帳を保存する | [application DBの更新](#application-db-を反映する)。[ローカルcheckpointの確認](#inspect-local-application-db)とは異なる。 |
 | Webだけを更新する | [表示の生成・原本との照合・配備](#web-serving)。表示失敗でcoreを巻き戻さない。 |
 
