@@ -27,7 +27,8 @@ from baibai_engine.investment_judgment.judgment_retrospective.store import (
     RetrospectiveStoreService,
 )
 from baibai_engine.primitives.time import JST
-from baibai_engine.storage.filesystem import write_text_new
+from baibai_engine.storage.filesystem import paths_refer_to_same_file, write_text_new
+from baibai_engine.storage.sqlite.application.paths import database_path
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -75,8 +76,13 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     args = build_parser().parse_args(argv)
     instant = now or datetime.now(JST)
     try:
-        if args.out is not None and (args.out.exists() or args.out.is_symlink()):
-            raise RetrospectiveConflictError(f"output already exists: {args.out}")
+        if args.out is not None:
+            if args.out.exists() or args.out.is_symlink():
+                raise RetrospectiveConflictError(f"output already exists: {args.out}")
+            if paths_refer_to_same_file(args.out, database_path(args.db)):
+                raise RetrospectiveConflictError(
+                    "output must be separate from the application database"
+                )
         payload: object
         saved: dict[str, object] | None = None
         match args.command:

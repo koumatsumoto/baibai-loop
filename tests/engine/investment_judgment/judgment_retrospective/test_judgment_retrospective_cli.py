@@ -3,6 +3,7 @@
 import json
 from datetime import datetime, timedelta
 
+import pytest
 from tests.helpers.assessment_v1 import assessment_id, pair_payload
 
 from baibai_engine.cli.investment_judgment import main
@@ -107,3 +108,37 @@ def test_authoring_and_recent_list_to_exact_get(tmp_path, capsys):
     assert readback["context"] == scaffold["context"]
     assert main([*prefix, "list", "--ticker", "5678", "--db", str(path)]) == 0
     assert json.loads(capsys.readouterr().out)["items"] == []
+
+
+@pytest.mark.parametrize("explicit_db", [True, False])
+def test_list_of_missing_app_cannot_export_over_the_database_path(
+    tmp_path, capsys, monkeypatch, explicit_db
+):
+    app = tmp_path / "baibai.sqlite"
+    if explicit_db:
+        args = ["judgment-retrospective", "list", "--db", str(app)]
+        alias = app
+    else:
+        monkeypatch.setenv("BAIBAI_DB", str(app))
+        args = ["judgment-retrospective", "list"]
+        (tmp_path / "export").mkdir()
+        alias = tmp_path / "export" / ".." / app.name
+
+    # Empty readback and an ordinary new export remain supported without an App.
+    assert main(args, now=NOW) == 0
+    listed = json.loads(capsys.readouterr().out)
+    assert listed["items"] == []
+    assert listed["has_more"] is False
+    export = tmp_path / "list.json"
+    assert main([*args, "--out", str(export)], now=NOW) == 0
+    assert json.loads(capsys.readouterr().out) == listed
+    assert json.loads(export.read_text(encoding="utf-8")) == listed
+    assert not app.exists()
+
+    result = main([*args, "--out", str(alias)], now=NOW)
+
+    assert not app.exists(), "The list exported JSON to the missing App database path"
+    assert result == 4
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "error: output must be separate from the application database\n"
