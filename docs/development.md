@@ -49,12 +49,21 @@ PR全体の検査は[Python CI](../.github/workflows/ci.yml)と[Web CI](../.gith
 <a id="webの確認"></a>
 ## Webの確認
 
-[.node-version](../.node-version)のNodeと対応するnpmで検証する。
+[.node-version](../.node-version)のNodeと対応するnpmを使う。UIの型検査・ビルドは表示テストを実行しないので、表示を変えたら両方を確認する。
 
 ```bash
 npm --prefix web/frontend ci
-npm --prefix web/edge ci
 npm --prefix web/frontend run build
+npm --prefix web/frontend test
+```
+
+Workerや共通の配信契約を変えたら、上のUIビルドに続いてWorkerの生成型、型検査、ルートの動作を確認する。次のコマンドは配備しない。
+
+```bash
+npm --prefix web/edge ci
+npm --prefix web/edge run types:check
+npm --prefix web/edge run typecheck
+npm --prefix web/edge test
 ```
 
 `npm --prefix web/frontend run dev` は画面資産のみを配信し、ローカルAPIやSQLiteには接続しない。表示データの生成・認証付きAPI・実画面の確認は[Webの運用](../jobs/OPERATIONS.md#web-serving)へ。

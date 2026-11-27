@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from functools import partial
 from pathlib import Path
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -14,6 +16,7 @@ from baibai_engine.portfolio.ledger.broker_facts import (
 )
 from baibai_engine.portfolio.ledger.events import (
     ExecutionEvent,
+    ReservationEvent,
     replay_events_through,
     reservation_snapshots,
 )
@@ -580,3 +583,96 @@ def test_equivalent_timezone_order_retry_keeps_one_reservation(explicit_ids: boo
     )
     assert not retry.changed
     assert retry.document == first.document
+
+
+@pytest.mark.parametrize("status", ["open", "filled"])
+@pytest.mark.parametrize("ticker", ["8929", "2331"])
+def test_new_buy_does_not_inherit_a_closed_positions_classification(
+    status: Literal["open", "filled"], ticker: str
+) -> None:
+    document = load_portfolio_ledger(FIXTURE)
+    report = partial(record_broker_fact, decision_reference=PROPOSAL, ticker=ticker, now=_at(12))
+    if ticker == "8929":  # Cancel the fixture's unfilled order.
+        closed = report(
+            document,
+            status="cancelled",
+            reservation_id="reservation-8929-pending",
+            occurred_at=_at(10),
+        ).document
+    else:  # Sell the fixture's entire holding.
+        sell = partial(report, side="sell", quantity=200, reservation_id="exit")
+        order = sell(document, status="open", price_guard_yen=Decimal("1000"), occurred_at=_at(9))
+        closed = sell(
+            order.document, status="filled", price_yen=Decimal("1000"), occurred_at=_at(10)
+        ).document
+
+    buy = partial(
+        report,
+        closed,
+        status=status,
+        quantity=100,
+        occurred_at=_at(11),
+        price_guard_yen=Decimal("1100") if status == "open" else None,
+        price_yen=Decimal("1100") if status == "filled" else None,
+    )
+    with pytest.raises(
+        BrokerFactRecordingError, match="missing required human report fields: sector"
+    ):
+        buy()
+    reopened = buy(sector="new-sector").document
+    event = reopened.events[-1]
+    assert isinstance(event, (ReservationEvent, ExecutionEvent))
+    assert (event.sector, event.common_factors) == ("new-sector", ())
+    assert reopened.events[:-1] == closed.events
+
+
+@pytest.mark.parametrize("day", [2, 3, 5], ids=["open-order", "partial-fill", "remaining-holding"])
+def test_live_exposure_keeps_its_classification(day: int) -> None:
+    # Fixture 2331: reserved June 2, partially filled June 3, unfilled shares released June 5.
+    result = record_broker_fact(
+        load_portfolio_ledger(FIXTURE),
+        decision_reference=PROPOSAL,
+        status="filled",
+        ticker="2331",
+        quantity=100,
+        price_yen=Decimal("1000"),
+        now=_at(12),
+        occurred_at=datetime(2026, 6, day, 17, tzinfo=JST),
+    )
+    event = next(event for event in result.document.events if event.event_id in result.event_ids)
+    assert isinstance(event, ExecutionEvent)
+    assert (event.sector, event.common_factors) == ("サービス業", ("labor-automation",))
+
+
+def test_date_only_order_retry_uses_its_saved_classification_after_reentry() -> None:
+    report = partial(record_broker_fact, ticker="1234", decision_reference=PROPOSAL, now=_at(12))
+    order = partial(
+        report,
+        status="open",
+        quantity=100,
+        price_guard_yen=Decimal("1000"),
+        reservation_id="original",
+        occurred_on=_at(8).date(),
+    )
+    opened = order(
+        load_portfolio_ledger(FIXTURE),
+        occurred_at=_at(8),
+        sector="old",
+        common_factors=("old-factor",),
+    )
+    closed = report(
+        opened.document, status="cancelled", reservation_id="original", occurred_at=_at(9)
+    )
+    new = report(
+        closed.document,
+        status="filled",
+        quantity=100,
+        price_yen=Decimal("1100"),
+        sector="new",
+        common_factors=("new-factor",),
+        occurred_at=_at(10),
+    )
+    # Later facts on that date move the retry's internal replay key, not the order it denotes.
+    assert not order(new.document, occurred_at=_at(10)).changed
+    with pytest.raises(BrokerFactRecordingError, match="conflicting human report"):
+        order(new.document, occurred_at=_at(10), sector="new")

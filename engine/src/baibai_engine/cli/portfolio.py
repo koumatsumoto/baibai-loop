@@ -540,7 +540,9 @@ def _run_outcome(
                     start,
                     end,
                 )
-                bars = read_ticker_bars(connection, period.market_tickers(), period.business_days)
+                bars = read_ticker_bars(
+                    connection, period.market_tickers(), period.market_sessions()
+                )
         if period is None:
             payload = _outcome_unresolved_payload(benchmark, "benchmark_unavailable")
         elif bars is None:

@@ -7,6 +7,7 @@ import pytest
 from tests.helpers.financial_metrics import (
     _summary,
 )
+from tests.helpers.price_native import project_price_records
 
 from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
     _normalize_summaries_with_status,
@@ -23,16 +24,46 @@ from baibai_engine.machine_analysis.observations.prices.price_basis import (
 from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsAdjustmentFactorEvent,
 )
+from baibai_engine.machine_analysis.observations.prices.price_reader import (
+    read_adjustment_factor_bars,
+)
 
 
 @pytest.mark.parametrize(
     ("kind", "price_factor", "unit_factor"),
-    [("1", 0.5, 0.5), ("2", 2.0, 2.0), ("3", 0.8, 1.0), (None, 0.8, None)],
+    [
+        ("1", 0.5, 0.5),
+        ("2", 2.0, 2.0),
+        ("3", 0.8, 1.0),
+        (None, 0.8, None),
+        ("1", 2.0, None),
+        ("2", 0.5, None),
+        ("1", 1.0, None),
+        ("2", 1.0, None),
+    ],
 )
-def test_price_adjustment_and_financial_share_units_are_separate(kind, price_factor, unit_factor):
+def test_price_adjustment_and_financial_share_units_are_separate(
+    tmp_path, kind, price_factor, unit_factor
+):
     before = date(2026, 8, 1)
     action_day = date(2026, 9, 1)
-    event = JQuantsAdjustmentFactorEvent("1111", action_day, price_factor, kind)
+    market = tmp_path / "market.sqlite"
+    project_price_records(
+        market,
+        [
+            {
+                "Code": "11110",
+                "Date": action_day.isoformat(),
+                "C": 50,
+                "AdjFactor": price_factor,
+                "ExRT": kind,
+            }
+        ],
+    )
+    events = read_adjustment_factor_bars(market, action_day, action_day)
+    assert events is not None
+    (event,) = events
+    assert (event.adjustment_factor, event.ex_right_type) == (price_factor, kind)
     source = _summary(
         "1111",
         before,
@@ -47,7 +78,7 @@ def test_price_adjustment_and_financial_share_units_are_separate(kind, price_fac
     )
     source = replace(source, average_shares=90.0)
     assert asof_basis_prices(
-        [(before, 100.0)], [(action_day, price_factor)], asof_date=action_day
+        [(before, 100.0)], [(event.traded_at, event.adjustment_factor)], asof_date=action_day
     ) == [100.0 * price_factor]
     assert share_unit_factor(event) == unit_factor
     result = _normalize_summaries_with_status([source], [event], action_day)

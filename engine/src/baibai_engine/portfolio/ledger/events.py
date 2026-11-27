@@ -641,6 +641,10 @@ def replay_events_through(
     metadata: dict[str, tuple[str, tuple[str, ...]]] = {}
     board_lot = policy["order_constraints"]["board_lot"]
 
+    def retire_classification_if_closed(ticker: str) -> None:
+        if not lots[ticker] and not any(order.ticker == ticker for order in active.values()):
+            metadata.pop(ticker, None)
+
     seen_actions: set[str] = set()
     seen_action_days: set[tuple[str, date]] = set()
     for event in ordered_replay_events(events):
@@ -700,11 +704,6 @@ def replay_events_through(
                     )
                     if event.quantity > held - pending:
                         raise PortfolioLedgerError("sell order exceeds uncommitted holding")
-                has_exposure = any(lot.quantity > 0 for lot in lots[event.ticker]) or any(
-                    item.ticker == event.ticker for item in active.values()
-                )
-                if not has_exposure:
-                    metadata.pop(event.ticker, None)
                 _check_metadata(metadata, event.ticker, event.sector, event.common_factors)
                 seen_reservations.add(event.reservation_id)
                 seen_order_ids.add(event.order_id)
@@ -750,6 +749,7 @@ def replay_events_through(
                     available_cash += released
                     reserved_cash -= released
                 del active[event.reservation_id]
+                retire_classification_if_closed(reservation.ticker)
             case ExecutionEvent(side="buy"):
                 if event.execution_id in seen_executions:
                     raise PortfolioLedgerError(f"execution_id already used: {event.execution_id}")
@@ -764,11 +764,6 @@ def replay_events_through(
                     _require_cash(available_cash, paid, event.event_id)
                     if event.sector is None:
                         raise PortfolioLedgerError("unreserved buy execution requires sector")
-                    has_exposure = any(lot.quantity > 0 for lot in lots[event.ticker]) or any(
-                        item.ticker == event.ticker for item in active.values()
-                    )
-                    if not has_exposure:
-                        metadata.pop(event.ticker, None)
                     _check_metadata(metadata, event.ticker, event.sector, event.common_factors)
                     available_cash -= paid
                 else:
@@ -849,6 +844,7 @@ def replay_events_through(
                 )
                 available_cash += proceeds
                 realized_gross_pnl += proceeds - consumed_cost
+                retire_classification_if_closed(event.ticker)
             case IncomeEvent():
                 available_cash += event.amount_yen
                 confirmed_income += event.amount_yen

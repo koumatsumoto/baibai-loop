@@ -125,6 +125,21 @@ def compute_time_weighted_return(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _HoldingMarketWindow:
+    ticker: str
+    acquired_on: date
+    through: date
+    mark_acquisition_close: bool
+
+    def requires_session(self, day: date) -> bool:
+        # The purchase fixes its own unit basis. Subsequent sessions through
+        # the actual sale still need action evidence, even with zero closing lots.
+        return self.acquired_on < day <= self.through or (
+            self.mark_acquisition_close and day == self.acquired_on
+        )
+
+
 @dataclass(frozen=True)
 class OutcomePeriod:
     """One ledger and session schedule for market reads, NAV and ending-basis checks."""
@@ -141,8 +156,8 @@ class OutcomePeriod:
         )
 
     @cached_property
-    def _basis_intervals(self) -> tuple[tuple[str, date, date], ...]:
-        return _holding_basis_intervals(
+    def _holding_windows(self) -> tuple[_HoldingMarketWindow, ...]:
+        return _holding_market_windows(
             self.ledger.events, self._event_dates, start=self.start, end=self.end
         )
 
@@ -165,7 +180,14 @@ class OutcomePeriod:
 
     def market_tickers(self) -> tuple[str, ...]:
         """Include opening holdings and sales after that close; exclude later activity."""
-        return tuple(sorted({ticker for ticker, _, _ in self._basis_intervals}))
+        return tuple(sorted({window.ticker for window in self._holding_windows}))
+
+    def market_sessions(self) -> tuple[date, ...]:
+        """Require daily-bar receipts only for position marks or holding-unit continuity."""
+        windows = self._holding_windows
+        return tuple(
+            day for day in self.business_days if any(w.requires_session(day) for w in windows)
+        )
 
     def compute(
         self,
@@ -277,7 +299,8 @@ def _compute_portfolio_outcome(
     # Check the whole holding episode, including before the opening NAV and the
     # final sale day. Looking only at end-of-day holdings misses a fully sold name.
     # A purchase already reports quantities on its own session's unit basis.
-    for ticker, acquired_on, through in period._basis_intervals:
+    for window in period._holding_windows:
+        ticker, acquired_on, through = window.ticker, window.acquired_on, window.through
         if acquired_on == through:
             continue
         if confirm_price_basis is not None:
@@ -365,36 +388,37 @@ def _compute_portfolio_outcome(
     )
 
 
-def _holding_basis_intervals(
+def _holding_market_windows(
     events: tuple[LedgerEvent, ...],
     effective_dates: tuple[date | None, ...],
     *,
     start: date,
     end: date,
-) -> tuple[tuple[str, date, date], ...]:
-    """Unit-check intervals for reconciled positions relevant after opening close."""
+) -> tuple[_HoldingMarketWindow, ...]:
+    """Derive market dependencies once, from positions relevant to benchmark NAV."""
     dates = {
-        event.event_id: effective for event, effective in zip(events, effective_dates, strict=True)
+        event.event_id: day
+        for event, day in zip(events, effective_dates, strict=True)
+        if day is not None and day <= end
     }
-    scoped = tuple(
-        event
-        for event in events
-        if (effective_day := dates[event.event_id]) is not None and effective_day <= end
-    )
-    intervals: list[tuple[str, date, date]] = []
+    scoped = tuple(event for event in events if event.event_id in dates)
+    windows: list[_HoldingMarketWindow] = []
     for episode in holding_episodes(scoped):
-        first = (
-            episode.first_buy.occurred_on or episode.first_buy.occurred_at.astimezone(_TOKYO).date()
+        bought, last = episode.first_buy, episode.last_trade
+        sold_close = dates[last.event_id] if episode.closed else None
+        if sold_close is not None and sold_close <= start:
+            continue
+        first = bought.occurred_on or bought.occurred_at.astimezone(_TOKYO).date()
+        through = (
+            (last.occurred_on or last.occurred_at.astimezone(_TOKYO).date())
+            if episode.closed
+            else end
         )
-        if not episode.closed:
-            intervals.append((episode.first_buy.ticker, first, end))
-        elif (effective := dates[episode.last_trade.event_id]) is not None and effective > start:
-            through = (
-                episode.last_trade.occurred_on
-                or episode.last_trade.occurred_at.astimezone(_TOKYO).date()
-            )
-            intervals.append((episode.first_buy.ticker, first, through))
-    return tuple(intervals)
+        # On the acquisition day itself, only a position still held at that
+        # close needs a mark. A later first fill or an intraday round trip does not.
+        mark_first = dates[bought.event_id] == first and (sold_close is None or first < sold_close)
+        windows.append(_HoldingMarketWindow(bought.ticker, first, through, mark_first))
+    return tuple(windows)
 
 
 def outcome_to_payload(outcome: PortfolioOutcome) -> dict[str, object]:

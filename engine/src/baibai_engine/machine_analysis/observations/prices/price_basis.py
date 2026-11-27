@@ -61,8 +61,12 @@ def share_unit_factor(event: JQuantsAdjustmentFactorEvent | JQuantsDailyBar) -> 
     factor = event.adjustment_factor
     if event.ex_right_type == "3":
         return 1.0
-    if event.ex_right_type in ("1", "2"):
-        return factor if factor is not None and factor > 0 else None
+    # Share counts move inversely to the source price factor: a unit or
+    # opposite-direction factor cannot confirm the stated change in shares.
+    if event.ex_right_type == "1":
+        return factor if factor is not None and 0 < factor < 1 else None
+    if event.ex_right_type == "2":
+        return factor if factor is not None and factor > 1 else None
     if event.ex_right_type is None and factor in (None, 1.0):
         return 1.0
     return None

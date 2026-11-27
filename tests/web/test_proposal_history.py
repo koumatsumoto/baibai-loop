@@ -203,3 +203,19 @@ def test_history_index_failure_still_projects_the_selected_publication_once(tmp_
     assert history.status == "unavailable"
     assert history.proposals == history.unavailable_proposal_ids == []
     assert "private" not in history.model_dump_json()
+
+
+def test_unrankable_proposal_date_is_not_replaced_by_an_older_decision(tmp_path):
+    case, first, second = _two_publications(tmp_path)
+    with closing(sqlite3.connect(case.app)) as connection, connection:
+        connection.execute("DROP TRIGGER investment_proposal_immutable")
+        connection.execute(
+            "UPDATE investment_proposal SET as_of='' WHERE proposal_id=?", (second.proposal_id,)
+        )
+
+    latest, history = read_proposal_views(case.app)
+    assert latest.status == "unavailable"
+    assert latest.proposal is None
+    assert history.status == "partial"
+    assert [row.proposal_id for row in history.proposals] == [first.proposal_id]
+    assert history.unavailable_proposal_ids == [second.proposal_id]

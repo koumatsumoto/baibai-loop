@@ -117,18 +117,10 @@ def record_broker_fact(
         ):
             return BrokerFactRecordingResult(document=document, changed=False, event_ids=())
 
-    # A delayed fill belongs at its reported occurrence, before any later
-    # release. The complete replacement is still replayed below, so inserting a
-    # fill cannot invalidate a saved release or another subsequent fact.
+    # A delayed order or fill must not inherit a later position's classification.
+    # Its insertion still requires a full replay of subsequent saved facts.
     state = replay_events_through(
-        document.events, occurred_at if status == "filled" else document.as_of
-    )
-    holding_metadata = state.metadata.get(ticker) if ticker is not None else None
-    resolved_sector = (
-        sector if sector is not None else (holding_metadata[0] if holding_metadata else None)
-    )
-    resolved_common_factors = (
-        common_factors if common_factors else (holding_metadata[1] if holding_metadata else ())
+        document.events, occurred_at if status in {"open", "filled"} else document.as_of
     )
     # A ticker alone cannot identify which order produced a confirmed fill.
     # The draft builder resolves a reported broker order ID to its reservation.
@@ -146,7 +138,7 @@ def record_broker_fact(
     additions: list[dict[str, object]] = []
 
     if status == "open":
-        _require(ticker=ticker, quantity=quantity, sector=resolved_sector)
+        _require(ticker=ticker, quantity=quantity)
         assert ticker is not None
         if price_guard_yen is None:
             raise BrokerFactRecordingError("open requires price_guard_yen")
@@ -189,8 +181,13 @@ def record_broker_fact(
                 "order_id": order_id
                 or (saved_order.order_id if saved_order else f"repository-order-{suffix}"),
                 "ticker": ticker,
-                "sector": resolved_sector,
-                "common_factors": sorted(resolved_common_factors),
+                **_reported_classification(
+                    sector,
+                    common_factors,
+                    (saved_order.sector, saved_order.common_factors)
+                    if saved_order is not None
+                    else state.metadata.get(ticker),
+                ),
                 "decision_reference": decision_reference,
                 "quantity": quantity,
                 "price_guard_yen": str(price_guard_yen),
@@ -207,7 +204,9 @@ def record_broker_fact(
         if side == "sell" and reservation is None:
             raise BrokerFactRecordingError("sell fill requires an active sell order")
         if reservation is None:
-            _require(sector=resolved_sector)
+            classification = _reported_classification(
+                sector, common_factors, state.metadata.get(ticker)
+            )
             resolved_reservation_id = None
         else:
             if ticker != reservation.ticker:
@@ -220,6 +219,7 @@ def record_broker_fact(
                     "filled decision_reference does not match the active reservation"
                 )
             resolved_reservation_id = reservation.reservation_id
+            classification = {}
         suffix = (
             _provided_execution_suffix(execution_id)
             if execution_id is not None
@@ -244,11 +244,7 @@ def record_broker_fact(
                 "quantity": quantity,
                 "price_yen": str(price_yen),
                 "decision_reference": decision_reference,
-                **(
-                    {"sector": resolved_sector, "common_factors": sorted(resolved_common_factors)}
-                    if reservation is None
-                    else {}
-                ),
+                **classification,
             }
         )
     else:
@@ -488,6 +484,18 @@ def _select_reservation(
             raise BrokerFactRecordingError("no active reservation matches the human report")
         return None
     return matches[0]
+
+
+def _reported_classification(
+    sector: str | None,
+    common_factors: tuple[str, ...],
+    known: tuple[str, tuple[str, ...]] | None,
+) -> dict[str, object]:
+    if known is not None:
+        sector = sector if sector is not None else known[0]
+        common_factors = common_factors or known[1]
+    _require(sector=sector)
+    return {"sector": sector, "common_factors": sorted(common_factors)}
 
 
 def _require(**values: object) -> None:

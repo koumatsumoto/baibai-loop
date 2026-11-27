@@ -321,6 +321,10 @@ function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+function recordRows(value: unknown): boolean {
+  return Array.isArray(value) && value.every(record)
+}
+
 function returnOrNull(value: unknown): value is number | null {
   return value === null || (typeof value === 'number' && Number.isFinite(value))
 }
@@ -420,8 +424,10 @@ export function DashboardPage() {
     fetchJson<DashboardView>('/api/dashboard', { signal: controller.signal })
       .then(value => {
         if (controller.signal.aborted) return
-        // Missing facts are a view failure, not a confirmed holding quantity or an unknown amount.
-        if (!record(value) || typeof value.holding_quantity_unresolved !== 'boolean'
+        // Absent flags or collections are not an empty ledger; reject this view before rendering it.
+        if (!record(value) || typeof value.ledger_exists !== 'boolean'
+          || !recordRows(value.holdings) || !recordRows(value.reservations) || !recordRows(value.warnings)
+          || typeof value.holding_quantity_unresolved !== 'boolean'
           || !returnOrNull(value.realized_gross_pnl_yen)
           || !returnOrNull(value.unrealized_pnl_yen) || !returnOrNull(value.unrealized_pnl_pct)) {
           throw new Error('資産状況の表示データが不正です。')
