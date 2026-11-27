@@ -40,8 +40,11 @@ from baibai_engine.machine_analysis.observations.financials.sec_companyfacts imp
     SecPublicFilingObservation,
     SecReportedDuration,
     SecRevenueAmbiguity,
-    observe_sec_comparatives,
     observe_sec_revenue,
+)
+from baibai_engine.machine_analysis.observations.financials.sec_fiscal_observations import (
+    SecFiscalQuarterInput,
+    observe_sec_issuer_financials,
 )
 from baibai_engine.machine_analysis.observations.prices.alpaca_normalization import (
     AlpacaBarSource,
@@ -512,18 +515,20 @@ def _sec(
         observed = _public_index(public_index, load, filing, cutoff)
         if compare is not None:
             reporting_quarter, prior, current_fiscal_start, prior_fiscal_start = compare
-            comparison = observe_sec_comparatives(
-                capture,
-                filing,
-                expected_cik=query.cik,
+            quarter = SecFiscalQuarterInput(
+                capture=capture,
+                filing=filing,
                 reporting_quarter=reporting_quarter,
-                cutoff=cutoff,
                 publicly_observed_by=observed,
                 current_quarter=period,
                 prior_quarter=prior,
                 current_fiscal_start=current_fiscal_start,
                 prior_fiscal_start=prior_fiscal_start,
             )
+            (observation,) = observe_sec_issuer_financials((), {query.cik: quarter}, cutoff=cutoff)
+            comparison = observation.periodic
+            if comparison == "invalid_periodic_evidence":
+                return evidence, "sec_invalid_fixed_evidence"
             if isinstance(comparison, str):
                 return evidence, f"sec_{comparison}"
             evidence.append(
