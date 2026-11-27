@@ -100,8 +100,8 @@
     --warning-surface: oklch(0.95 0.045 95.277);
     --warning-ink: oklch(0.4 0.09 58);
     --input: var(--border-strong);
-    /* Focus is drawn as an opaque border plus a translucent halo; the border carries
-       the contrast against the surrounding surface. */
+    /* An offset, opaque focus outline reads against the surrounding surface,
+       including on buttons whose fill is already the action color. */
     --ring: var(--primary-action);
     /* Holdings, available cash and reserved cash are categories, not returns. */
     --chart-1: var(--primary-action);
