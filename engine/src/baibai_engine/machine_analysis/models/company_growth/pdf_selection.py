@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import Literal
 
 from baibai_engine.machine_analysis.models.company_growth.calculations import (
+    _AMOUNT_FIELDS,
     _margin,
     _missing_change_reason,
     native_comparison_priors,
@@ -131,11 +132,53 @@ def _annual_pdf_precedes_retained_income(
     )
 
 
+def _conflicting_annual_income(target: PeriodState, current: PdfStatement) -> dict[Metric, str]:
+    if not _statement_comparison_measurement(current, "annual_ttm"):
+        return {}
+    return {
+        metric: field
+        for observation in target.observations
+        if observation.measurement == "reported"
+        for metric, field in _AMOUNT_FIELDS
+        if (value := observation.metrics.get(metric)) is not None
+        and value.reason == "conflicting_revisions"
+    }
+
+
+def _including_dependent_margin(metrics: set[Metric]) -> set[Metric]:
+    return metrics | {"operating_margin"} if metrics & {"sales", "operating_profit"} else metrics
+
+
+def _later_annual_conflicts(
+    target: PeriodState,
+    current: PdfStatement,
+    native_anchor: JQuantsFinancialSummary,
+    documents: Sequence[JQuantsFinancialSummary],
+) -> set[Metric]:
+    conflicts = _conflicting_annual_income(target, current)
+    if not conflicts:
+        return set()
+    # 欠測理由はnativeの判定を使う。同じ科目の後発候補があるかだけ原本で照合し、
+    # 最新のPDFが補える、より古いnativeの矛盾まで塞がない。
+    return _including_dependent_margin(
+        {
+            metric
+            for row in documents
+            if row.disclosed_at > native_anchor.disclosed_at
+            and row.ticker == native_anchor.ticker
+            and accounting_period_identity(row) == target.cohort
+            for metric, field in conflicts.items()
+            if getattr(row, field) is not None or field in row.unresolved_actual_fields
+        }
+    )
+
+
 def apply_pdf_periods(
     states: Sequence[PeriodState],
     selected: PdfFinancialSelection | None,
     *,
     native_anchor: JQuantsFinancialSummary | None,
+    documents: Sequence[JQuantsFinancialSummary],
     sector: str | None,
 ) -> tuple[PeriodState, ...]:
     if selected is None or (target := _native_target(states, native_anchor)) is None:
@@ -194,6 +237,9 @@ def apply_pdf_periods(
         (_source(current),),
         sector=sector,
     )
+    for metric in _later_annual_conflicts(target, current, native_anchor, documents):
+        del annual_metrics[metric]
+        del reported_metrics[metric]
     result = []
     for state in states:
         if state is not target or (state.period_start, state.period_end) != (
@@ -277,6 +323,8 @@ def apply_pdf_changes(
     assert current.current_end is not None
     if not _target_matches_statement(target, current):
         return tuple(changes)
+    # apply_pdf_periods has already resolved which native conflicts the PDF could fill.
+    blocked = _including_dependent_margin(set(_conflicting_annual_income(target, current)))
     before = {pair.metric: pair.comparative * 1_000_000 for pair in current.pairs}
     after = {pair.metric: pair.current * 1_000_000 for pair in current.pairs}
     prior_metrics = _metrics(before, (_source(current),), sector=sector)
@@ -289,6 +337,7 @@ def apply_pdf_changes(
             or change.to_end != current.current_end
             or not _statement_comparison_measurement(current, change.measurement)
             or change.metric not in current_metrics
+            or change.metric in blocked
             or (
                 change.measurement == "quarter"
                 and (

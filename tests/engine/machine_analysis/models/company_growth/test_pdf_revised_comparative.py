@@ -1,7 +1,7 @@
 """後発の当期額不変だけで、組替と矛盾する旧前年の成長を復活させない。"""
 
 from dataclasses import replace
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from tests.engine.machine_analysis.models.company_growth.test_pdf_annual_comparison import (
@@ -18,6 +18,7 @@ from baibai_engine.investment_judgment.workflow.company_growth_projection import
 from baibai_engine.machine_analysis.models.company_growth.calculations import build_changes
 from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
 from baibai_engine.machine_analysis.models.company_growth.pdf_selection import apply_pdf_changes
+from baibai_engine.machine_analysis.models.company_growth.reading import CompanyGrowthReader
 from baibai_engine.machine_analysis.observations.financials.pdf_selection import (
     prepare_pdf_financials,
 )
@@ -223,3 +224,115 @@ def test_unrecorded_prior_source_clock_does_not_become_a_confirmed_older_value()
         )
         == native
     )
+
+
+@pytest.mark.parametrize(
+    ("fields", "anchor_blank", "earlier_actual"),
+    [
+        (("sales", "operating_profit", "profit"), False, False),
+        (("sales",), False, False),
+        (("profit",), False, False),
+        (("operating_profit",), True, False),
+        (("operating_profit",), True, True),
+    ],
+)
+def test_older_annual_pdf_does_not_restore_conflicting_retained_income(
+    fields, anchor_blank, earlier_actual
+):
+    docs, pdf = annual_inputs()
+    current = docs[-1]
+    if anchor_blank:
+        docs[-1] = replace(current, **dict.fromkeys(fields))
+    if earlier_actual:
+        docs.insert(
+            -1,
+            replace(
+                current,
+                disclosed_at=current.disclosed_at - timedelta(days=1),
+                disclosure_number="earlier-confirmed-actual",
+            ),
+        )
+    later = [
+        replace(
+            current,
+            **{
+                **dict.fromkeys(("sales", "operating_profit", "profit")),
+                **dict.fromkeys(fields, 340000000000 + i * 31000000),
+                "disclosed_at": ASOF + timedelta(days=1),
+                "disclosure_number": f"later-same-clock-{i}",
+                "cfo": 10_000_000_000,
+            },
+        )
+        for i in range(2)
+    ]
+    baseline_financial, baseline_growth, baseline_technical = models(docs, [pdf])
+    financial, growth, technical = models([*docs, *later], [pdf])
+    without_pdf = models([*docs, *later], [])[1]
+    # This conflict is retrospective only. Read the same shared as-of PDF in valuation.
+    assert financial == baseline_financial
+    assert technical == baseline_technical
+
+    reader = CompanyGrowthReader(growth.payload)
+    native = CompanyGrowthReader(without_pdf.payload)
+    unaffected = CompanyGrowthReader(baseline_growth.payload)
+    blocked = {"parent_profit" if field == "profit" else field for field in fields}
+    if blocked & {"sales", "operating_profit"}:
+        blocked.add("operating_margin")
+    for measurement in ("reported", "annual_ttm"):
+        observed = reader.observation(reader.latest_period, measurement)
+        native_only = native.observation(native.latest_period, measurement)
+        original = unaffected.observation(unaffected.latest_period, measurement)
+        for metric in ("sales", "operating_profit", "parent_profit", "operating_margin"):
+            if metric in blocked:
+                assert observed.metrics[metric] == native_only.metrics[metric]
+                assert observed.metrics[metric].value is None
+                assert observed.metrics[metric].reason == (
+                    "operand_unavailable"
+                    if metric == "operating_margin"
+                    else "conflicting_revisions"
+                )
+                change = comparisons(growth, measurement)[metric]
+                assert change == comparisons(without_pdf, measurement)[metric]
+                assert change["difference"] is None
+                assert "source_sha256" not in change
+            else:
+                assert observed.metrics[metric] == original.metrics[metric]
+                assert (
+                    comparisons(growth, measurement)[metric]
+                    == comparisons(baseline_growth, measurement)[metric]
+                )
+    assert (
+        reader.observation(reader.latest_period, "reported").metrics["operating_cash_flow"].value
+        == 10_000_000_000
+    )
+
+
+def test_annual_pdf_can_fill_missing_current_native_amount_after_older_conflict():
+    docs, pdf = annual_inputs()
+    current = docs[-1]
+    earlier = [
+        replace(
+            current,
+            disclosed_at=current.disclosed_at - timedelta(days=1),
+            disclosure_number=f"earlier-same-clock-{i}",
+            sales=310_000_000_000 + i * 7_000_000,
+        )
+        for i in range(2)
+    ]
+    later_cash_only = replace(
+        current,
+        disclosed_at=ASOF + timedelta(days=1),
+        disclosure_number="later-cash-only",
+        sales=None,
+        operating_profit=None,
+        profit=None,
+        cfo=10_000_000_000,
+    )
+    documents = [docs[0], *earlier, replace(current, sales=None), later_cash_only]
+    native = models(documents, [])[1]
+    with_pdf = models(documents, [pdf])[1]
+    assert comparisons(native, "annual_ttm")["sales"]["to_value"] is None
+    for measurement in ("reported", "annual_ttm"):
+        c = comparisons(with_pdf, measurement)["sales"]
+        assert c["to_value"] == 315_507_000_000
+        assert c["source_sha256"] == pdf.source_sha256

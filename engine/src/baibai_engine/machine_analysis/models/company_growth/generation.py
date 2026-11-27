@@ -62,6 +62,7 @@ def generate_company_growth(
         build_period_states(documents, sector=sector),
         selected_pdf,
         native_anchor=native_anchor,
+        documents=documents,
         sector=sector,
     )
     changes = apply_pdf_changes(
