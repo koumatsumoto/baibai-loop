@@ -4,6 +4,7 @@ import gzip
 import json
 from contextlib import closing
 from datetime import timedelta
+from hashlib import sha256
 
 import pytest
 from tests.engine.machine_analysis.observations.articles.test_article_storage import (
@@ -12,11 +13,72 @@ from tests.engine.machine_analysis.observations.articles.test_article_storage im
     receipt,
 )
 
-from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt
+from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt, BodyRef
 from baibai_engine.data_collection.receipts.articles.store import ArticleStoreError, retain_receipt
 from baibai_engine.machine_analysis.observations.articles import store
 from baibai_engine.machine_analysis.observations.articles.projection import project_receipt
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+
+
+@pytest.mark.parametrize(
+    ("kind", "path", "html", "expected_text"),
+    [
+        ("index", "/news", '<a href="/news/123">合成記事</a>', ""),
+        (
+            "document",
+            "/news/123",
+            '<h1>合成記事</h1><div class="news-body">記事の本文</div>',
+            "記事の本文",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    ("body_encoding", "original_encoding", "repeat_encoding"),
+    [
+        ("cp932", "cp932", None),
+        ("cp932", "cp932", "utf-8"),
+        ("utf-8", None, "cp932"),
+        ("utf-8", None, None),
+    ],
+)
+def test_not_modified_reuses_body_owner_encoding(
+    tmp_path, kind, path, html, expected_text, body_encoding, original_encoding, repeat_encoding
+):
+    body = html.encode(body_encoding)
+    original = ArticleReceipt(
+        receipt_id="original",
+        source="minkabu_news",
+        requested_url=f"https://minkabu.jp{path}",
+        received_at=AT,
+        status="ok",
+        http_status=200,
+        encoding=original_encoding,
+        body_ref=BodyRef(receipt_id="original", sha256=sha256(body).hexdigest()),
+    )
+    repeated = ArticleReceipt(
+        receipt_id="unchanged",
+        source=original.source,
+        requested_url=original.requested_url,
+        received_at=AT + timedelta(hours=1),
+        status="not_modified",
+        http_status=304,
+        encoding=repeat_encoding,
+        body_ref=original.body_ref,
+    )
+    with closing(open_connection(tmp_path / "market.sqlite")) as conn, conn:
+        retain_receipt(conn, original, body=body)
+        retain_receipt(conn, repeated)
+        first_run, (first,) = project_receipt(conn, original.receipt_id, kind=kind)
+        run, observations = project_receipt(conn, repeated.receipt_id, kind=kind)
+        assert first_run.status == run.status == "parsed"
+        (observation,) = observations
+        assert observation.receipt_id == repeated.receipt_id
+        assert observation.receipt_sha256 == repeated.sha256
+        assert observation.body_ref == first.body_ref == original.body_ref
+        assert observation.observation_id != first.observation_id
+        assert observation.article_version_id == first.article_version_id
+        assert observation.title == first.title == "合成記事"
+        assert observation.text == first.text == expected_text
 
 
 @pytest.mark.parametrize("count", [0, 1, 3])
