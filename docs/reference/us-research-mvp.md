@@ -183,7 +183,7 @@ SECが `text/html` で返す索引では、[HTMLで省略可能な外側の終�
 
 ## Nasdaqの公式終値を固定受領から読む
 
-Alpaca SIP経由の終値を使う場合だけ追加する。対象はNasdaq上場（XNAS）で、同一銘柄・株式クラス・NY立会日とその終了時刻を別の証拠で確認済みのもの。[UTPのQ/M](https://www.utpplan.com/DOC/UtpBinaryOutputSpec_3.0.pdf)に当たるNasdaqの無調整公式終値であり、取引所からの直接受領、約定値、統合終値、IEX観測ではない。
+Alpaca SIP経由の終値を使う場合だけ追加する。対象はNasdaq上場（XNAS）で、同一銘柄・株式クラス・NY立会日とその終了時刻を別の証拠で確認済みのもの。[UTPのQ/M](https://www.utpplan.com/DOC/UtpBinaryOutputSpec-4.1b.pdf)に当たるNasdaqの無調整公式終値であり、取引所からの直接受領、約定値、統合終値、IEX観測ではない。
 
 1. 許可済みの取得手段で、`NasdaqOfficialCloseQuery.url()` が作る[Alpaca SIPの要求](https://docs.alpaca.markets/us/reference/stockauctionsingle-1)を使う。単一銘柄、同じNY日内で立会終了を含み、それより後までのUTC秒単位区間、`feed=sip`、`currency=USD`、`asof=-`。実行時に確認した `request_url`・`response_url`（両方とも固定URLと一致）、`status: 200`、`complete: true`、`redirected: false`、全文を受領した `received_at`（`Z` または有効な `±HH:MM`、`-00:00` は不可、小数秒6桁まで）と原本バイト列の `sha256` を受領JSONに残す。応答本文は整形せず別の私有ファイルに保存する。HTTP 200やSHAだけから全文受領・リダイレクト有無を推定せず、欠けた記録は後から補わない。鍵・認証ヘッダーは保存しない。
 2. 要求区間の終端以降かつ情報締切以前に受領した、`next_page_token: null` が明示された同日・同銘柄の応答を使う。引けイベント全体でQ/Mが一つだけで、その発生時刻が立会終了から要求区間の終端まで（両端を含む）にある場合だけ採用する。[合成入力例](../../tests/tools/test_us_research_report_sip.py)のように、`read_nasdaq_official_close` の結果を `sip_official_close_fields` で原稿の `official_close`（`origin: "alpaca_sip_nasdaq_official_close"`）に写す。発生時刻は原文の精度を保持し、全文受領時刻とは分ける。証拠が不足する場合は公式値・比較を埋めず、未確認事項を残す。
