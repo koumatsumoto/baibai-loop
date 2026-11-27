@@ -25,6 +25,9 @@ from baibai_engine.machine_analysis.generation.query import (
     read_generation,
     read_research_model_inputs,
 )
+from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
+    VALUATION_CALCULATION_REVISION,
+)
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     DEFAULT_TTM_RULES,
 )
@@ -107,7 +110,7 @@ def test_profit_vintage_never_changes_the_independent_native_cfo(
     assert (
         financial["ocf_ttm_period"] == _financial(_native()).payload["financial"]["ocf_ttm_period"]
     )
-    assert result.calculation_revision.startswith("continuous-annual-input-v62-")
+    assert result.calculation_revision.startswith(VALUATION_CALCULATION_REVISION + "-")
 
 
 @pytest.mark.parametrize(
