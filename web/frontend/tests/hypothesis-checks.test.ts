@@ -29,15 +29,34 @@ function section(html: string) {
 }
 
 describe('保存評価の個別仮説', () => {
-  it('支持/反証/未確認を全文・元順序・専用引用のまま総合採否から分ける', () => {
+  it('支持/反証/未解決を全文・元順序・専用引用のまま総合採否から分ける', () => {
     const pair = assessment()
     const before = JSON.stringify(pair)
     const html = render(pair)
-    for (const text of ['支持（supported）', '反証（refuted）', '未確認（unresolved）', '作者記録の起点：ユーザー（user）', '作者記録の起点：調査（research）', 'https://example.com/current-hypothesis.pdf', '2026-10-10', '2026-10-11T12:34:56+09:00', '末尾の留保。', '総合的な採否・Reviewerの結論・現在の事実と同一ではなく', 'この命題に記録された引用はありません。', '部分確認', '買付（指値） · buy']) expect(html).toContain(text)
+    for (const text of ['支持（supported）', '反証（refuted）', '未解決（unresolved）', '作者記録の起点：ユーザー（user）', '作者記録の起点：調査（research）', 'https://example.com/current-hypothesis.pdf', '2026-10-10', '2026-10-11T12:34:56+09:00', '末尾の留保。', '総合的な採否・Reviewerの結論・現在の事実と同一ではなく', 'この命題に記録された引用はありません。', '部分確認', '買付（指値） · buy']) expect(html).toContain(text)
     expect(html.indexOf('反証（refuted）')).toBeLessThan(html.indexOf('支持（supported）', html.indexOf('個別仮説の検討結果')))
     expect(html).toContain('&lt;script&gt;未確認&lt;/script&gt;')
     expect(html).not.toContain('<script>')
     expect(JSON.stringify(pair)).toBe(before)
+  })
+
+  it('一次資料の確認結果と命題が未解決であることを分ける', () => {
+    const pair = assessment()
+    const sourceId = 'current-hypothesis-only'
+    const reason = '一次資料の対象範囲を確認したが、記載の違いがあり結論が出ない。'
+    pair.hypothesis_checks = [{
+      statement: '今後の回収額は増えるか。', origin: 'research', result: 'unresolved',
+      reason, source_ids: [sourceId],
+    }]
+    pair.review.primary_source_check = 'verified'
+    pair.review.checked_source_ids = [sourceId]
+    pair.review.checked_sources = pair.hypothesis_sources
+
+    const html = render(pair)
+    expect(section(html)).toContain('未解決（unresolved）')
+    expect(section(html)).toContain(reason)
+    expect(section(html)).toContain('https://example.com/current-hypothesis.pdf')
+    expect(html).toContain('確認済み（verified）')
   })
 
   it.each(['absent', 'null'] as const)('旧表示を総合支持/反対論から補わない: %s', mode => {

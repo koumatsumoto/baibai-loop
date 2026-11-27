@@ -2,7 +2,7 @@ import type { SavedAssessmentView, SavedHypothesisCheckView } from '../api/types
 import { AssessmentSources } from './AssessmentSources'
 
 const RESULT: Record<SavedHypothesisCheckView['result'], string> = {
-  supported: '支持', refuted: '反証', unresolved: '未確認',
+  supported: '支持', refuted: '反証', unresolved: '未解決',
 }
 const ORIGIN: Record<SavedHypothesisCheckView['origin'], string> = {
   user: 'ユーザー', research: '調査',
