@@ -602,6 +602,20 @@ export interface SavedValueRealizationView {
   delay_risk: string
 }
 
+export type USProposalComparisonAmount = string
+
+export interface USProposalComparisonScenarioView {
+  terminal_value_usd_per_share: USProposalComparisonAmount
+  eligible_distributions_usd_per_share: USProposalComparisonAmount
+  difference_from_cash_usd_per_share: USProposalComparisonAmount
+}
+
+export interface USProposalComparisonView {
+  cash_basis: 'same_usd_no_interest_tax_or_fees'
+  base: USProposalComparisonScenarioView
+  downside: USProposalComparisonScenarioView
+}
+
 export interface USProposalIexBandView {
   first_session_et: string
   last_session_et: string
@@ -613,7 +627,7 @@ export interface USProposalIexBandView {
 
 export interface USProposalOfficialCloseView {
   price_usd: string
-  origin: 'listing_exchange'
+  origin: 'listing_exchange' | 'alpaca_sip_nasdaq_official_close'
   observed_at: string
 }
 
@@ -634,6 +648,7 @@ export interface USProposalView {
   official_close: USProposalOfficialCloseView | null
   iex_band: USProposalIexBandView | null
   comparison_horizon_et: string | null
+  comparison: USProposalComparisonView | null
   unresolved: string[]
 }
 

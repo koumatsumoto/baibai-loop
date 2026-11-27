@@ -6,6 +6,8 @@ from datetime import datetime
 from baibai_engine.investment_judgment.us_proposal import USProposal, load_latest_us_proposal
 from baibai_web.readmodel.us_proposal_models import (
     LatestUSProposalView,
+    USProposalComparisonScenarioView,
+    USProposalComparisonView,
     USProposalIexBandView,
     USProposalOfficialCloseView,
     USProposalView,
@@ -15,6 +17,20 @@ from baibai_web.readmodel.us_proposal_models import (
 def _project(record: USProposal) -> USProposalView:
     decision, analysis = record.decision, record.analysis.draft
     close, band, comparison = analysis.official_close, analysis.iex_band, analysis.comparison
+    comparison_view = None
+    if comparison is not None:
+        assert close is not None
+        base, downside = (
+            USProposalComparisonScenarioView(
+                terminal_value_usd_per_share=scenario.terminal_value_usd_per_share,
+                eligible_distributions_usd_per_share=scenario.eligible_distributions_usd_per_share,
+                difference_from_cash_usd_per_share=scenario.difference_from_cash(close.price_usd),
+            )
+            for scenario in (comparison.base, comparison.downside)
+        )
+        comparison_view = USProposalComparisonView(
+            cash_basis=comparison.cash_basis, base=base, downside=downside
+        )
     return USProposalView(
         proposal_id=decision.proposal_id,
         draft_sha256=record.review.draft_sha256,
@@ -32,7 +48,7 @@ def _project(record: USProposal) -> USProposalView:
         official_close=None
         if close is None
         else USProposalOfficialCloseView(
-            price_usd=close.price_usd, origin="listing_exchange", observed_at=close.observed_at
+            price_usd=close.price_usd, origin=close.origin, observed_at=close.observed_at
         ),
         iex_band=None
         if band is None
@@ -45,6 +61,7 @@ def _project(record: USProposal) -> USProposalView:
             last_usd=band.last_usd,
         ),
         comparison_horizon_et=None if comparison is None else comparison.horizon_et,
+        comparison=comparison_view,
         unresolved=list(analysis.unresolved),
     )
 

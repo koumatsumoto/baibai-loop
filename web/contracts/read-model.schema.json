@@ -3887,6 +3887,52 @@
       "title": "SavedValueRealizationView",
       "type": "object"
     },
+    "USProposalComparisonAmount": {
+      "pattern": "^-?\\d+(?:\\.\\d+)?(?:E[+-]?\\d+)?$",
+      "type": "string"
+    },
+    "USProposalComparisonScenarioView": {
+      "properties": {
+        "terminal_value_usd_per_share": {
+          "$ref": "#/$defs/USProposalComparisonAmount"
+        },
+        "eligible_distributions_usd_per_share": {
+          "$ref": "#/$defs/USProposalComparisonAmount"
+        },
+        "difference_from_cash_usd_per_share": {
+          "$ref": "#/$defs/USProposalComparisonAmount"
+        }
+      },
+      "required": [
+        "terminal_value_usd_per_share",
+        "eligible_distributions_usd_per_share",
+        "difference_from_cash_usd_per_share"
+      ],
+      "title": "USProposalComparisonScenarioView",
+      "type": "object"
+    },
+    "USProposalComparisonView": {
+      "properties": {
+        "cash_basis": {
+          "const": "same_usd_no_interest_tax_or_fees",
+          "title": "Cash Basis",
+          "type": "string"
+        },
+        "base": {
+          "$ref": "#/$defs/USProposalComparisonScenarioView"
+        },
+        "downside": {
+          "$ref": "#/$defs/USProposalComparisonScenarioView"
+        }
+      },
+      "required": [
+        "cash_basis",
+        "base",
+        "downside"
+      ],
+      "title": "USProposalComparisonView",
+      "type": "object"
+    },
     "USProposalIexBandView": {
       "properties": {
         "first_session_et": {
@@ -3938,7 +3984,10 @@
           "type": "string"
         },
         "origin": {
-          "const": "listing_exchange",
+          "enum": [
+            "listing_exchange",
+            "alpaca_sip_nasdaq_official_close"
+          ],
           "title": "Origin",
           "type": "string"
         },
@@ -4055,6 +4104,16 @@
           ],
           "title": "Comparison Horizon Et"
         },
+        "comparison": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/USProposalComparisonView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "unresolved": {
           "items": {
             "type": "string"
@@ -4080,6 +4139,7 @@
         "official_close",
         "iex_band",
         "comparison_horizon_et",
+        "comparison",
         "unresolved"
       ],
       "title": "USProposalView",
