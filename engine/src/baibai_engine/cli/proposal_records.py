@@ -9,6 +9,7 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
+from baibai_engine.investment_judgment.draft_files import parse_authored_yaml
 from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
     HumanProposalReport,
     HumanProposalReportDraft,
@@ -18,7 +19,6 @@ from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
 )
 from baibai_engine.investment_judgment.trade_proposal.records import ProposalRecordService
 from baibai_engine.primitives.json import canonical_json
-from baibai_engine.primitives.yaml import strict_safe_load
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -45,24 +45,25 @@ def main(argv: list[str] | None = None) -> int:
             payload = service.read(args.proposal_id)
         else:
             try:
-                raw = strict_safe_load(args.draft.read_text(encoding="utf-8"))
-            except (yaml.YAMLError, ValueError):
-                # Duplicate-key diagnostics can include private draft text.
-                print("error: invalid proposal record YAML", file=sys.stderr)
-                return 3
+                text = args.draft.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                raise ValueError("invalid proposal record YAML") from None
+            raw = parse_authored_yaml(text, label="proposal record")
+            try:
+                document = canonical_json(raw)
+            except (TypeError, ValueError):
+                raise ValueError("invalid proposal record schema") from None
             record: ProposalCorrection | HumanProposalReport
             if args.command == "correct":
                 record = service.correct(
-                    ProposalCorrectionDraft.model_validate_json(canonical_json(raw)),
+                    ProposalCorrectionDraft.model_validate_json(document),
                     expected_latest_ref=ProposalReference(
                         proposal_id=args.expected_latest_id,
                         draft_sha256=args.expected_latest_sha256,
                     ),
                 )
             else:
-                record = service.report(
-                    HumanProposalReportDraft.model_validate_json(canonical_json(raw))
-                )
+                record = service.report(HumanProposalReportDraft.model_validate_json(document))
             payload = record.model_dump(mode="json")
         print(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
         return 0

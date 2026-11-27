@@ -13,9 +13,18 @@ from baibai_engine.cli.app import main
 
 
 @pytest.mark.parametrize("command", ["correct", "report"])
-def test_malformed_proposal_record_yaml_does_not_expose_private_input(tmp_path, capsys, command):
+@pytest.mark.parametrize(
+    "invalid_document",
+    [
+        pytest.param(b"statement: [SYNTHETIC_PRIVATE_CONTENT\n", id="yaml-syntax"),
+        pytest.param(b"statement: SYNTHETIC_PRIVATE_CONTENT\xff\n", id="text-encoding"),
+    ],
+)
+def test_malformed_proposal_record_yaml_does_not_expose_private_input(
+    tmp_path, capsys, command, invalid_document
+):
     draft = tmp_path / "日本語 draft.yaml"
-    draft.write_text("statement: [SYNTHETIC_PRIVATE_CONTENT\n", encoding="utf-8")
+    draft.write_bytes(invalid_document)
     db = tmp_path / "app.sqlite"
     args = [
         "investment-judgment",
@@ -85,12 +94,23 @@ def test_ambiguous_proposal_record_draft_is_rejected_before_save(
     assert service.read(other.proposal_id) == {"corrections": [], "human_reports": []}
 
 
-@pytest.mark.parametrize("command", ["correct", "report", "show"])
+@pytest.mark.parametrize(
+    ("command", "shape"),
+    [
+        ("correct", "mapping"),
+        ("report", "mapping"),
+        ("show", "mapping"),
+        ("correct", "binary"),
+        ("report", "binary"),
+    ],
+)
 def test_proposal_record_schema_error_does_not_repeat_private_fields(
-    records_case, tmp_path, capsys, command
+    records_case, tmp_path, capsys, command, shape
 ):
     case, original, other, service, correction = records_case
-    private = {"note": "SYNTHETIC_PRIVATE_RECORD_TEXT"}
+    # YAML can serialize both a mapping and a binary scalar; neither is valid note text.
+    text = "SYNTHETIC_PRIVATE_RECORD_TEXT"
+    private = text.encode() if shape == "binary" else {"note": text}
     guard = []
     if command == "show":
         # Deliberately corrupt a synthetic saved receipt, rather than passing a draft.
