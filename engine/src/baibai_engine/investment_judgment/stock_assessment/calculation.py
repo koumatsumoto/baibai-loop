@@ -241,13 +241,19 @@ def calculate(inputs: CalculationInput) -> dict[str, object]:
     if inputs.price_comparison is not None:
         result_payload["price_comparison_numbers"] = _price_comparison(inputs)
         if terms := inputs.price_comparison.waiting_terms:
+            sources = {source.source_id: source for source in snapshot.sources}
             if price_fact.observed_at is not None and (
                 price_fact.observed_at.astimezone(JST).date() != price_fact.as_of
-                or price_fact.postdates_cited_retrievals(
-                    {source.source_id: source for source in snapshot.sources}
-                )
+                or price_fact.postdates_cited_retrievals(sources)
             ):
                 raise ValueError("waiting reference observation contradicts its date or retrieval")
+            if (
+                price_fact.as_of <= snapshot.as_of
+                and price_fact.date_only_close_postdates_cited_retrievals(sources)
+            ):
+                raise ValueError(
+                    "waiting reference close date postdates all cited source retrievals"
+                )
             result_payload["waiting_paths"] = waiting_paths(
                 terms,
                 reference_price=price,
