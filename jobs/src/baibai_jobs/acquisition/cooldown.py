@@ -84,6 +84,7 @@ def extend(store: ObjectStore, key: str, deadline: datetime) -> None:
             actual, _ = read_deadline(store, key)
             if actual is None or actual < deadline:
                 raise CooldownError("cooldown write incomplete") from None
+            return
     actual, _ = read_deadline(store, key)
     if actual is None or actual < deadline:
         raise CooldownError("cooldown readback mismatch")

@@ -54,6 +54,11 @@ _PRICE_NARRATIVE_HEADING = "算定の基礎"
 # varies across filings ("株券", "株券普通株式", "株券対象者株式"); the amount is
 # sometimes preceded by 金 and sometimes not. The 円 suffix is required.
 _PER_SHARE_PRICE = re.compile(r"[１1]株につき[、,\s　]*金?[\s　]*(?P<yen>[0-9][0-9,]*)円")
+# Match a class at the end of this price's prefix, with at most one attached note.
+# Do not treat a label in an earlier unpriced row as the priced share class.
+_SHARE_CLASS = re.compile(
+    r"(普通株式|優先株式)(?:\s*(?:\([^()（）\r\n]*\)|（[^()（）\r\n]*）))?[\s:：]*\Z"
+)
 # The condition clause states what would happen if the floor were missed ("行わない旨の
 # 条件"), so only the polite form that reports what did happen is read. Filings write the
 # act as either 買付け or 買付け等.
@@ -136,20 +141,26 @@ class TenderOfferExitSummary:
 def parse_ordinary_share_offer_price(blocks: Mapping[str, str]) -> float | None:
     """Read the single per-share cash price from the offer table, or nothing at all.
 
-    Returns ``None`` when the block is absent, when the table quotes more than one
-    distinct per-share price — two classes of share, or a price the filing revised in
-    place — or when a price carries sub-yen units an integer reading would truncate.
+    An explicitly priced preferred class cannot stand in for ordinary shares, even
+    when no other numeric price appears. A single unlabelled share price is supported.
+    Distinct prices or sub-yen units still leave the single exit price unverified.
     """
     text = _block(blocks, _PRICE_BLOCK_SUFFIX)
     if not text:
         return None
     table = text.split(_PRICE_NARRATIVE_HEADING, 1)[0]
     prices: set[int] = set()
+    classes: set[str] = set()
+    previous_end = 0
     for match in _PER_SHARE_PRICE.finditer(table):
         if _SUB_YEN_UNIT.match(table[match.end() :]):
             return None
         prices.add(int(match.group("yen").replace(",", "")))
-    if len(prices) != 1:
+        share_class = _SHARE_CLASS.search(table, previous_end, match.start())
+        previous_end = match.end()
+        if share_class is not None:
+            classes.add(share_class.group(1))
+    if len(prices) != 1 or classes == {"優先株式"}:
         return None
     price = prices.pop()
     return float(price) if price > 0 else None

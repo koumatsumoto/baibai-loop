@@ -21,6 +21,20 @@ from baibai_engine.machine_analysis.observations.economic_indicators.observation
 )
 
 SOURCE_URL = "https://example.com/data.csv"
+_MULTPL_MONTHS = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+]
 
 
 def series_definition(
@@ -217,6 +231,11 @@ __all__ = [
 ]
 
 
+def multpl_date_text(observed_at: date) -> str:
+    """Fake the provider's English date bytes, not the host's LC_TIME."""
+    return f"{_MULTPL_MONTHS[observed_at.month - 1]} {observed_at.day}, {observed_at.year:04d}"
+
+
 def _store_multpl_earnings_yield(database: Path, observed_at: date, value_text: str) -> None:
     """Seed the native table row read by the derived ERP tests, not an obsolete scalar."""
     series = load_definitions().by_id()["us.sp500_earnings_yield"]
@@ -228,7 +247,7 @@ def _store_multpl_earnings_yield(database: Path, observed_at: date, value_text: 
             fetched_at=datetime(observed_at.year, observed_at.month, observed_at.day, tzinfo=UTC),
             records=[
                 {
-                    "date_text": f"{observed_at:%b} {observed_at.day}, {observed_at.year}",
+                    "date_text": multpl_date_text(observed_at),
                     "value_text": value_text,
                     "table_row": 1,
                 }

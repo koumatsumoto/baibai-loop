@@ -22,7 +22,7 @@ def source_zip(doc_id="S100YR5P", replace=None):
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
         for path in FIXTURES.glob(doc_id + "*"):
-            text = path.read_text()
+            text = path.read_text(encoding="utf-8")
             for old, new in (replace or {}).items():
                 text = text.replace(old, new)
             archive.writestr("XBRL/PublicDoc/" + path.name, text)

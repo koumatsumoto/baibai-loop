@@ -19,7 +19,14 @@ _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
-_HISTORY_DATE_FORMAT = "%b %d, %Y"
+# The provider emits English month abbreviations, independent of the host's LC_TIME.
+_HISTORY_NUMERIC_DATE_FORMAT = "%m %d, %Y"
+_MONTH_NUMBERS = {
+    name: number
+    for number, name in enumerate(
+        ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1
+    )
+}
 _HISTORY_FLOOR_BY_SLUG = {
     "shiller-pe": date(1871, 2, 1),
     "s-p-500-pe-ratio": date(1871, 1, 1),
@@ -78,7 +85,7 @@ def parse_multpl_table(
     dated_rows: list[tuple[date, dict[str, object]]] = []
     for index, (raw_date, raw_value, cell_annotations) in enumerate(parser.rows):
         try:
-            observed_at = date.strptime(raw_date.strip(), _HISTORY_DATE_FORMAT)
+            observed_at = _history_date(raw_date)
         except ValueError as exc:
             raise IndicatorsProviderError(
                 f"multpl: invalid table date for {series.provider_series_id}: {raw_date!r}"
@@ -119,6 +126,14 @@ def parse_multpl_table(
         if start <= observed_at <= end:
             records.setdefault(observed_at, []).append(row)
     return records
+
+
+def _history_date(text: str) -> date:
+    value = text.strip()
+    month = _MONTH_NUMBERS.get(value[:3].lower())
+    if month is None:
+        raise ValueError("expected an English abbreviated month")
+    return date.strptime(f"{month:02d}{value[3:]}", _HISTORY_NUMERIC_DATE_FORMAT)
 
 
 class _MultplTableParser(HTMLParser):
