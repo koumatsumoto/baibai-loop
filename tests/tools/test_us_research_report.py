@@ -608,6 +608,23 @@ def test_formal_us_perspectives_are_independently_bound_before_web_materializati
             "summary": "合成例：対象期に対応する独立した予想は確認できなかった。",
             "sources": [],
         },
+        {
+            "model": "industry_trends",
+            "assessment": "supportive",
+            "summary": "合成例：設備投資の増加がこの会社の受注に結びついた。",
+            "sources": [
+                {
+                    "label": "合成10-Q Item 2 設備投資需要別の受注",
+                    "observed_at": "2025-11-27T18:00:00Z",
+                }
+            ],
+        },
+        {
+            "model": "social_trends",
+            "assessment": "not_applicable",
+            "summary": "合成例：確認した制度変更は対象事業に適用されない。",
+            "sources": [],
+        },
     ]
     decision_path = _write(tmp_path / "decision.json", decision)
     binding = _review_decision(analysis, decision_path, capsys)
@@ -625,7 +642,7 @@ def test_formal_us_perspectives_are_independently_bound_before_web_materializati
     ):
         changed = {
             **decision,
-            "model_perspectives": [replacement, decision["model_perspectives"][1]],
+            "model_perspectives": [replacement, *decision["model_perspectives"][1:]],
         }
         _write(Path(decision_path), changed)
         assert main(["proposal-save", analysis, decision_path, review_path, "--db", str(db)]) == 2
@@ -651,6 +668,8 @@ def test_formal_us_perspectives_are_independently_bound_before_web_materializati
     assert served["official_close"] is None
     # No unsupplied row or direction is inferred, even though the IEX band exists.
     assert served["model_perspectives"] == expected
+    assert "market_context" not in {row["model"] for row in served["model_perspectives"]}
+    assert "estimated_model_chart" not in served
     for private in ("https://", "合成の収益継続仮説", "synthetic decision peer"):
         assert private not in payload
 

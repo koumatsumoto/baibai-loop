@@ -123,6 +123,8 @@ ADVの平均と同じ窓の中央値・有効観測数を併読し、一日の�
 
 待機では逃す利益と保持cash・他機会・回避損失・追加情報を比較する。悪材料時の逆選択/event gapも考え、約定率×Base利益だけで選ばない。価値織込済みの毀損をpenaltyへ重ねず、機会損失を事後最高値としない。ADV/日足から板・queue・impact・精密約定率を創作せず、`low <= limit`も約定保証にしない。確率には[根拠・幅・感応度](../doctrine.md#fact-analysis-separation)を示す。
 
+次の立会・待機期限にかかる決算や重要イベントが判断に影響し得るなら、対象企業のIRで予定日・時刻（未定なら未定）を確認する。再確認する原典と、買う・待つ・見送るを変える条件は `review_conditions` に記す。[JPXの決算予定](https://www.jpx.co.jp/listing/event-schedules/financial-announcement/)は調査の起点で、掲載がなくても発表予定なしとはみなさない。規制表を受領しただけでは現在の取引可否を確認したことにならない。
+
 <a id="wait-paths"></a>
 **今買う・安い指値で待つ・現金のままを同じ元手で比べる。** 任意の `investment-judgment calculate <INPUT>` で、確定形の評価入力に次の区画を加える。架空例は2単元のうち1単元だけ成立する場合も比べる。1単元なら `partial_fill_quantity` は省く。
 

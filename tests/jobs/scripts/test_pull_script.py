@@ -43,6 +43,11 @@ def test_pull_prepares_market_before_reporting_success(tmp_path: Path) -> None:
         assert calls.read_text().splitlines() == expected
         assert result.returncode == (7 if failure else 0)
         assert ("market hydrated" in result.stdout) is (not failure)
+        if failure == "pull-indicators":
+            assert "Market/Runs are already updated" in result.stderr
+            assert "jobs/scripts/r2_transfer.sh pull-indicators" in result.stderr
+        else:
+            assert result.stderr == ""
 
 
 @pytest.mark.parametrize(

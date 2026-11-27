@@ -222,6 +222,26 @@ it('distinguishes a real zero-row App from missing, malformed, or unavailable hi
   }
 })
 
+it.each<[string, Partial<LatestUSProposalView>]>([
+  ['no generation clock', { generated_at: undefined }],
+  ['invalid generation clock', { generated_at: 'unknown' }],
+  ['unqualified generation clock', { generated_at: '2026-11-28T18:00:00' }],
+  ['latest error', { error: 'projection failed' }],
+  ['history error', { history: { ...fixture.history, status: 'empty', error: 'projection failed' } }],
+])('does not claim the App has no saved decisions with %s', (_case, damaged) => {
+  const empty: LatestUSProposalView = {
+    ...fixture, status: 'empty', proposal: null,
+    history: { ...fixture.history, status: 'empty' },
+  }
+  const data = { ...empty, ...damaged }
+  for (const query of ['', previousQuery]) {
+    const html = combined(data, query)
+    expect(html).toContain('米国株の判断を読み取れません')
+    expect(html).not.toContain('保存済みの米国株の判断はありません')
+    expect(html).not.toContain('projection failed')
+  }
+})
+
 it('retains a separately readable latest only on the unselected landing page when history cannot be read', () => {
   for (const data of [
     { ...snapshot, history: { ...fixture.history, status: 'unavailable', has_more: null } } as LatestUSProposalView,

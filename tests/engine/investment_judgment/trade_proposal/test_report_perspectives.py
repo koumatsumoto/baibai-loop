@@ -86,8 +86,12 @@ def test_exact_scope_clock_and_author_priority_without_a_latest_fallback():
     _put(s, "external_assessment", _external())
     _put(s, "technical_analysis", _technical())
     rows = _estimate(s, recorded={"company_growth"})
-    assert len(rows) == 6
-    assert "company_growth" not in rows
+    assert set(rows) == {
+        "company_financials",
+        "market_context",
+        "external_assessment",
+        "technical_analysis",
+    }
     assert rows["external_assessment"]["assessment"] == "context_only"
     assert rows["external_assessment"]["source_url"].startswith("https://scouter.monex.co.jp/")
     assert "外部試算（PER方式、利益は発行会社の予想）" in rows["external_assessment"]["summary"]
@@ -172,7 +176,7 @@ def test_quarter_growth_is_difference_not_ratio_recovery_and_no_cherry_picking()
     assert _estimate(s)["company_growth"]["assessment"] == "insufficient"
 
 
-def test_sector_origin_and_context_only_household_observation_no_investment_vote():
+def test_macro_and_peer_prices_remain_observations_without_filling_research_perspectives():
     s = _sel()
     p = {
         "master": {"sector_33": "合成業"},
@@ -219,14 +223,35 @@ def test_sector_origin_and_context_only_household_observation_no_investment_vote
     assert r["market_context"]["assessment"] == "context_only"
     assert "1321の終値・20本前比 +0.0%" in r["market_context"]["summary"]
     assert "市場全体の方向" not in r["market_context"]["summary"]
-    assert r["industry_trends"]["assessment"] == r["social_trends"]["assessment"] == "context_only"
-    assert "中央値 +0.0%" in r["industry_trends"]["summary"]
-    assert "ポイント" not in r["industry_trends"]["summary"]
-    assert "2026年08月" in r["social_trends"]["summary"]
+    assert "2026年08月" in r["market_context"]["summary"]
+    assert "3%" in r["market_context"]["summary"]
+    assert "市場環境：reading.series / jp.cpi.core_yoy" in r["market_context"]["evidence"]
+    assert r["market_context"]["observed_on"] == date(2026, 10, 19)  # Benchmark's date.
+    assert r["technical_analysis"]["assessment"] == "context_only"  # Peers alone set no direction.
+    assert "中央値 +0.0%" in r["technical_analysis"]["summary"]
+    assert "ポイント" not in r["technical_analysis"]["summary"]
+    assert not {"industry_trends", "social_trends"} & r.keys()
+    # The financial/macro price inputs are retained; the projections cannot change the Selection.
+    before = deepcopy(s)
+    _put(s, "technical_analysis", _technical())
+    with_own_price = deepcopy(s)
+    r = _estimate(s)
+    assert r["technical_analysis"]["assessment"] == "mixed"
+    assert "2026-09-17〜2026-10-19" in r["technical_analysis"]["summary"]
+    assert "直近1か月を除く12か月モメンタム" in r["technical_analysis"]["summary"]
+    assert "売買" not in r["technical_analysis"]["summary"]
+    assert s == with_own_price
+    assert s["inputs"]["generation"]["models"][:-1] == before["inputs"]["generation"]["models"]
+    # Recorded judgments are never supplemented, and the macro/peer measures cannot fill their gaps.
+    r = _estimate(s, recorded={"market_context", "technical_analysis"})
+    assert set(r) == {"company_financials", "company_growth", "external_assessment"}
     p["master"]["sector_33"] = "他業種"
     m["vintage_at"] = LATE
     r = _estimate(s)
-    assert r["industry_trends"]["assessment"] == r["social_trends"]["assessment"] == "insufficient"
+    assert "2026年08月" not in r["market_context"]["summary"]
+    assert "中央値" not in r["technical_analysis"]["summary"]
+    assert not {"industry_trends", "social_trends"} & r.keys()
+    assert _estimate(s, recorded=set(r)) is None
 
 
 @pytest.mark.parametrize(("short", "long"), [(-0.025, -0.13), (0.023, -0.13), (0.0, 0.0)])
@@ -257,7 +282,7 @@ def test_market_proxy_keeps_fixed_values_without_a_second_judgment(short, long):
     assert chart["input_known_at"].isoformat() == CUT
     assert chart["selection_sha256"] == HASH
     assert chart["generation_id"] == "frozen"
-    assert len(chart["rows"]) == 7
+    assert len(chart["rows"]) == 5
     assert _estimate(s, recorded={"market_context"}) == {
         r["model"]: r for r in chart["rows"] if r["model"] != "market_context"
     }
@@ -290,7 +315,7 @@ def test_sector_gap_uses_its_recorded_endpoints_not_the_market_calendar(excess, 
             },
         },
     )
-    row = _estimate(s)["industry_trends"]
+    row = _estimate(s)["technical_analysis"]
     assert row["assessment"] == "context_only"
     assert "2026-08-17〜2026-10-19" in row["summary"]
     assert "20立会" not in row["summary"]
@@ -411,13 +436,19 @@ def test_known_monetary_fact_not_its_future_plan_or_other_issuer_claim():
         ]
     }
     _put(s, "social_trends", p, "market:global")
-    r = _estimate(s)["social_trends"]
+    readings = _estimate(s)
+    assert "social_trends" not in readings
+    r = readings["market_context"]
     assert r["assessment"] == "context_only"
+    assert "2026-09-18" in r["summary"]
     assert "1.25%" in r["summary"]
     assert "9.99" not in r["summary"]
     assert r["source_url"] == "https://www.boj.or.jp/"
+    assert r["observed_on"] == date(2026, 9, 18)
     p["observations"][0]["evidence"]["received_at"] = LATE
-    assert _estimate(s)["social_trends"]["assessment"] == "insufficient"
+    readings = _estimate(s)
+    assert "social_trends" not in readings
+    assert readings["market_context"]["assessment"] == "insufficient"
 
 
 def test_industry_claim_itself_must_belong_to_the_fixed_subject_and_sample():
@@ -449,11 +480,12 @@ def test_industry_claim_itself_must_belong_to_the_fixed_subject_and_sample():
         ]
     }
     _put(s, "industry_trends", p, "industry:example")
-    assert _estimate(s)["industry_trends"]["assessment"] == "insufficient"
+    assert "industry_trends" not in _estimate(s)
     claim["scope"]["scope_id"] = "example"
     r = _estimate(s)["industry_trends"]
     assert r["assessment"] == "context_only"
     assert "21社" in r["summary"]
+    assert "industry_trends" not in _estimate(s, recorded={"industry_trends"})
 
 
 def test_consensus_target_is_not_attributed_to_the_company_profit_forecast():

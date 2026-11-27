@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time
 from typing import Any, Literal
 from urllib.parse import urlsplit
@@ -26,15 +26,14 @@ MODELS = (
     "industry_trends",
     "social_trends",
 )
-_GAPS = (
-    "同じ企業の実績利益・営業キャッシュフローを期間付きで確認できません。",
-    "当該企業の直近の前年同期比較を同一基準で確認できません。",
-    "基準日の市場代理指数の騰落を確認できません。",
-    "取得時刻と銘柄を照合できる外部の目標株価・算定値がありません。",
-    "対象銘柄の日付と価格変化を確認できません。",
-    "対象業種に結びつく実体調査または同業の株価観測を確認できません。",
-    "社会動向に関する決定済み事実または時点付きの公的な家計指標を確認できません。",
-)
+# L2観測の欠測と、必要時だけ調べるL3観点の未記録を区別する。
+_OBSERVATION_GAPS = {
+    "company_financials": "同じ企業の実績利益・営業キャッシュフローを期間付きで確認できません。",
+    "company_growth": "当該企業の直近の前年同期比較を同一基準で確認できません。",
+    "market_context": "市場代理の騰落や時点の合う経済観測を確認できません。",
+    "external_assessment": "取得時刻と銘柄を照合できる外部の目標株価・算定値がありません。",
+    "technical_analysis": "対象銘柄または同業の価格観測を確認できません。",
+}
 
 
 def _obj(x: object) -> Row:
@@ -90,6 +89,20 @@ class Reading:
     evidence: str
     observed_on: date | None
     source_url: str | None = None
+
+
+def _with_context(primary: Reading | None, context: Reading | None) -> Reading | None:
+    """付記の観測期間を本文に残し、主観測の方向・日付を変更しない。"""
+    if primary is None:
+        return context
+    if context is None:
+        return primary
+    return replace(
+        primary,
+        summary=f"{primary.summary} {context.summary}",
+        evidence=f"{primary.evidence}／{context.evidence}",
+        source_url=primary.source_url or context.source_url,
+    )
 
 
 def _link(raw: object, *trusted_hosts: str) -> str | None:
@@ -348,7 +361,7 @@ def _growth(g: Row, legacy: Row, limit: date) -> Reading | None:
     )
 
 
-def _market(m: Row, limit: date) -> Reading | None:
+def _market_proxy(m: Row, limit: date) -> Reading | None:
     points = [
         (_day(v.get("observation_date"), limit), v)
         for v in _rows(m.get("points"))
@@ -511,7 +524,7 @@ def _article(
                 day,
                 Reading(
                     "context_only",
-                    f"{c['attribution']}：{phrase} "
+                    f"{day} {c['attribution']}：{phrase} "
                     f"{'約' if q.get('approximate') else ''}{amount:g}%{note}",
                     f"{c['attribution']}・保存記事 {ref['observation_sha256'][:12]}"
                     f"（受領 {stamp.isoformat()}）",
@@ -523,7 +536,7 @@ def _article(
     return max(valid, key=lambda x: x[0])[1] if valid else None
 
 
-def _households(market: Row, limit: date, cutoff: datetime) -> Reading | None:
+def _household_economy(market: Row, limit: date, cutoff: datetime) -> Reading | None:
     """A retained national household statistic is a context, not a company-specific verdict."""
     series = _rows(_at(market, "reading", "series"))
     for key, label, unit, display in (
@@ -551,13 +564,13 @@ def _households(market: Row, limit: date, cutoff: datetime) -> Reading | None:
             "context_only",
             f"{day:%Y年%m月}の{label}は{value:g}{display}。家計環境の補助観測。"
             "この会社の値上げ・販売量・利益への影響は未確認です。",
-            f"市場モデルに保存された社会統計：{key}（{receipt}、対象月の月初表記）",
+            f"市場環境：reading.series / {key}（{receipt}、対象月の月初表記）",
             day,
         )
     return None
 
 
-def _industry(sec: Row, limit: date) -> Reading | None:
+def _sector_price(sec: Row, limit: date) -> Reading | None:
     peer = _obj(_at(sec, "relative", "sector"))
     sector = _at(sec, "master", "sector_33")
     start, end = (
@@ -586,7 +599,7 @@ def _industry(sec: Row, limit: date) -> Reading | None:
         "context_only",
         f"市場で見る{sector}（{start}〜{end}）：自社を除く{n}社の価格騰落の中央値 {val:+.1%}。"
         f"{comparison}業種の価格動向で、事業の需要・採算を実測したものではありません。",
-        "業種の補助観測：個社market_context.relative.sector（業界実体調査とは別）",
+        "テクニカルの補助観測：個社market_context.relative.sector（業界実体調査とは別）",
         end,
     )
 
@@ -754,27 +767,35 @@ def estimate_missing(
             cash_flow_limit(sec, ticker=ticker, as_of=target.model_as_of),
         ),
         _growth(growth, legacy, limit),
-        _market(_obj(global_market.get("market")), limit),
+        _with_context(
+            _market_proxy(_obj(global_market.get("market")), limit),
+            _article(
+                model("social_trends", "market:global"),
+                "social",
+                "jp-monetary-policy",
+                limit,
+                cutoff,
+            )
+            or _household_economy(global_market, limit, cutoff),
+        ),
         _external(ext, ticker, limit, cutoff),
-        _technical(technical, sec, limit),
-        max(industry_facts, key=lambda r: r.observed_on or date.min)
-        if industry_facts
-        else _industry(sec, limit),
-        _article(
-            model("social_trends", "market:global"), "social", "jp-monetary-policy", limit, cutoff
-        )
-        or _households(global_market, limit, cutoff),
+        _with_context(_technical(technical, sec, limit), _sector_price(sec, limit)),
+        max(industry_facts, key=lambda r: r.observed_on or date.min) if industry_facts else None,
+        None,  # 社会動向の作者判断に、市場統計や政策決定を自動で代入しない。
     )
     rows = []
-    for m, reading, gap in zip(MODELS, readings, _GAPS, strict=True):
+    for m, r in zip(MODELS, readings, strict=True):
         if m in recorded:
             continue
-        r = reading or Reading(
-            "insufficient",
-            gap,
-            "当該提案の固定入力内にある、時点・対象を照合できた根拠に限定",
-            None,
-        )
+        if r is None:
+            if (gap := _OBSERVATION_GAPS.get(m)) is None:
+                continue
+            r = Reading(
+                "insufficient",
+                gap,
+                "当該提案の固定入力内にある、時点・対象を照合できた根拠に限定",
+                None,
+            )
         rows.append(
             {
                 "model": m,
@@ -785,4 +806,4 @@ def estimate_missing(
                 "source_url": r.source_url,
             }
         )
-    return {**chart, "rows": rows}
+    return {**chart, "rows": rows} if rows or "monex_fiscal_eps" in chart else None

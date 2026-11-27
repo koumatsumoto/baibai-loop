@@ -81,7 +81,7 @@ gh workflow run cloud-batch-watchdog.yml --ref main -f "check_date=${ASOF:?対�
 uv run baibai-jobs snapshots resolve --mirror stores --bucket baibai-stores --format json
 ```
 
-現在のmarket・runs・経済の作業copyを一括で用意するのは `jobs/scripts/pull.sh`。Machineは同じ現行ポインタに固定した両DBとLakeを検証し、Marketをhydrateした後で両作業DBを置き換える。Machineの検証・hydrateが失敗した場合は作業DBを置換しない。経済の取得はMachineの準備に成功してから行う。applicationは`pull-app`で取得する。歴史の固定入力を現在のcopyへ付け替えない。
+現在のmarket・runs・経済の作業copyを一括で用意するのは `jobs/scripts/pull.sh`。Machineは同じ現行ポインタに固定した両DBとLakeを検証し、Marketをhydrateした後で両作業DBを置き換える。Machineの検証・hydrateが失敗した場合は作業DBを置換しない。経済の取得はMachineの準備に成功してから行う。経済の取得で止まった場合、Market/Runsは反映済み。同じ組で続けるなら、案内された `jobs/scripts/r2_transfer.sh pull-indicators` だけを再実行する。applicationは`pull-app`で取得する。歴史の固定入力を現在のcopyへ付け替えない。
 
 <a id="local-release-hydrate"></a>
 ### 完全local mirrorからのhydrate
