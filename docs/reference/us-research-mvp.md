@@ -187,6 +187,10 @@ SECが `text/html` で返す索引では、[HTMLで省略可能な外側の終�
 
 Alpaca SIP経由の終値を使う場合だけ追加する。対象はNasdaq上場（XNAS）で、同一銘柄・株式クラス・NY立会日とその終了時刻を別の証拠で確認済みのもの。[UTPのQ/M](https://www.utpplan.com/DOC/UtpBinaryOutputSpec-4.1b.pdf)に当たるNasdaqの無調整公式終値であり、取引所からの直接受領、約定値、統合終値、IEX観測ではない。
 
+**SIPを取得してよいかは、価格の検証より先に確認する。** Alpacaの[Paper Only口座の説明](https://docs.alpaca.markets/us/docs/paper-trading)では、受領・利用できるのはIEXのデータだけ。[一般の市場データFAQ](https://docs.alpaca.markets/us/docs/market-data-faq)が説明する「履歴の終了時刻が15分以上前」という条件は、その口座にSIPの利用を許すものではない。利用する口座・用途でSIPの許諾が確認できない場合はSIPを取得せず、IEX日足を調査用観測としてだけ使う。別途確認できた上場取引所の公式終値もなければ、公式終値とそれを使う比較は空欄にする。
+
+[銘柄別のオークションAPI](https://docs.alpaca.markets/us/reference/stockauctionsingle-1)はSIP専用。通信成功と、その価格を第三者に表示できるかは別である。[Alpacaの再配布方針](https://alpaca.markets/support/redistribute-alpaca-api)に従い、配信先・用途に対応する許諾が確認できない限り、取得した価格や原本を第三者に配信しない。認証付きWebであっても、認証がその許諾の代わりにはならない。
+
 1. 許可済みの取得手段で、`NasdaqOfficialCloseQuery.url()` が作る[Alpaca SIPの要求](https://docs.alpaca.markets/us/reference/stockauctionsingle-1)を使う。単一銘柄、同じNY日内で立会終了を含み、それより後までのUTC秒単位区間、`feed=sip`、`currency=USD`、`asof=-`。実行時に確認した `request_url`・`response_url`（両方とも固定URLと一致）、`status: 200`、`complete: true`、`redirected: false`、全文を受領した `received_at`（`Z` または有効な `±HH:MM`、`-00:00` は不可、小数秒6桁まで）と原本バイト列の `sha256` を受領JSONに残す。応答本文は整形せず別の私有ファイルに保存する。HTTP 200やSHAだけから全文受領・リダイレクト有無を推定せず、欠けた記録は後から補わない。鍵・認証ヘッダーは保存しない。
 2. 要求区間の終端以降かつ情報締切以前に受領した、`next_page_token: null` が明示された同日・同銘柄の応答を使う。引けイベント全体でQ/Mが一つだけで、その発生時刻が立会終了から要求区間の終端まで（両端を含む）にある場合だけ採用する。[合成入力例](../../tests/tools/test_us_research_report_sip.py)のように、`read_nasdaq_official_close` の結果を `sip_official_close_fields` で原稿の `official_close`（`origin: "alpaca_sip_nasdaq_official_close"`）に写す。発生時刻は原文の精度を保持し、全文受領時刻とは分ける。証拠が不足する場合は公式値・比較を埋めず、未確認事項を残す。
 3. 上の手順どおり別担当の分析査読と判断査読を取り、`draft-digest`・`save`・`proposal-digest`・`proposal-save` の**各回**に同じ受領JSONと本文を渡す。CLIはオフラインで原本・範囲・時刻と原稿の値を再照合する。隔離Appへの保存後に `proposal-show` で同じ提案ID・正式原稿SHA・出典を確認する。直接受領や `official_close: null` にはこの引数を付けない。保存済みの `render`・`check-render`・`proposal-show` にも不要。

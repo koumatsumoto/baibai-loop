@@ -96,11 +96,11 @@ def test_inventory_consumes_each_path_before_requesting_the_next(tmp_path, monke
     (tmp_path / ".lake-writer.lock").write_bytes(b"lock")
     expected = inventory(tmp_path)
     inspected = set()
-    is_file = Path.is_file
+    lstat = Path.lstat
 
     def inspect(path):
         inspected.add(path)
-        return is_file(path)
+        return lstat(path)
 
     def walk(root, pattern):
         assert root == tmp_path / "lake"
@@ -110,7 +110,7 @@ def test_inventory_consumes_each_path_before_requesting_the_next(tmp_path, monke
             assert path in inspected
 
     monkeypatch.setattr(Path, "rglob", walk)
-    monkeypatch.setattr(Path, "is_file", inspect)
+    monkeypatch.setattr(Path, "lstat", inspect)
     actual = inventory(tmp_path)
 
     assert actual == expected
@@ -153,3 +153,24 @@ def test_inventory_budget_is_exceeded_only_above_the_limit(tmp_path, monkeypatch
     assert capacity["workspace"]["budget_exceeded"] is exceeded
     assert capacity["published"]["bytes"] == 0
     assert capacity["published"]["budget_exceeded"] is False
+
+
+def test_inventory_ignores_symlink_targets_as_unowned_bytes(tmp_path):
+    archived = tmp_path / "outside" / "staging" / "retired.bin"
+    archived.parent.mkdir(parents=True)
+    archived.write_bytes(b"not owned by this mirror")
+    mirror = tmp_path / "mirror"
+    stage = mirror / "lake" / "staging"
+    stage.mkdir(parents=True)
+    (stage / "alias.bin").symlink_to(archived)
+    (mirror / ".lake-writer.lock").symlink_to(archived)
+    result = inventory(mirror)
+    assert result["objects"] == result["bytes"] == 0
+    assert result["control_files"] == {"objects": 0, "bytes": 0}
+    assert all(item["bytes"] == 0 for item in result["capacity"])
+
+    alias_root = tmp_path / "other-mirror"
+    alias_root.mkdir()
+    (alias_root / "lake").symlink_to(archived.parents[1], target_is_directory=True)
+    result = inventory(alias_root)
+    assert result["objects"] == result["bytes"] == 0

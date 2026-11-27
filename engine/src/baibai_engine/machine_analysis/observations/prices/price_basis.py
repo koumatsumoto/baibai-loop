@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import date
+from decimal import Context, Decimal, localcontext
 from math import isfinite
 
 from baibai_engine.machine_analysis.observations.prices.price_models import (
@@ -34,19 +35,24 @@ def asof_basis_prices(
         ),
         key=lambda event: event[0],
     )
-    result = [0.0] * len(prices)
-    factor = 1.0
-    event_index = len(events) - 1
-    for index in range(len(prices) - 1, -1, -1):
-        traded_at, close = prices[index]
-        while event_index >= 0 and events[event_index][0] > traded_at:
-            adjustment = events[event_index][1]
-            assert adjustment is not None
-            if not isfinite(adjustment) or adjustment <= 0:
-                raise ValueError("price adjustment factor must be finite and positive")
-            factor *= adjustment
-            event_index -= 1
-        result[index] = close * factor
+    if not events:
+        return [close for _, close in prices]
+    # A retained binary64 quote or factor has at most 17 significant decimal
+    # digits. Form the chain exactly, then convert each adjusted close once.
+    with localcontext(Context(prec=17 * (1 + len(events)))):
+        result = [0.0] * len(prices)
+        factor = Decimal(1)
+        event_index = len(events) - 1
+        for index in range(len(prices) - 1, -1, -1):
+            traded_at, close = prices[index]
+            while event_index >= 0 and events[event_index][0] > traded_at:
+                adjustment = events[event_index][1]
+                assert adjustment is not None
+                if not isfinite(adjustment) or adjustment <= 0:
+                    raise ValueError("price adjustment factor must be finite and positive")
+                factor *= Decimal(str(adjustment))
+                event_index -= 1
+            result[index] = close if factor == 1 else float(Decimal(str(close)) * factor)
     return result
 
 

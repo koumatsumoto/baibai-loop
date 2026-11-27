@@ -142,6 +142,38 @@ def test_http_200_without_target_table_is_not_empty_history(body: bytes) -> None
         parse_delisting_page(body, JPX_DELISTING_INDEX_URL)
 
 
+def test_dated_rows_in_other_tables_are_not_delistings() -> None:
+    other_header = (
+        "<tr><th>変更日</th><th>銘柄名</th><th>コード</th><th>市場区分</th><th>備考</th></tr>"
+    )
+    other = _page(("2026/05/02", "社名変更例", "3000", "プライム", "商号変更")).replace(
+        HEADER.encode(), other_header.encode()
+    )
+    valid = _index(linked=False)
+    expected = parse_delisting_page(valid, JPX_DELISTING_INDEX_URL)
+    assert [row.ticker for row in expected] == ["2000"]
+    for page in (other + valid, valid + other):
+        assert parse_delisting_page(page, JPX_DELISTING_INDEX_URL) == expected
+    with pytest.raises(DelistingSourceError, match="no recognizable table"):
+        parse_delisting_page(other, JPX_DELISTING_INDEX_URL)
+
+
+def test_empty_target_table_is_recognized_but_cannot_clear_the_entire_snapshot() -> None:
+    empty = _page().replace(b"</table>", '<tr><td colspan="5">該当なし</td></tr></table>'.encode())
+    assert parse_delisting_page(empty, JPX_DELISTING_INDEX_URL) == ()
+    combined = build_delisting_snapshot(((JPX_DELISTING_INDEX_URL, empty), (ARCHIVE, _archive())))
+    assert [row.ticker for row in combined] == ["1000"]
+    with pytest.raises(DelistingSourceError, match="no typed rows"):
+        build_delisting_snapshot(((JPX_DELISTING_INDEX_URL, empty),))
+
+
+def test_malformed_multi_cell_row_in_recognized_table_is_not_an_empty_history() -> None:
+    row = "<tr><td>日付未定</td><td>例</td><td>1111</td><td>プライム</td></tr>"
+    short_page = _page().replace(b"</table>", (row + "</table>").encode())
+    with pytest.raises(DelistingSourceError, match="incomplete"):
+        build_delisting_snapshot(((JPX_DELISTING_INDEX_URL, short_page), (ARCHIVE, _archive())))
+
+
 @pytest.mark.parametrize(
     "cells",
     [

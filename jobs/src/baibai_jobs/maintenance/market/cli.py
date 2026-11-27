@@ -85,7 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     refresh_metrics_parser = subparsers.add_parser(
         "refresh-edinet-metrics",
-        help="acquire EDINET document lists and needed CSV archives, then extract metrics",
+        help="project saved EDINET lists from R2, fetch missing CSV archives, then extract metrics",
     )
     for metrics_parser in (extract_parser, refresh_metrics_parser):
         metrics_parser.add_argument("--sqlite-path", help="scoped extraction store path")
@@ -163,7 +163,7 @@ def build_parser() -> argparse.ArgumentParser:
             exits_parser.add_argument(
                 "--saved-input",
                 type=Path,
-                help="saved EDINET InputSnapshot JSON; omitted reads legacy SQL inputs",
+                help="EDINET InputSnapshot JSON (R2 lists/archives); omit to read local SQLite",
             )
 
     invalidate_parser = subparsers.add_parser(
