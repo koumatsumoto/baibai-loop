@@ -14,7 +14,7 @@ uv run --offline python -m tools.experiments.us_research_mvp --bundle /private/m
 取得した材料から人間が書いた一社の分析を、[ローカルの調査レポートCLI](../../tools/experiments/us_research_report.py)で別担当の確認結果と一緒に新規の私有ファイルへ保存する。App、案件完了、提案の配信・注文には接続しない。既存のIEX・SECの読取や再取得はしない。実データが不足していれば判断保留として記録できる。
 
 1. JSON原稿の例は[合成テスト](../../tests/tools/test_us_research_report.py)の `_draft`。原稿に銘柄・上場市場（NasdaqまたはNYSE）・株式クラス・CIK・USD、情報締切と作成時刻を記録する。取引所の暦で対象立会日と終了時刻を照合し、短縮日を通常の引けで補わない。
-2. IEX観測帯は受領manifestのSHA、分割調整済み終値・観測件数・日付窓・最小／最大／末尾。採用できない場合は `iex_band: null`。公式終値が必要な比較では、同じ立会の**上場取引所による無調整終値**と一次参照・取得時刻を別に書く。IEXで代用しない。公式終値または他の比較根拠が不足なら `comparison: null` と未確認事項。
+2. IEX観測帯は受領manifestのSHA、分割調整済み終値・観測件数・日付窓・最小／最大／末尾。採用できない場合は `iex_band: null`。公式終値が必要な比較では、同じ立会の**上場取引所による無調整終値**と一次参照・取得時刻を別に書く。IEXで代用しない。[Alpaca SIP経由](#nasdaqの公式終値を固定受領から読む)は任意。公式終値または他の比較根拠が不足なら `comparison: null` と未確認事項。
 3. 財務では原典と実読時刻、会計期間・観測内容を引用。比較が可能な場合だけ、同じ終期で基本／下振れの1株価値・取得権のある分配・仮定を示す。無利息のUSD現金との差を計算し、税・費用・為替は対象外。未確認の残高・執行条件・買付数量は入れない。別担当は出典の本文、銘柄と権利、期間、反対材料と比較前提を確認する。このCLIはリンク先を取得せず、根拠の真偽や別担当の本人性を認証しない。
 
 ```bash
@@ -203,8 +203,17 @@ SECは指定CIKの [CompanyFacts](https://www.sec.gov/search-filings/edgar-appli
 
 SECが `text/html` で返す索引では、[HTMLで省略可能な外側の終了タグ](https://www.w3.org/TR/html4/struct/global.html#h-7.3)が原本にないことがある。省略形を読むには、実応答の `Content-Type: text/html` と `Content-Length` を両方保存し、その長さと原本のバイト数が一致している必要がある。EDGARの区切りを認識した場合は、外側の終了タグの有無にかかわらず、書類一覧の全文リンクと空でない提出者情報があり、`contentDiv` の末尾まで閉じていることを確認する。原本にタグを補わない。XHTMLでは外側の終了タグを省略できない。
 
-## Nasdaqの公式終値を固定受領から読む（アダプターのみ）
+## Nasdaqの公式終値を固定受領から読む
 
-既存のIEX日足や実験CLIの出力は変えない。上場銘柄・株式クラスとNY取引日の立会終了時刻を別の証拠で確認できるXNAS銘柄に限り、`alpaca_auctions.read_nasdaq_official_close` が[Alpacaの固定されたSIP auction応答](https://docs.alpaca.markets/us/reference/stockauctionsingle-1)を読める。[UTPのQ/M](https://www.utpplan.com/DOC/UtpBinaryOutputSpec_3.0.pdf)はNasdaqの公式終値を示し、他の取引所のMやNasdaqの条件6は代用しない。これは取引所由来の値をSIP経由で読んだもので、取引所からの直接受領、約定、統合終値とは異なる。
+Alpaca SIP経由の終値を使う場合だけ追加する。対象はNasdaq上場（XNAS）で、同一銘柄・株式クラス・NY立会日とその終了時刻を別の証拠で確認済みのもの。[UTPのQ/M](https://www.utpplan.com/DOC/UtpBinaryOutputSpec_3.0.pdf)に当たるNasdaqの無調整公式終値であり、取引所からの直接受領、約定値、統合終値、IEX観測ではない。
 
-指定するNY日内の終了時刻を覆うUTC区間、単一シンボル、`feed=sip`、`currency=USD`、`asof=-` が固定要求URL、実要求URL、最終応答URLで一致することが前提。HTTP 200と本文SHAだけでは、全文受領・非リダイレクトを確かめたことにならない。取得時に確認した完全な原本とその記録があり、終端ページに同一日・同一銘柄のQ/Mが一つの場合だけ、未調整のUSD/株として採用する。イベント時刻のナノ秒、実受領時刻、本文SHAと該当行のJSONポインターを区別して残す。イベントは確認済みの立会終了時刻から要求区間の終端までを両端込みで読む。条件不足では取引価格を作らない。まだ正式提案・App保存・Web配信には接続しない。
+1. 許可済みの取得手段で、`NasdaqOfficialCloseQuery.url()` が作る[Alpaca SIPの要求](https://docs.alpaca.markets/us/reference/stockauctionsingle-1)を使う。単一銘柄、同じNY日内で立会終了を含み、それより後までのUTC秒単位区間、`feed=sip`、`currency=USD`、`asof=-`。実行時に確認した `request_url`・`response_url`（両方とも固定URLと一致）、`status: 200`、`complete: true`、`redirected: false`、全文を受領した `received_at`（`Z` または有効な `±HH:MM`、`-00:00` は不可、小数秒6桁まで）と原本バイト列の `sha256` を受領JSONに残す。応答本文は整形せず別の私有ファイルに保存する。HTTP 200やSHAだけから全文受領・リダイレクト有無を推定せず、欠けた記録は後から補わない。鍵・認証ヘッダーは保存しない。
+2. 要求区間の終端以降かつ情報締切以前に受領した、`next_page_token: null` が明示された同日・同銘柄の応答を使う。引けイベント全体でQ/Mが一つだけで、その発生時刻が立会終了から要求区間の終端まで（両端を含む）にある場合だけ採用する。[合成入力例](../../tests/tools/test_us_research_report_sip.py)のように、`read_nasdaq_official_close` の結果を `sip_official_close_fields` で原稿の `official_close`（`origin: "alpaca_sip_nasdaq_official_close"`）に写す。発生時刻は原文の精度を保持し、全文受領時刻とは分ける。証拠が不足する場合は公式値・比較を埋めず、未確認事項を残す。
+3. 上の手順どおり別担当の分析査読と判断査読を取り、`draft-digest`・`save`・`proposal-digest`・`proposal-save` の**各回**に同じ受領JSONと本文を渡す。CLIはオフラインで原本・範囲・時刻と原稿の値を再照合する。隔離Appへの保存後に `proposal-show` で同じ提案ID・正式原稿SHA・出典を確認する。直接受領や `official_close: null` にはこの引数を付けない。保存済みの `render`・`check-render`・`proposal-show` にも不要。
+
+```bash
+uv run --offline python -m tools.experiments.us_research_report draft-digest \
+  /private/draft.json --sip-proof /private/sip-receipt.json /private/sip-original.json
+```
+
+本番でSIPを使う判断を初めて保存する前に、対応するApp読取・配信処理と認証Webを先に反映する。実際の受入では同じ保存判断のID・正式原稿SHAと「Nasdaqの無調整公式終値（Alpaca SIP経由）」の表示を照合する。隔離検証やこの手順だけでは実データの受入・本番配信を証明しない。
