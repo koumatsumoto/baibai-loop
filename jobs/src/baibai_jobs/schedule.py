@@ -54,7 +54,13 @@ def market_source_target_date(created_at: datetime, *, schedule: str, asof: str 
     if schedule and fire_time is None:
         raise ValueError("unknown market source schedule")
     if asof:
-        return date.fromisoformat(asof)
+        try:
+            explicit_day = date.fromisoformat(asof)
+        except ValueError:
+            raise ValueError("asof must use YYYY-MM-DD") from None
+        if explicit_day.isoformat() != asof:
+            raise ValueError("asof must use YYYY-MM-DD")
+        return explicit_day
     if fire_time is not None:
         return acquisition_target_date(created_at, fire_time)
     return created_at.astimezone(_JST).date()
