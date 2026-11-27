@@ -44,9 +44,10 @@ export function AppShell() {
           <BrandMark />
           <span className="hidden sm:inline">Baibai Loop</span>
         </Link>
-        <nav className="grid min-w-0 flex-1 grid-cols-3 gap-1 rounded-lg bg-muted p-1 sm:w-80 sm:flex-none" aria-label="メインナビゲーション">
+        <nav className="grid min-w-0 flex-1 grid-cols-2 gap-1 rounded-lg bg-muted p-1 sm:w-64 sm:flex-none" aria-label="メインナビゲーション">
           {NAV_TABS.map((item) => {
-            const active = item.match(pathname)
+            const activeHref = item.activeHref(pathname)
+            const active = activeHref !== undefined
             return (
               <Link
                 aria-current={active ? 'page' : undefined}
@@ -55,7 +56,7 @@ export function AppShell() {
                   active ? 'bg-surface text-primary shadow-sm' : 'text-muted-foreground hover:bg-surface/60 hover:text-foreground',
                 )}
                 key={item.to}
-                to={item.to}
+                to={activeHref ?? item.to}
               >
                 {item.to === '/' ? <LayoutDashboard aria-hidden="true" className="hidden size-4 shrink-0 sm:block" /> : <FileText aria-hidden="true" className="hidden size-4 shrink-0 sm:block" />}
                 {item.label}

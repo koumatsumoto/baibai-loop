@@ -52,7 +52,7 @@ it('opens a selected report at its summary rather than inheriting the list scrol
 it('loads only the saved report through the normal API client', async () => {
   const view = proposalViewFixture()
   vi.mocked(fetchJson).mockResolvedValue(view)
-  expect(renderToStaticMarkup(ProposalPage())).toContain('売買提案の履歴を読み込んでいます')
+  expect(renderToStaticMarkup(ProposalPage())).toContain('日本株の提案履歴を読み込んでいます')
   const cleanup = hooks.effects[0]()
   expect(fetchJson).toHaveBeenCalledExactlyOnceWith('/api/proposal/history', { signal: expect.any(AbortSignal) })
   await Promise.resolve()
@@ -71,7 +71,7 @@ it('keeps a transport failure distinct from a valid empty report', async () => {
   resetHooks()
   hooks.values.set(1, 'transport failed')
   const html = renderToStaticMarkup(ProposalPage())
-  expect(html).toContain('売買提案の通信エラー')
+  expect(html).toContain('日本株の提案履歴の通信エラー')
   expect(html).toContain('transport failed')
   expect(html).not.toContain('保存済み提案はありません')
 })
