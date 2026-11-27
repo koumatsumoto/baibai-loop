@@ -8,9 +8,11 @@ from hashlib import sha256
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 from tools.experiments.us_research_report import main
 
 from baibai_engine.investment_judgment.us_proposal import (
+    ReportDraft,
     ReviewedReport,
     USProposalDraft,
     USProposalReview,
@@ -21,13 +23,13 @@ from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.application.write import initialize_database
 
 
-def _draft():
-    return {
+def _draft(*, ticker="GOOGL"):
+    draft = {
         "kind": "us_stock_analytical_report",
         "report_id": "us-report-synthetic-01",
         "author_identity": "synthetic author",
         "venue": "XNAS",
-        "ticker": "GOOGL",
+        "ticker": ticker,
         "cik": "0001652044",
         "share_class": "Class A common",
         "currency": "USD",
@@ -81,6 +83,19 @@ def _draft():
         },
         "unresolved": [],
     }
+    if ticker == "AAPL":
+        draft.update(cik="0000320193", share_class="common")
+    elif ticker == "GOOG":
+        draft["share_class"] = "Class C common"
+    elif ticker == "BRK.B":
+        draft.update(
+            venue="XNYS",
+            cik="0001067983",
+            share_class="Class B common",
+            calendar_source_url="https://www.nyse.com/synthetic-calendar",
+        )
+        draft["official_close"]["source_url"] = "https://www.nyse.com/synthetic-close"
+    return draft
 
 
 def _write(path, payload):
@@ -105,8 +120,11 @@ def _prepare(tmp_path, capsys, payload):
 
 
 @pytest.mark.parametrize("has_close", [True, False])
-def test_reviewed_report_round_trips_without_substitution_or_overwrite(tmp_path, capsys, has_close):
-    payload = _draft()
+@pytest.mark.parametrize("ticker", ["AAPL", "GOOG", "GOOGL", "BRK.B", "AB12.CD3"])
+def test_reviewed_report_round_trips_without_substitution_or_overwrite(
+    tmp_path, capsys, has_close, ticker
+):
+    payload = _draft(ticker=ticker)
     if not has_close:
         payload.update(official_close=None, comparison=None, unresolved=["取引所終値未確認。"])
     draft, review = _prepare(tmp_path, capsys, payload)
@@ -120,7 +138,8 @@ def test_reviewed_report_round_trips_without_substitution_or_overwrite(tmp_path,
     shown = captured.out
     assert review["report_id"] in shown
     assert review["draft_sha256"] in shown
-    assert "GOOGL" in shown
+    assert shown.startswith(f"# {ticker} ")
+    assert json.loads(before)["draft"]["ticker"] == ticker
     assert "正式提案未発行" in shown
     assert "USD 110 ～ 124 / 株、末尾 USD 119 / 株" in shown
     assert "2026-11-27T13:00:00-05:00" in shown
@@ -145,6 +164,21 @@ def test_reviewed_report_round_trips_without_substitution_or_overwrite(tmp_path,
     assert captured.out == ""
     assert captured.err.endswith("FAIL rendered file\n")
     assert saved.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "ticker",
+    ["A.", "A..B", "A.B.C", ".ABC", "BRK-B", "BRK/B", "BRK.B ", "brk.b", "ＡAPL", "ABC12.CD3"],
+)
+def test_invalid_ticker_is_rejected_by_owner_and_cli(tmp_path, capsys, ticker):
+    payload = _draft(ticker=ticker)
+    with pytest.raises(ValidationError) as caught:
+        ReportDraft.model_validate(payload)
+    assert [error["loc"] for error in caught.value.errors()] == [("ticker",)]
+
+    assert main(["draft-digest", _write(tmp_path / "invalid.json", payload)]) == 2
+    captured = capsys.readouterr()
+    assert (captured.out, captured.err) == ("", "FAIL draft\n")
 
 
 @pytest.mark.parametrize(
@@ -230,9 +264,11 @@ def test_changed_saved_draft_with_same_id_and_a_duplicate_json_key_are_rejected(
     assert captured.out == ""
 
 
-def _decision_inputs(tmp_path, capsys, *, comparable, horizon=None):
+def _decision_inputs(tmp_path, capsys, *, comparable, horizon=None, ticker="GOOGL"):
     # Keep the existing private report shape, but use a past synthetic receipt for real CLI time.
-    report = json.loads(json.dumps(_draft()).replace("2026-", "2025-").replace("2027-", "2026-"))
+    report = json.loads(
+        json.dumps(_draft(ticker=ticker)).replace("2026-", "2025-").replace("2027-", "2026-")
+    )
     if not comparable:
         report.update(official_close=None, comparison=None, unresolved=["取引所終値未確認。"])
     else:
@@ -271,7 +307,7 @@ def _review_decision(analysis, decision_path, capsys):
 
 @pytest.mark.parametrize("comparable", [True, False])
 def test_isolated_us_formal_decision_save_and_exact_readback(tmp_path, capsys, comparable):
-    analysis, decision = _decision_inputs(tmp_path, capsys, comparable=comparable)
+    analysis, decision = _decision_inputs(tmp_path, capsys, comparable=comparable, ticker="AAPL")
     decision_path = _write(tmp_path / "decision.json", decision)
     review = _review_decision(analysis, decision_path, capsys)
     review_path = _write(tmp_path / "decision-review.json", review)
@@ -291,6 +327,7 @@ def test_isolated_us_formal_decision_save_and_exact_readback(tmp_path, capsys, c
     assert observed["review"]["draft_sha256"] == saved["draft_sha256"]
     assert observed["analysis"] == json.loads(Path(analysis).read_text())
     assert observed["analysis"]["draft"]["currency"] == "USD"
+    assert observed["analysis"]["draft"]["ticker"] == "AAPL"
     close = observed["analysis"]["draft"]["official_close"]
     assert (close["price_usd"] if close else None) == ("120" if comparable else None)
     assert main(["proposal-show", "--db", db]) == 0
