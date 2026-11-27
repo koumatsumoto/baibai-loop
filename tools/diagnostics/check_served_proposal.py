@@ -140,11 +140,18 @@ def main(argv: list[str] | None = None) -> int:
             app_index.sort(reverse=True)
             captured_index: list[tuple[datetime, str]] = []
             for row in rows:
-                saved = (
-                    expected
-                    if row["proposal_id"] == fixed
-                    else SavedProposalView.model_validate_json(encode_json(row))
-                )
+                if row["proposal_id"] == fixed:
+                    saved = expected
+                else:
+                    saved = SavedProposalView.model_validate_json(encode_json(row))
+                    # Model validation alone can coerce a timestamp or fill omitted collections.
+                    wire_clock = saved.model_dump(mode="json", include={"published_at"})
+                    if not (
+                        row["published_at"] == wire_clock["published_at"]
+                        and saved.items
+                        and {"corrections", "human_reports"} <= saved.model_fields_set
+                    ):
+                        raise ValueError
                 captured_index.append((saved.published_at, saved.proposal_id))
             if captured_index != app_index:
                 raise ValueError

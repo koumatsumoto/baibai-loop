@@ -59,7 +59,7 @@ gh run watch "${RUN_ID:?対象の日次run IDを指定}" --exit-status --interva
 
 EDINET revisionを明示受入する場合だけ、隔離比較済みの[受入条件](src/baibai_jobs/integration/edinet_metric_acceptance.py)を`edinet_metrics_acceptance`へ渡す。同じ明示asofを指定し、固定list/archive・revision・対象sampleの原本/保存結果のdigestを生成前に照合する。partial/延期・入力交代・差異は停止し、後付け期待値で通さない。先行する経済L1・planの保持は取り消されず、公開後の実読戻し・L3の受入は別。
 
-失敗時は正本のIDと最後に完了した段階・lease解放を確認する。通知や`done`行だけで公開を判定しない。公開受入の診断は`release_acceptance`のreason codeと登録dataset名、未分類は型までで、原本や識別子は出さない。候補0は投資機会なしではない。[不足理由](../docs/reference/screening-runtime.md#入力不足と品質)を参照する。過去の機械結果をIDで照合する場合は、その世代を含む隔離Runsを明示する。
+失敗時は同じrun/attemptの成功工程・停止点、正本の読戻しとlease解放を確認する。通知の `[FAILED]` や監視の `MISSING` だけでは、Machineが公開済みかは分からない。そのrunの公開が読戻しで確認できたら、正本は再発行せず、失敗した工程から再開する。成功runでも全sourceの最新入力を採用できたとは限らないため、必要なsourceの採用日・入力延期を確認する。公開受入の診断は`release_acceptance`のreason codeと登録dataset名、未分類は型までで、原本や識別子は出さない。候補0は投資機会なしではない。[不足理由](../docs/reference/screening-runtime.md#入力不足と品質)を参照する。過去の機械結果をIDで照合する場合は、その世代を含む隔離Runsを明示する。
 
 [watchdog](../.github/workflows/cloud-batch-watchdog.yml)は履歴を読み、実行・cancel・再dispatchはしない。対象日の判断は[判定実装](src/baibai_jobs/observability/watchdog.py)が持つ。
 
@@ -596,7 +596,7 @@ uv run python -m tools.diagnostics.check_served_proposal \
   --db "$APP_COPY" --latest-json "$AUTH_LATEST_JSON" --history-json "$AUTH_HISTORY_JSON"
 ```
 
-診断は訂正を反映した正式latest全項目、履歴の形式・ID集合・生成時刻、Caseの対象/結果/Selectionを照合する。他の履歴本文の全項目比較ではない。`--proposal-id`で対象を固定できる。`--require-completed`はCase完了参照まで同じ提案であることを求める場合だけ使う（後日の訂正で異なり得る）。終了0は配備・実画面・新規提案発行や売買の証明ではない。
+診断は訂正を反映した正式latestの本文、履歴の形式・発行索引・生成時刻、Caseの対象/結果/Selectionを照合する。正式latest以外は、選択した過去レポートの本文や後日の人間報告がAppと一致するかまでは確認しない。`--proposal-id`で正式latestのIDを指定できる。`--require-completed`はCase完了参照まで同じ提案であることを求める場合だけ使う（後日の訂正で異なり得る）。終了0は配備・実画面・新規提案発行や売買の証明ではない。
 
 必要な表示データを公開・読戻しした成功main runを確認後、[web workflow](../.github/workflows/web.yml)をmainで明示dispatchする。push/PRのweb runは検証だけで、Worker/UIを配備しない。
 
