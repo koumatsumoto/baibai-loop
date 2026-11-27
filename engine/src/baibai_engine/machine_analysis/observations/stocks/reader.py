@@ -68,9 +68,7 @@ def read_master_snapshot(
     for row in rows:
         if row["security_code"] is None:
             continue  # A valid snapshot can contain none of the requested tickers.
-        security = master_from_payload(
-            row["record_json"], expected_code=row["security_code"] if tickers is not None else None
-        )
+        security = master_from_payload(row["record_json"], expected_code=row["security_code"])
         if security is not None:
             securities[security.ticker] = security
     return MasterSnapshot(

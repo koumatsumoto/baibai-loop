@@ -152,7 +152,7 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
                 conn.execute(
                     "UPDATE jquants_master_snapshots SET record_json=json_set(record_json,'$.Code','!')"
                 )
-            with self.assertRaisesRegex(JQuantsProviderError, "invalid J-Quants code"):
+            with self.assertRaisesRegex(JQuantsProviderError, "differs from its key"):
                 read_master_snapshot(db, as_of=asof)
 
 
@@ -237,3 +237,37 @@ def test_finite_master_read_uses_latest_market_date_and_only_requested_primary_i
         )
     with pytest.raises(JQuantsProviderError, match="differs from its key"):
         read_master_snapshot(db, as_of=latest, tickers=("12A4",))
+
+
+def test_market_wide_master_refuses_a_record_that_claims_another_issues_code(tmp_path):
+    db = tmp_path / "market.sqlite"
+    as_of = date(2026, 6, 30)
+    with closing(open_connection(db)) as connection, connection:
+        insert_master_rows(
+            connection,
+            [
+                (as_of.isoformat(), "2331", "Company", "Prime", "機械", "011"),
+                (as_of.isoformat(), "9999", "Other", "Prime", "銀行業", "011"),
+            ],
+        )
+    current = read_master_snapshot(db, as_of=as_of)
+    assert current is not None
+    assert current.as_of == as_of
+    assert {ticker: row.sector_33 for ticker, row in current.securities.items()} == {
+        "2331": "機械",
+        "9999": "銀行業",
+    }
+
+    # The later-sorted storage key must not make its industry overwrite 2331.
+    with closing(open_connection(db)) as connection, connection:
+        connection.execute(
+            "UPDATE jquants_master_snapshots SET record_json=json_set(record_json, '$.Code','23310') "
+            "WHERE security_code='99990'"
+        )
+
+    scoped = read_master_snapshot(db, as_of=as_of, tickers=("2331",))
+    assert scoped is not None
+    assert scoped.securities == {"2331": current.securities["2331"]}
+    for tickers in (("9999",), None):
+        with pytest.raises(JQuantsProviderError, match="differs from its key"):
+            read_master_snapshot(db, as_of=as_of, tickers=tickers)
