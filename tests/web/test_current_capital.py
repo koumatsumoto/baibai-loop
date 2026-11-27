@@ -276,9 +276,10 @@ def test_dashboard_uses_one_clock_across_market_close(holding_case, monkeypatch)
 
 @pytest.mark.parametrize("missing", [False, True])
 def test_dashboard_retains_realized_pnl_when_market_price_is_missing(
-    holding_case, tmp_path, missing
+    holding_case, mocker, missing
 ):
     db, market, _ = holding_case
+    mocker.patch.object(dashboard, "datetime").now.return_value = NOW
     service = LedgerStoreService(db)
     draft = build_sell_execution_draft(
         service,
@@ -287,8 +288,9 @@ def test_dashboard_retains_realized_pnl_when_market_price_is_missing(
         quantity=100,
         price_yen=Decimal("1100"),
         decision_reference="synthetic-human-sale-note",
+        now=NOW,
     )
-    apply_draft(service, draft, human_confirmed=True)
+    apply_draft(service, draft, human_confirmed=True, now=NOW)
     if missing:
         with closing(sqlite3.connect(market)) as connection, connection:
             connection.execute(
@@ -299,8 +301,9 @@ def test_dashboard_retains_realized_pnl_when_market_price_is_missing(
         DbMarketSource(market),
     )
     assert view.realized_gross_pnl_yen == 6_000
-    if missing:
-        assert view.total_capital_yen is None
+    assert view.holdings[0].market_value_yen == (None if missing else 100_000)
+    assert view.valuation_as_of == (None if missing else date(2026, 9, 4))
+    assert view.total_capital_yen == (None if missing else 10_409_500)
 
 
 def test_cash_only_dashboard_keeps_ledger_facts_without_inventing_a_quote_date(tmp_path, mocker):

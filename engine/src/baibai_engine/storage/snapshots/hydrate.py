@@ -675,7 +675,8 @@ def _detach_secondary_indexes(
         )
     )
     for name, _ in declared:
-        connection.execute(f"DROP INDEX {name}")
+        quoted_name = name.replace('"', '""')
+        connection.execute(f'DROP INDEX "{quoted_name}"')
     return tuple(statement for _, statement in declared)
 
 

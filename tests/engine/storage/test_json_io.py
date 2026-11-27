@@ -15,7 +15,7 @@ def test_atomic_json_replaces_with_complete_payload(tmp_path):
     path = tmp_path / "nested" / "result.json"
     json_io.write_json_atomic(path, {"status": "旧"})
     json_io.write_json_atomic(path, {"count": 0, "missing": None, "status": "完了"})
-    assert json.loads(path.read_text()) == {"count": 0, "missing": None, "status": "完了"}
+    assert json.loads(path.read_bytes()) == {"count": 0, "missing": None, "status": "完了"}
     expected = '{\n  "count": 0,\n  "missing": null,\n  "status": "完了"\n}\n'
     assert path.read_bytes() == expected.encode("utf-8")
     assert list(path.parent.iterdir()) == [path]

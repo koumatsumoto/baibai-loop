@@ -100,5 +100,5 @@ def test_nonfinancial_candidate_prepares_and_resumes_without_relabeling_saved_po
         operation_id=prepared.operation_id, db_path=app, workspace=workspace, now=NOW
     )
     assert resumed.selection_sha256 == digest
-    assert yaml.safe_load((workspace / "domain-inputs.yaml").read_text()) == projection
+    assert yaml.safe_load((workspace / "domain-inputs.yaml").read_bytes()) == projection
     assert selection_binding(OperationService(app).get(prepared.operation_id).payload) == saved
