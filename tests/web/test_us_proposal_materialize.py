@@ -25,6 +25,7 @@ from baibai_engine.investment_judgment.us_proposal import (
     USProposalReview,
     draft_digest,
     prepare_us_proposal,
+    published_us_proposal_ids,
     reviewed_report,
     save_us_proposal,
     sip_official_close_fields,
@@ -36,6 +37,7 @@ from baibai_web.contracts_export import build_schema
 from baibai_web.materialize import export_read_models
 from baibai_web.readmodel.builders import dashboard
 from baibai_web.sources import proposal as proposal_source
+from baibai_web.sources import us_proposal as us_source
 
 PRICE_CLOCK = datetime.fromisoformat("2026-06-03T13:00:00Z")
 PUBLISHED_US = datetime.fromisoformat("2026-06-03T17:00:00Z")
@@ -200,6 +202,13 @@ def test_projection_uses_exact_formal_proof_no_hidden_body_or_legacy_change(tmp_
         "status": "empty",
         "error": None,
         "proposal": None,
+        "history": {
+            "status": "empty",
+            "error": None,
+            "proposals": [],
+            "unavailable_proposal_ids": [],
+            "has_more": False,
+        },
     }
 
     saved = _save_us(app, "us-proposal-view-synthetic")
@@ -211,6 +220,13 @@ def test_projection_uses_exact_formal_proof_no_hidden_body_or_legacy_change(tmp_
     output = json.loads(after["latest-us-proposal.json"])
     assert output["status"] == "ready"
     assert output["error"] is None
+    assert output["history"] == {
+        "status": "ready",
+        "error": None,
+        "proposals": [],
+        "unavailable_proposal_ids": [],
+        "has_more": False,
+    }
     view = output["proposal"]
     assert view == {
         "proposal_id": saved.decision.proposal_id,
@@ -396,9 +412,14 @@ def test_proposals_share_snapshot_even_with_a_concurrent_us_append(tmp_path, moc
     assert us.proposal.official_close is None
     assert us.proposal.comparison_horizon_et is None
     assert us.proposal.comparison is None
+    assert us.history.status == "ready"
+    assert us.history.proposals == []
     _, following = proposal_source.read_serving_proposal_views(app, generated_at=STAMP)
     assert following.proposal is not None
     assert following.proposal.proposal_id == "us-proposal-second"
+    assert [row.proposal_id for row in following.history.proposals] == [
+        first.decision.proposal_id,
+    ]
 
 
 @pytest.mark.parametrize("damaged", ["us", "jp", "missing", "wrong-version"])
@@ -423,9 +444,122 @@ def test_unavailable_is_not_empty_or_older_fallback(tmp_path, damaged):
         assert us.status == "ready"
         assert us.proposal is not None
         assert us.proposal.proposal_id == "us-proposal-older"
+        assert us.history.status == "ready"
+        assert not us.history.proposals
     else:
         assert us.status == "unavailable"
         assert us.error == "保存済みの米国株判断を読み取れません。"
         assert us.proposal is None
+        if damaged == "us":
+            assert us.history.status == "partial"
+            assert us.history.unavailable_proposal_ids == ["us-proposal-damaged"]
+            assert [row.proposal_id for row in us.history.proposals] == ["us-proposal-older"]
+            assert us.history.has_more is False
+        else:
+            assert us.history.status == "unavailable"
+            assert us.history.has_more is None
     assert jp.latest.status == ("empty" if damaged == "us" else "unavailable")
     assert (app.read_bytes() if app.exists() else None) == before
+
+
+def test_us_history_bounds_publication_slots_before_reading_exact_details(tmp_path, mocker):
+    app = tmp_path / "window.sqlite"
+    initialize_database(app)
+    ids = [f"us-proposal-history-{index:02}" for index in range(22)]
+    for index, proposal_id in enumerate(ids):
+        published_at = PUBLISHED_US + timedelta(microseconds=index // 2)
+        if index % 2 == 1:
+            published_at = published_at.astimezone(PUBLISHED.tzinfo)
+        _save_us(app, proposal_id, published_at=published_at)
+    with closing(sqlite3.connect(app, autocommit=True)) as db:
+        db.execute("DROP TRIGGER us_equity_proposal_immutable")
+        db.execute("UPDATE us_equity_proposal SET payload='{}' WHERE proposal_id=?", (ids[20],))
+    before = app.read_bytes()
+    ids_read = mocker.spy(us_source, "published_us_proposal_ids")
+    exact = mocker.spy(us_source, "load_us_proposal")
+    generated_at = datetime.fromisoformat("2028-01-01T00:00:00Z")
+    _, us = proposal_source.read_serving_proposal_views(app, generated_at=generated_at)
+    assert ids_read.call_args.kwargs == {"limit": 21}
+    assert [call.args[1] for call in exact.call_args_list] == ids[20:1:-1]
+    assert all(call.args[0] is ids_read.call_args.args[0] for call in exact.call_args_list)
+    assert us.status == "ready"
+    assert us.proposal is not None
+    assert us.proposal.proposal_id == ids[21]
+    assert (
+        us.proposal.published_at.isoformat()
+        == (PUBLISHED_US + timedelta(microseconds=10)).astimezone(PUBLISHED.tzinfo).isoformat()
+    )
+    assert us.history.status == "partial"
+    assert us.history.unavailable_proposal_ids == [ids[20]]
+    assert us.history.has_more is True
+    assert [row.proposal_id for row in us.history.proposals] == ids[19:1:-1]
+    # Old exact decisions remain readable when their cash comparison horizon passed.
+    for row in us.history.proposals:
+        assert row.currency == "USD"
+        assert row.action == "no_action"
+        assert row.comparison_horizon_et == date(2027, 5, 31)
+        assert row.comparison is not None
+    json_text = us.model_dump_json()
+    assert all(
+        secret not in json_text
+        for secret in (
+            "synthetic analysis author",
+            "synthetic analysis thesis",
+            "synthetic formal notes",
+            "https://",
+        )
+    )
+    assert us.model_dump_json().count(ids[21]) == 1
+    assert app.read_bytes() == before
+
+
+def test_malformed_identity_occupies_an_unnamed_slot_without_leaking(tmp_path):
+    app = tmp_path / "wrong-identity.sqlite"
+    initialize_database(app)
+    correct = _save_us(app, "us-proposal-readable")
+    private = "private malformed storage-identifier canary"
+    with closing(sqlite3.connect(app, autocommit=True)) as db:
+        db.execute(
+            "INSERT INTO us_equity_proposal VALUES (?, ?, '{}')",
+            (private, "2026-06-04T00:00:00.000000+00:00"),
+        )
+    _, us = proposal_source.read_serving_proposal_views(app, generated_at=STAMP)
+    assert us.status == "unavailable"
+    assert us.proposal is None
+    assert us.history.status == "partial"
+    assert [row.proposal_id for row in us.history.proposals] == [correct.decision.proposal_id]
+    assert not us.history.unavailable_proposal_ids
+    assert us.history.has_more is False
+    assert private not in us.model_dump_json()
+
+
+def test_us_history_index_failure_does_not_guess_empty_or_discard_verified_latest(tmp_path, mocker):
+    app = tmp_path / "failed-index.sqlite"
+    initialize_database(app)
+    saved = _save_us(app, "us-proposal-known-latest")
+    mocker.patch.object(
+        us_source,
+        "published_us_proposal_ids",
+        side_effect=sqlite3.OperationalError("private canary"),
+    )
+    _, us = proposal_source.read_serving_proposal_views(app, generated_at=STAMP)
+    assert us.status == "ready"
+    assert us.proposal is not None
+    assert us.proposal.proposal_id == saved.decision.proposal_id
+    assert us.history.status == "unavailable"
+    assert not (us.history.proposals)
+    assert not (us.history.unavailable_proposal_ids)
+    assert us.history.has_more is None
+    assert "private canary" not in us.model_dump_json()
+
+
+def test_us_history_owner_rejects_duplicate_publication_identity():
+    # Deliberately damaged schema with no PK. Do not serve an ambiguous exact ID.
+    with closing(sqlite3.connect(":memory:")) as db:
+        db.execute("CREATE TABLE us_equity_proposal(proposal_id TEXT, published_at TEXT)")
+        db.executemany(
+            "INSERT INTO us_equity_proposal VALUES (?, ?)",
+            [("us-proposal-duplicate", at) for at in ("2026-06-01", "2026-06-02")],
+        )
+        with pytest.raises(ValueError, match="duplicate US publication ID"):
+            published_us_proposal_ids(db, limit=21)

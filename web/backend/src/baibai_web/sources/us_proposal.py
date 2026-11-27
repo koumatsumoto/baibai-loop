@@ -1,17 +1,28 @@
-"""同じAppスナップショットから米国株の正式判断を一件だけ投影する。"""
+"""同じAppスナップショットから米国株の正式判断と直近履歴を投影する。"""
 
 import sqlite3
 from datetime import datetime
 
-from baibai_engine.investment_judgment.us_proposal import USProposal, load_latest_us_proposal
+from baibai_engine.investment_judgment.us_proposal import (
+    USProposal,
+    load_latest_us_proposal,
+    load_us_proposal,
+    published_us_proposal_ids,
+)
 from baibai_web.readmodel.us_proposal_models import (
     LatestUSProposalView,
     USProposalComparisonScenarioView,
     USProposalComparisonView,
+    USProposalHistoryView,
     USProposalIexBandView,
     USProposalOfficialCloseView,
     USProposalView,
 )
+
+_HISTORY_LIMIT = 20
+_READ_ERRORS = (OSError, ValueError, RuntimeError, sqlite3.Error)
+_LATEST_ERROR = "保存済みの米国株判断を読み取れません。"
+_HISTORY_ERROR = "保存済みの米国株判断の履歴を読み取れません。"
 
 
 def _project(record: USProposal) -> USProposalView:
@@ -70,8 +81,62 @@ def unavailable_us_proposal(generated_at: datetime) -> LatestUSProposalView:
     return LatestUSProposalView(
         generated_at=generated_at,
         status="unavailable",
-        error="保存済みの米国株判断を読み取れません。",
+        error=_LATEST_ERROR,
         proposal=None,
+        history=_unavailable_history(),
+    )
+
+
+def _unavailable_history() -> USProposalHistoryView:
+    return USProposalHistoryView(
+        status="unavailable",
+        error=_HISTORY_ERROR,
+        proposals=[],
+        unavailable_proposal_ids=[],
+        has_more=None,
+    )
+
+
+def _read_history(
+    connection: sqlite3.Connection, latest: USProposalView | None
+) -> USProposalHistoryView:
+    try:
+        slots = published_us_proposal_ids(connection, limit=_HISTORY_LIMIT + 1)
+    except _READ_ERRORS:
+        return _unavailable_history()
+    if latest is not None and (not slots or slots[0] != latest.proposal_id):
+        return _unavailable_history()
+
+    unreadable = False
+    proposals = []
+    missing = []
+    for proposal_id in slots[:_HISTORY_LIMIT]:
+        if proposal_id is None:
+            unreadable = True
+            continue
+        if latest is not None and proposal_id == latest.proposal_id:
+            continue
+        try:
+            saved = load_us_proposal(connection, proposal_id)
+            if saved is not None:
+                proposals.append(_project(saved))
+                continue
+        except _READ_ERRORS:
+            pass
+        unreadable = True
+        missing.append(proposal_id)
+
+    readable = latest is not None or bool(proposals)
+    return USProposalHistoryView(
+        status=("partial" if readable else "unavailable")
+        if unreadable
+        else ("ready" if readable else "empty"),
+        error=("一部の保存済みの米国株判断の履歴を読み取れません。" if readable else _HISTORY_ERROR)
+        if unreadable
+        else None,
+        proposals=proposals,
+        unavailable_proposal_ids=missing,
+        has_more=len(slots) > _HISTORY_LIMIT,
     )
 
 
@@ -81,12 +146,14 @@ def read_us_proposal_in_snapshot(
     try:
         saved = load_latest_us_proposal(connection)
         view = None if saved is None else _project(saved)
-    except (OSError, ValueError, RuntimeError, sqlite3.Error):
+        error = None
+    except _READ_ERRORS:
         # Stored content, App paths and provider metadata do not belong in a serving error.
-        return unavailable_us_proposal(generated_at)
+        view, error = None, _LATEST_ERROR
     return LatestUSProposalView(
         generated_at=generated_at,
-        status="empty" if view is None else "ready",
-        error=None,
+        status="unavailable" if error is not None else "empty" if view is None else "ready",
+        error=error,
         proposal=view,
+        history=_read_history(connection, view),
     )

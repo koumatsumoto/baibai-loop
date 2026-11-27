@@ -102,6 +102,7 @@ export interface LatestUSProposalView {
   status: 'ready' | 'empty' | 'unavailable'
   error: string | null
   proposal: USProposalView | null
+  history: USProposalHistoryView
 }
 
 export interface MonexFiscalEPSView {
@@ -616,6 +617,17 @@ export interface USProposalComparisonView {
   cash_basis: 'same_usd_no_interest_tax_or_fees'
   base: USProposalComparisonScenarioView
   downside: USProposalComparisonScenarioView
+}
+
+/**
+ * Recent publication slots. The readable latest is carried only at the root.
+ */
+export interface USProposalHistoryView {
+  status: 'ready' | 'empty' | 'partial' | 'unavailable'
+  error: string | null
+  proposals: USProposalView[]
+  unavailable_proposal_ids: string[]
+  has_more: boolean | null
 }
 
 export interface USProposalIexBandView {

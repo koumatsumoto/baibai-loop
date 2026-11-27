@@ -1,4 +1,4 @@
-"""認証済みWebに渡す一件のUSD判断。判断・執行条件は作らない。"""
+"""認証済みWebに渡す保存済みUSD判断。判断や執行条件は作らない。"""
 
 from datetime import date, datetime
 from decimal import Decimal
@@ -66,8 +66,19 @@ class USProposalView(BaseModel):
     unresolved: list[str]
 
 
+class USProposalHistoryView(BaseModel):
+    """Recent publication slots. The readable latest is carried only at the root."""
+
+    status: Literal["ready", "empty", "partial", "unavailable"]
+    error: str | None
+    proposals: list[USProposalView]
+    unavailable_proposal_ids: list[str]
+    has_more: bool | None
+
+
 class LatestUSProposalView(BaseModel):
     generated_at: datetime
     status: Literal["ready", "empty", "unavailable"]
     error: str | None
     proposal: USProposalView | None
+    history: USProposalHistoryView
