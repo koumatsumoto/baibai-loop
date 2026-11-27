@@ -39,6 +39,7 @@ def test_null_revision_does_not_restore_prior_value_and_retains_metadata(tmp_pat
                 "RESULTSET": [
                     {
                         "SERIES_CODE": "STRDCLUCON",
+                        "FREQUENCY": "DAILY",
                         "UNIT": "Percent",
                         "NOTE": "kept",
                         "VALUES": {
@@ -76,7 +77,12 @@ def test_null_revision_does_not_restore_prior_value_and_retains_metadata(tmp_pat
         assert snapshot.records == (
             {
                 "response_metadata": {"STATUS": 200, "MESSAGE": "synthetic"},
-                "series_metadata": {"SERIES_CODE": "STRDCLUCON", "UNIT": "Percent", "NOTE": "kept"},
+                "series_metadata": {
+                    "SERIES_CODE": "STRDCLUCON",
+                    "FREQUENCY": "DAILY",
+                    "UNIT": "Percent",
+                    "NOTE": "kept",
+                },
                 "values_metadata": {"OTHER": "retained"},
                 "survey_date": 20260724,
                 "value": None,
@@ -93,6 +99,7 @@ class NativeParserTests(TestCase):
                 "RESULTSET": [
                     {
                         "SERIES_CODE": "STRDCLUCON",
+                        "FREQUENCY": "DAILY",
                         "VALUES": {
                             "SURVEY_DATES": [19980104, 19980105, 19980106],
                             "VALUES": [None, 0.49, 0.42],
@@ -121,6 +128,7 @@ class NativeParserTests(TestCase):
                 "RESULTSET": [
                     {
                         "SERIES_CODE": "PRCG20_2200000000",
+                        "FREQUENCY": "MONTHLY",
                         "VALUES": {
                             "SURVEY_DATES": [202605, 202606, 202607],
                             "VALUES": [134.9, 135.4, None],
@@ -147,6 +155,7 @@ class NativeParserTests(TestCase):
                 "RESULTSET": [
                     {
                         "SERIES_CODE": "TK99F1000601GCQ01000",
+                        "FREQUENCY": "QUARTERLY",
                         "VALUES": {
                             "SURVEY_DATES": [202504, 202601, 202602],
                             "VALUES": [15, 17, 22],
@@ -174,6 +183,7 @@ class NativeParserTests(TestCase):
                 "RESULTSET": [
                     {
                         "SERIES_CODE": "PRCG20_2200000000",
+                        "FREQUENCY": "MONTHLY",
                         "VALUES": {"SURVEY_DATES": [20260601], "VALUES": [135.4]},
                     }
                 ],
@@ -193,6 +203,7 @@ class NativeParserTests(TestCase):
                     "RESULTSET": [
                         {
                             "SERIES_CODE": "STRDCLUCON",
+                            "FREQUENCY": "DAILY",
                             "VALUES": {"SURVEY_DATES": [19980105], "VALUES": []},
                         }
                     ],
