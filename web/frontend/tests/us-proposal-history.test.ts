@@ -160,8 +160,11 @@ it('retains a separately readable latest only on the unselected landing page whe
     expect(landing).not.toMatch(/件のレポート|保存済みの米国株の判断はありません/)
     for (const query of [previousQuery, 'proposal=' + current.proposal_id]) {
       const selected = combined(data, query)
-      expect(selected).toContain('米国株の判断を読み取れません')
+      const explicitlyUnreadable = query === previousQuery
+        && data.history?.unavailable_proposal_ids.includes(previous.proposal_id)
+      expect(selected).toContain(explicitlyUnreadable ? 'この保存判断は読み取れません' : '米国株の判断を読み取れません')
       expect(selected).not.toContain(current.reason)
+      expect(selected).not.toContain(previous.reason)
       expect(selected).not.toContain('以下は最新の保存判断です')
     }
     const invalidCurrent = combined({ ...data, proposal: { ...current, published_at: 'unknown' } })
