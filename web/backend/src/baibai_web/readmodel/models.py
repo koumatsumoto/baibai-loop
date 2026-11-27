@@ -61,6 +61,8 @@ class DashboardView(BaseModel):
     reserved_cash_yen: int | None
     holdings_market_value_yen: int | None
     deployed_cost_yen: int | None
+    unrealized_pnl_yen: int | None
+    unrealized_pnl_pct: float | None
     realized_gross_pnl_yen: int | None
     cash_pct: float | None
     reserved_pct: float | None

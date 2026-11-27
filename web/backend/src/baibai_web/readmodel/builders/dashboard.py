@@ -110,6 +110,8 @@ def build_dashboard(
         for item in snapshot.warnings
     ]
     holdings_market_value = snapshot.holdings_market_value_yen
+    displayed_holdings_value = round_valuation_yen(holdings_market_value)
+    deployed_cost = snapshot.deployed_cost_yen
     available_cash = snapshot.available_cash_yen
     reserved_cash = snapshot.reserved_cash_yen
     total = snapshot.total_capital_yen
@@ -132,8 +134,17 @@ def build_dashboard(
         total_capital_yen=round_valuation_yen(total),
         available_cash_yen=available_cash,
         reserved_cash_yen=reserved_cash,
-        holdings_market_value_yen=round_valuation_yen(holdings_market_value),
-        deployed_cost_yen=snapshot.deployed_cost_yen,
+        holdings_market_value_yen=displayed_holdings_value,
+        deployed_cost_yen=deployed_cost,
+        unrealized_pnl_yen=(
+            None if displayed_holdings_value is None else displayed_holdings_value - deployed_cost
+        ),
+        # Keep the sub-yen mark and let the display round the final ratio once.
+        unrealized_pnl_pct=percentage(
+            None if holdings_market_value is None else holdings_market_value - deployed_cost,
+            deployed_cost,
+            digits=None,
+        ),
         realized_gross_pnl_yen=snapshot.realized_gross_pnl_yen,
         cash_pct=percentage(available_cash, total, digits=1),
         reserved_pct=percentage(reserved_cash, total, digits=1),
@@ -163,6 +174,8 @@ def _empty_dashboard(
         reserved_cash_yen=None,
         holdings_market_value_yen=None,
         deployed_cost_yen=None,
+        unrealized_pnl_yen=None,
+        unrealized_pnl_pct=None,
         realized_gross_pnl_yen=None,
         cash_pct=None,
         reserved_pct=None,

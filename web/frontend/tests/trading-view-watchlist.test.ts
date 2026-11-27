@@ -60,7 +60,7 @@ describe('TradingView watchlist TXT', () => {
      
     }) satisfies HoldingView)
     const html = renderToStaticMarkup(createElement(TooltipProvider, null,
-      createElement(MemoryRouter, null, createElement(HoldingsTable, { holdings, warnings: [], ledgerAsOf: '2026-09-30', quantityUnresolved: false, holdingsMarketValueYen: null, deployedCostYen: 2_000 })),
+      createElement(MemoryRouter, null, createElement(HoldingsTable, { holdings, warnings: [], ledgerAsOf: '2026-09-30', quantityUnresolved: false, unrealizedPnlYen: null, unrealizedPnlPct: null })),
     ))
     expect(html).toContain('保有銘柄をTradingView用TXTに出力')
     expect(html).toContain('7203')

@@ -32,6 +32,7 @@ function dashboard(): DashboardView {
     holding_quantity_unresolved: false, valuation_as_of: null,
     total_capital_yen: null, available_cash_yen: null, reserved_cash_yen: null,
     holdings_market_value_yen: null, deployed_cost_yen: null,
+    unrealized_pnl_yen: null, unrealized_pnl_pct: null,
     realized_gross_pnl_yen: null, cash_pct: null, reserved_pct: null, deployed_pct: null,
     holdings: [], reservations: [], warnings: [],
   }
@@ -146,7 +147,9 @@ it.each(['normal', 'unresolved', 'other-holding'])(
   },
 )
 
-it.each(['holding_quantity_unresolved', 'realized_gross_pnl_yen'] as const)(
+it.each([
+  'holding_quantity_unresolved', 'realized_gross_pnl_yen', 'unrealized_pnl_yen', 'unrealized_pnl_pct',
+] as const)(
   'rejects a dashboard missing the required %s without hiding outcomes', async field => {
     const payload: Partial<DashboardView> = dashboard()
     delete payload[field]
