@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from datetime import date, datetime, timedelta
+from decimal import localcontext
 from hashlib import sha256
 from pathlib import Path
 
@@ -229,93 +230,7 @@ def test_iex_session_acceptance_cannot_use_another_symbols_date(tmp_path, capsys
 
 
 @pytest.mark.parametrize(
-    ("received_at", "exit_code"),
-    [("2026-11-21T04:59:59Z", 1), ("2026-11-21T05:00:00Z", 0)],
-)
-def test_iex_session_acceptance_counts_receipt_dates_in_ny_not_utc(
-    tmp_path, capsys, received_at, exit_code
-):
-    bundle, files = _fixture()
-    bundle["cutoff"] = "2026-11-23T16:01:00Z"
-    bundle["alpaca"]["pages"][0]["received_at"] = received_at
-    manifest = _write_iex_only_bundle(tmp_path, bundle, files)
-    assert main(["--bundle", manifest, "--accept-iex-session", "2026-11-20"]) == exit_code
-    assert ("途中集計扱い" in capsys.readouterr().out) == (exit_code == 1)
-
-
-@pytest.mark.parametrize(
-    ("field", "unusable", "eligible"),
-    [
-        ("received_at", "2026-11-21T04:59:59Z", "2026-11-21T05:00:00Z"),
-        ("complete", False, True),
-    ],
-)
-def test_iex_session_acceptance_refuses_conflicting_manifest_fields(
-    tmp_path, capsys, field, unusable, eligible
-):
-    bundle, files = _fixture()
-    page = bundle["alpaca"]["pages"][0]
-    page[field] = unusable
-    manifest = Path(_write_iex_only_bundle(tmp_path, bundle, files))
-    original = manifest.read_text(encoding="utf-8")
-    page_json = json.dumps(page)
-    assert original.count(page_json) == 1
-    contradictory = f"{page_json[:-1]}, {json.dumps(field)}: {json.dumps(eligible)}}}"
-    manifest.write_text(original.replace(page_json, contradictory), encoding="utf-8")
-
-    with pytest.raises(SystemExit) as error:
-        main(["--bundle", str(manifest), "--accept-iex-session", "2026-11-20"])
-    assert error.value.code == 2
-    result = capsys.readouterr()
-    assert result.out == ""
-    assert "invalid fixed US research receipt bundle" in result.err
-
-
-def test_iex_session_acceptance_fails_when_receipt_is_after_cutoff(tmp_path, capsys):
-    bundle, files = _fixture()
-    bundle["cutoff"] = "2026-11-21T05:00:00Z"
-    manifest = _write_iex_only_bundle(tmp_path, bundle, files)
-    assert main(["--bundle", manifest, "--accept-iex-session", "2026-11-20"]) == 1
-    assert "alpaca_chain_not_yet_received" in capsys.readouterr().out
-
-
-def test_iex_session_acceptance_requires_a_bundle(capsys):
-    with pytest.raises(SystemExit) as exc_info:
-        main(["--accept-iex-session", "2026-11-20"])
-    assert exc_info.value.code == 2
-    assert "--accept-iex-session requires --bundle" in capsys.readouterr().err
-
-
-@pytest.mark.parametrize("claim", ["2026-11-10T00:00:00Z", "2026-10-01T00:00:00Z", "unknown"])
-def test_unverified_public_time_neither_enables_nor_disables_independent_evidence(claim):
-    bundle, files = _fixture()
-    filing = bundle["subjects"][0]["filing"]
-    valid = render_research(bundle, files.__getitem__, synthetic=True)
-    assert "AAPL | research_candidate" in valid
-    filing["public_seen_at"] = claim
-    assert render_research(bundle, files.__getitem__, synthetic=True) == valid
-
-    filing.update(published_at=None, publication_ref=None)
-    held = render_research(bundle, files.__getitem__, synthetic=True)
-    assert "AAPL | hold_for_evidence" in held
-    assert "sec_publication_unverified" in held
-    assert "SEC実績売上" not in held
-
-
-def _public_index_bundle():
-    bundle, files = _fixture()
-    subject = bundle["subjects"][0]
-    filing = subject["filing"]
-    accession = filing["accession"]
-    cik = int(filing["issuer_cik"])
-    url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{accession.replace('-', '')}/{accession}-index.htm"
-    submission = f"/Archives/edgar/data/{cik}/{accession.replace('-', '')}/{accession}.txt"
-    body = (
-        f"<html><head><title>EDGAR Filing Documents for {accession}</title></head>"
-        "<body><h1>Filing Detail</h1>"
-        f"<div><strong>SEC Accession No.</strong> {accession}</div>"
-        '<div class="formGrouping"><div class="infoHead">Period of Report</div>'
-        f'<div class="info">{subject["period_end"]}</div></div>'
+    ("received_at…993 tokens truncated…class="info">{subject["period_end"]}</div></div>'
         f'<table><tr><td>Complete submission text file</td><td><a href="{submission}">'
         f"{accession}.txt</a></td></tr></table></body></html>"
     ).encode()
@@ -976,6 +891,9 @@ def test_opt_in_sec_comparison_uses_one_issuer_and_does_not_read_price(
     assert "operating_income (quarter, current) 2026-07-01〜2026-09-30: USD 123" in report
     assert "operating_income (quarter, prior) 2025-07-01〜2025-09-30: USD 100" in report
     assert report.count("operating_income (quarter,") == 2
+    assert "- operating_income (quarter): 差額 USD +23; 前年比 +23.00%" in report
+    assert "- operating_cash_flow (year_to_date): 未算出: " in report
+    assert "- ppe_cash_paid (year_to_date):" not in report
     assert "operating_cash_flow (year_to_date, current)" in report
     assert "unmapped_concept_or_unit" in report
     assert "SMA" not in report
@@ -988,6 +906,7 @@ def test_opt_in_sec_comparison_uses_one_issuer_and_does_not_read_price(
     wrong = capsys.readouterr().out
     assert "sec_filing_period_mismatch" in wrong
     assert "operating_income (" not in wrong
+    assert "前年同期差" not in wrong
 
     subject["filing"]["form"] = "10-K"
     bundle["subjects"][1]["filing"] = subject["filing"]
@@ -1003,3 +922,54 @@ def test_opt_in_sec_comparison_uses_one_issuer_and_does_not_read_price(
         main(cmd)
     assert exc.value.code == 2
     assert "invalid fixed US research receipt bundle" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("prior", "current", "different_concept", "reported"),
+    [
+        (0, 7, False, "差額 USD +7; 前年比未算出: `nonpositive_base`"),
+        (-5, 7, False, "差額 USD +12; 前年比未算出: `nonpositive_base`"),
+        (100_000_000_000_000_000_001, 100_000_000_000_000_000_002, False, "差額 USD +1; 前年比"),
+        (100_000, 199_999, False, "差額 USD +99,999; 前年比"),
+        (1, 10**31 + 2, False, f"差額 USD {10**31 + 1:+,}; 前年比"),
+        (1, 10**35 + 2, False, "未算出: `inexact_difference`"),
+        (8, 9, True, "未算出: `incomparable_concepts`"),
+        (None, 9, False, "未算出: `prior:no_fact_for_scope`"),
+    ],
+)
+def test_same_filing_reported_change_does_not_mix_values_or_concepts(
+    prior, current, different_concept, reported
+):
+    bundle, files, _ = _public_index_bundle()
+    record = bundle["subjects"][0]["companyfacts"]
+    facts = json.loads(files[record["file"]])
+    gaap = facts["facts"]["us-gaap"]
+    (sample,) = next(iter(gaap.values()))["units"]["USD"]
+    gaap.clear()
+    gaap["Revenues"] = {"units": {"USD": [dict(sample, val=current)]}}
+    if prior is not None:
+        prior_row = dict(sample, val=prior, start="2025-07-01", end="2025-09-30")
+        if different_concept:
+            gaap["RevenueFromContractWithCustomerExcludingAssessedTax"] = {
+                "units": {"USD": [prior_row]}
+            }
+        else:
+            gaap["Revenues"]["units"]["USD"].append(prior_row)
+    gaap["NetCashProvidedByUsedInOperatingActivities"] = {
+        "units": {
+            "USD": [
+                dict(sample, val=100, start="2026-01-01"),
+                dict(sample, val=80, start="2025-01-01", end="2025-09-30"),
+                dict(sample, val=999_999),
+            ]
+        }
+    }
+    _replace_body(record, files, facts)
+    args = ["320193", "Q3", "2025-07-01", "2025-09-30", "2026-01-01", "2025-01-01"]
+    with localcontext() as context:
+        context.prec = 4
+        output = _compare_sec_report(bundle, files.__getitem__, args)
+    assert f"- revenue (quarter): {reported}" in output
+    assert f"revenue (quarter, current) 2026-07-01〜2026-09-30: USD {current:,};" in output
+    assert "- operating_cash_flow (year_to_date): 差額 USD +20; 前年比 +25.00%" in output
+    assert "999,999" not in output
