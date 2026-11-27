@@ -14,8 +14,9 @@ function render(assessment: SavedAssessmentView) {
 describe('モデル別の保存判断', () => {
   it('七観点を一定順序で表示し、未記録を推測で埋めない', () => {
     const html = render(assessmentFixture('legacy'))
-    for (const label of ['企業財務', '企業成長', '市場環境', '外部評価', 'テクニカル分析', '産業動向', '社会動向']) expect(html).toContain(label)
-    expect(html.match(/scope="row"/g)).toHaveLength(7)
+    const labels = [...html.matchAll(/<th[^>]*scope="row"[^>]*>([^<]+)<\/th>/g)].map(match => match[1])
+    expect(labels).toEqual(['企業財務', '企業成長', '市場環境', '外部評価', 'テクニカル', '産業動向', '社会動向'])
+    expect(html).toMatch(/<h5[^>]*>テクニカル<span/)
     expect(html.slice(html.indexOf('<tbody>'), html.indexOf('</tbody>')).match(/>未記録</g)).toHaveLength(7)
     const chartRows = html.slice(html.indexOf('<tbody>'), html.indexOf('</tbody>'))
     expect(chartRows).not.toContain('>中立<')

@@ -103,7 +103,7 @@ Company Research factsは年次/訂正と比較年度の任意入力。外部/�
 <a id="market-context-reads"></a>
 ## 価格・市場・業種の比較
 
-[個社・市場・業種の相対比較](#relative-market-comparison)、[市場方向別の価格と円代金](#market-conditioned-activity)、[テクニカル分析の窓と経路](#technical-analysis)、[信用需給](#margin)を分けて読む。
+[個社・市場・業種の相対比較](#relative-market-comparison)、[市場方向別の価格と円代金](#market-conditioned-activity)、[テクニカルの窓と経路](#technical-analysis)、[信用需給](#margin)を分けて読む。
 
 <a id="relative-market-comparison"></a>
 ### 個社・市場・業種の相対比較
@@ -136,7 +136,7 @@ Company Research factsは年次/訂正と比較年度の任意入力。外部/�
 条件付き60営業日と当日対直前20営業日の代金観測は、同じ固定snapshotから終値・価格調整と独立に読む。終値が全て欠測でも保持代金の観測は残し、価格・相対の区画が代金観測だけを持つ場合がある。それを価格・価格日・returnの存在とせず、旧保存モデルには後補完しない。
 
 <a id="technical-analysis"></a>
-### テクニカル分析の窓と経路
+### テクニカルの窓と経路
 
 [TA](../../engine/src/baibai_engine/machine_analysis/models/technical_analysis/)は配当なしの調整終値を使う。bar本数は窓・鮮度・流動性・取引可能性を保証せず、慣例期間の最適性、BBの95%包含/反転確率、RSIのbuy/sellを仮定しない。SMAの価格差は観測終端の位置であり、線を回復した日時や場中の売却条件ではない。旧保存モデルへ追加期間のSMAを後補完しない。RSIの履歴依存やflat中立値は計算規約である。
 
