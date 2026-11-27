@@ -407,7 +407,6 @@ def render_reviewed_report(report: ReviewedReport) -> bytes:
 
 type USProposalId = Annotated[str, Field(pattern=r"^us-proposal-[a-z0-9-]{1,64}$")]
 _US_PROPOSAL_ID: TypeAdapter[str] = TypeAdapter(USProposalId)
-_NEWEST_US_PROPOSAL_FIRST = "ORDER BY published_at DESC, proposal_id DESC"
 
 
 class USProposalDraft(_Record):
@@ -547,7 +546,8 @@ def published_us_proposal_ids(
     ids: list[str | None] = []
     known: set[str] = set()
     for (raw_id,) in connection.execute(
-        "SELECT proposal_id FROM us_equity_proposal " + _NEWEST_US_PROPOSAL_FIRST + " LIMIT ?",
+        "SELECT proposal_id FROM us_equity_proposal "
+        "ORDER BY published_at DESC, proposal_id DESC LIMIT ?",
         (limit,),
     ):
         try:
@@ -567,7 +567,6 @@ def load_latest_us_proposal(connection: sqlite3.Connection) -> USProposal | None
     return _load_row(
         connection.execute(
             "SELECT proposal_id, published_at, payload FROM us_equity_proposal "
-            + _NEWEST_US_PROPOSAL_FIRST
-            + " LIMIT 1"
+            "ORDER BY published_at DESC, proposal_id DESC LIMIT 1"
         ).fetchone()
     )
