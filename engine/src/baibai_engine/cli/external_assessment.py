@@ -81,6 +81,6 @@ def main(argv: list[str] | None = None, /) -> int:
                 )
             )
         return 0
-    except (ValueError, OSError, sqlite3.Error) as error:
+    except (ValueError, SQLiteSchemaError, OSError, sqlite3.Error) as error:
         print(f"error: external assessment read failed: {error}", file=sys.stderr)
         return 1

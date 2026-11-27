@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import sqlite3
+from contextlib import closing
+
 import pytest
 
 from baibai_engine.cli.app import main
@@ -79,6 +82,38 @@ def test_market_snapshot_help_reaches_its_domain_owner():
     with pytest.raises(SystemExit) as result:
         main(["market-context", "snapshot", "--help"])
     assert result.value.code == 0
+
+
+@pytest.mark.parametrize(
+    ("command", "path_flag"),
+    [
+        (["market-context", "snapshot"], "--sqlite-path"),
+        (["market-context", "snapshot", "--asof", "2026-05-29"], "--sqlite-path"),
+        (
+            ["external-assessment", "show", "--ticker", "1234", "--cutoff", "2026-05-29T15:00Z"],
+            "--db",
+        ),
+    ],
+)
+@pytest.mark.parametrize("store_error", ["obsolete", "corrupt"])
+def test_market_read_commands_report_bad_stores_without_emitting_results(
+    command, path_flag, store_error, tmp_path, capsys
+):
+    path = tmp_path / "market.sqlite"
+    if store_error == "obsolete":
+        with closing(sqlite3.connect(path)) as connection:
+            connection.execute("PRAGMA user_version = 1")
+        expected = "obsolete market SQLite schema"
+    else:
+        path.write_bytes(b"not a SQLite database")
+        expected = "file is not a database"
+    before = path.read_bytes()
+
+    assert main([*command, path_flag, str(path)]) == 1
+    result = capsys.readouterr()
+    assert result.out == ""
+    assert expected in result.err
+    assert path.read_bytes() == before
 
 
 def test_calendar_context_read_does_not_load_judgment_or_screening():
