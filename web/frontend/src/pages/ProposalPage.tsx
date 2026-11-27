@@ -148,6 +148,7 @@ function AssessmentRefresh({ assessment }: { assessment: SavedAssessmentView }) 
   const sections: Record<string, string> = {
     findings: '事業・価値仮説', valuation: '価値算定', investment_case: '投資理由',
     risks: '恒久損失リスク', sources: '資料', model_perspectives: 'モデル別観点',
+    price_value_case: '一株の価値と価格',
   }
   return <details className="rounded-lg border p-4">
     <summary className="cursor-pointer text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-4">評価を更新した根拠</summary>
