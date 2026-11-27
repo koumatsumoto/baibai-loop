@@ -1,8 +1,7 @@
 name: web
 
-# Web入力の変更だけを自動検証する。GitHubのdiff上限を超える変更では
-# path filterが起動を見送る場合があるため、実際のrunを確認する。
-# 本番配備は必要なread-modelの公開・読戻し後にmainで明示dispatchする。
+# mainのWeb変更は検証後に自動配備する。配信データの形式が変わる間は、
+# 一時的に表示が崩れてもよい。データ公開を待たず、旧形式との互換処理も入れない。
 on:
   pull_request:
     branches: [main]
@@ -13,28 +12,65 @@ on:
       - .github/workflows/web.yml
       - .node-version
   push:
+    # GitHubのpath filterは大きな差分で起動を見送ることがあるため、mainは起動後に判定する。
     branches: [main]
-    paths:
-      - web/frontend/**
-      - web/edge/**
-      - web/contracts/**
-      - .github/workflows/web.yml
-      - .node-version
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# Pull requests supersede themselves. Runs that can reach the deploy step queue
-# behind one another, and runs that cannot are kept out of that queue entirely:
-# a group holds one pending run, so a branch dispatch sharing it would evict a
-# real deploy that is waiting its turn.
+env:
+  WEB_INPUTS: >-
+    web/frontend
+    web/edge
+    web/contracts
+    .node-version
+    .github/workflows/web.yml
+  PRODUCTION: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && format('{0}-production-deploy', github.workflow) || format('{0}-{1}', github.workflow, github.run_id) }}
+  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || format('{0}-{1}', github.workflow, github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  scope:
+    if: ${{ github.event_name == 'push' && !github.event.deleted }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      web: ${{ steps.changes.outputs.web }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/workflows
+      - name: Check for changes to Web inputs
+        id: changes
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          read -r -a web_inputs <<< "$WEB_INPUTS"
+          web=true
+          if [[ "$BEFORE_SHA" != 0000000000000000000000000000000000000000 ]] &&
+            git fetch --no-tags --depth=1 --filter=blob:none origin "$BEFORE_SHA"; then
+            if git diff --no-renames --quiet "$BEFORE_SHA" "$TARGET_SHA" -- "${web_inputs[@]}"; then
+              web=false
+            elif [[ $? -ne 1 ]]; then
+              echo "::error::failed to compare Web inputs for this push"
+              exit 1
+            fi
+          else
+            echo "::notice::previous push revision unavailable; validating Web inputs"
+          fi
+          echo "web=$web" >> "$GITHUB_OUTPUT"
+
   quality:
+    needs: scope
+    if: ${{ !cancelled() && (github.event_name != 'push' || needs.scope.result == 'success' && needs.scope.outputs.web == 'true') }}
+    # 本番に配備し得るrunだけを直列化する。後から来た古いrunが待機中の新しいrunを消さない。
+    concurrency:
+      group: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && format('{0}-production-deploy', github.workflow) || format('{0}-quality-{1}', github.workflow, github.run_id) }}
+      queue: max
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -89,15 +125,15 @@ jobs:
       # 表示コードだけでなくNode版とbuild/deploy手順も比較する。
       - name: Verify current production target
         id: deploy-target
-        if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+        if: ${{ env.PRODUCTION == 'true' }}
         env:
           TARGET_SHA: ${{ github.sha }}
         run: |
-          git fetch --no-tags --depth=1 origin main
+          read -r -a web_inputs <<< "$WEB_INPUTS"
+          git fetch --no-tags --depth=1 --filter=blob:none origin refs/heads/main
           current_sha="$(git rev-parse FETCH_HEAD)"
           current=false
-          if git diff --quiet "$TARGET_SHA" "$current_sha" -- \
-            web/frontend web/edge web/contracts .node-version .github/workflows/web.yml; then
+          if git diff --no-renames --quiet "$TARGET_SHA" "$current_sha" -- "${web_inputs[@]}"; then
             current=true
           else
             diff_status=$?
@@ -111,7 +147,7 @@ jobs:
           echo "current=$current" >> "$GITHUB_OUTPUT"
 
       - name: Deploy Worker and UI assets
-        if: ${{ success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && steps.deploy-target.outputs.current == 'true' }}
+        if: ${{ success() && env.PRODUCTION == 'true' && steps.deploy-target.outputs.current == 'true' }}
         working-directory: web/edge
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

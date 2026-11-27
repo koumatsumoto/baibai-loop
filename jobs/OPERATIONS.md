@@ -606,13 +606,14 @@ uv run python -m tools.diagnostics.check_served_proposal \
 
 診断は訂正を反映した正式latest全項目、履歴の形式・ID集合・生成時刻、Caseの対象/結果/Selectionを照合する。他の履歴本文の全項目比較ではない。`--proposal-id`で対象を固定できる。`--require-completed`はCase完了参照まで同じ提案であることを求める場合だけ使う（後日の訂正で異なり得る）。終了0は配備・実画面・新規提案発行や売買の証明ではない。
 
-必要な表示データを公開・読戻しした成功main runを確認後、[web workflow](../.github/workflows/web.yml)をmainで明示dispatchする。push/PRのweb runは検証だけで、Worker/UIを配備しない。
+[Web workflow](../.github/workflows/web.yml)は `main` へのpushでWeb入力が変わった場合だけ、Webの検証後にWorkerとUIを自動配備する。PRと `main` 以外での手動起動は検証だけ。配信データの公開とは独立しており、データ形式の切替中に一時的に表示が崩れることは許容する。配備を待たせたり、旧形式に対応する実装を残したりしない。
 
 ```bash
-gh workflow run web.yml --ref main
-gh run list --workflow web.yml --branch main --event workflow_dispatch --limit 5
+gh run list --workflow web.yml --branch main --event push --commit <TARGET_SHA> --limit 5
 gh run watch <WEB_RUN_ID> --exit-status --interval 60
 ```
+
+自動配備の復旧や現行mainの再配備には `gh workflow run web.yml --ref main` を使う。自動・手動の本番配備は同じキューで直列実行する。
 
 対象SHAの`Deploy Worker and UI assets`が実行・成功したことを確認する。待機中にmainのWeb入力が変わると配備はskipされるため、run成功だけで配備済みとしない。認証APIは対話terminalで`bash web/edge/scripts/verify-deployment.sh`を実行し、閲覧パスワードはpromptへ入力する。`WORKER_BASE_URL`で確認先を変える場合はHTTPS originだけを指定し、userinfo・path（末尾slashを含む）・query・fragment・空白を含めない。画面のDashboard・提案emptyまたは保存ID/基準日/発行時刻付き本文の表示受入は別に確認する。旧object/secretは削除しない。
 
