@@ -78,12 +78,24 @@ class _LocalCopies:
             raise FileNotFoundError("local handoff object is missing")
         return self.paths[key].read_bytes()
 
-    def download_file(self, key: str, path: Path, *, expect_bytes: int | None = None) -> None:
+    def download_file(
+        self,
+        key: str,
+        path: Path,
+        *,
+        expect_bytes: int | None = None,
+        expect_etag: str | None = None,
+    ) -> None:
         remote = self.head(key)
         if remote is None or (expect_bytes is not None and remote.size != expect_bytes):
             raise ValueError("local handoff size differs")
+        # A fixed local copy identifies its generation by its SHA-256.
+        if expect_etag is not None and remote.etag != expect_etag:
+            raise ValueError("local input differs from the selected digest")
         shutil.copyfile(self.paths[key], path)
         self.head(key)
+        if expect_etag is not None and sha256_file(path) != expect_etag:
+            raise ValueError("local copy differs from the selected digest")
 
     def put_file(
         self,

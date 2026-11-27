@@ -290,6 +290,25 @@ def test_local_change_during_inspection_is_not_reported_as_success(tmp_path, mon
         inspect(canonical, (packet,))
 
 
+def test_canonical_copy_must_match_its_selected_digest(tmp_path, monkeypatch):
+    canonical = tmp_path / "canonical.sqlite"
+    unrelated = tmp_path / "unrelated.sqlite"
+    receive(canonical, "A", 0)
+    receive(unrelated, "B", 0)
+    assert canonical.stat().st_size == unrelated.stat().st_size
+    digest = sha256_file(canonical)
+    packet = stage(tmp_path, [("A", 3, {})])
+    copyfile = shutil.copyfile
+
+    def copy_wrong_bytes(source, destination):
+        return copyfile(unrelated if source == canonical else source, destination)
+
+    monkeypatch.setattr(shutil, "copyfile", copy_wrong_bytes)
+    with pytest.raises(ValueError, match="local copy differs from the selected digest"):
+        inspect(canonical, (packet,))
+    assert sha256_file(canonical) == digest
+
+
 def cli_args(canonical, packet):
     return [
         "--canonical",
