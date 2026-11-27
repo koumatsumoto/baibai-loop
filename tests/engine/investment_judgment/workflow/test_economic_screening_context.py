@@ -54,10 +54,16 @@ NOW = datetime(2026, 10, 25, 9, tzinfo=UTC)
 AS_OF = date(2026, 10, 23)
 
 
-def seed_economic_generation(path, *, scoped=True):
+def seed_economic_generation(path, *, scoped=True, shared_market=None):
     original = seed_generation(path, now=NOW, as_of=AS_OF)
     stock_ids = tuple(model.model_id for model in original.models if model.subject == "1234")
-    models = [model for model in original.models if model.subject == "market"]
+    models = [
+        model.model_copy(update={"payload": shared_market})
+        if model.model_id == "market_context" and shared_market is not None
+        else model
+        for model in original.models
+        if model.subject == "market"
+    ]
     for ticker in ("1234", "5678", "9999"):
         for model in original.models:
             if model.subject != "1234":
@@ -412,7 +418,37 @@ def test_generation_only_context_cli_keeps_complete_growth_and_all_detail_models
 
 def test_prepare_saves_full_economic_policy_and_chosen_models_then_resumes_without_runs(tmp_path):
     runs = tmp_path / "runs"
-    generation, screening = seed_economic_generation(runs)
+    semantics = {"point_in_time_guaranteed": False, "known_at_applied": False}
+    point = {
+        "date": "2026-10-23",
+        "observation_date": "2026-10-22",
+        "benchmark_return_20d": 0.0,
+        "benchmark_return_60d": None,
+    }
+    ranked = {
+        "series_id": "vix",
+        "latest_value": 16.0,
+        "observed_at": "2026-10-21",
+        "percentile": 9 / 11,
+        "statistic": "level",
+        "window_observations": 11,
+    }
+    unreadable = {
+        "series_id": "jp.cpi.core_yoy",
+        "latest_value": None,
+        "observed_at": None,
+        "percentile": None,
+        "flags": ["source_unreadable"],
+        "notes": ["synthetic CPI source unreadable"],
+    }
+    shared_market = {
+        "market": {"benchmark_ticker": "1321", "points": [point]},
+        "reading": {
+            "read_semantics": semantics,
+            "series": [{**row, "read_semantics": semantics} for row in (ranked, unreadable)],
+        },
+    }
+    generation, screening = seed_economic_generation(runs, shared_market=shared_market)
     draft = GeneratedResearchSelectionDraft(
         schema_version=2,
         request=ResearchRequest(text="比較して調査", scope="discover_new"),
@@ -444,6 +480,21 @@ def test_prepare_saves_full_economic_policy_and_chosen_models_then_resumes_witho
     assert saved.inputs.generation.result("company_growth", "5678") is None
     original = project_research_inputs(saved)
     raw, digest = saved.model_dump(mode="json"), selection_sha256(saved)
+    assert saved.inputs.generation.result("market_context", "market").payload == shared_market
+    prepared_view = yaml.safe_load((workspace / "domain-inputs.yaml").read_text())
+    shared_view = prepared_view["shared_subjects"]["market"]
+    assert shared_view["not_generated"] == []
+    fixed_market = shared_view["models"]["market_context"]
+    assert fixed_market["market"] == {"benchmark_ticker": "1321", "points": [point]}
+    assert type(fixed_market["market"]["points"][0]["benchmark_return_20d"]) is float
+    reading = fixed_market["reading"]
+    assert reading["read_semantics"]["point_in_time_guaranteed"] is False
+    assert reading["read_semantics"]["known_at_applied"] is False
+    assert reading["series"] == [
+        {**ranked, "read_semantics": {}},
+        {**unreadable, "read_semantics": {}},
+    ]
+    assert prepared_view == original
     growth_projection = original["securities"]["1234"]["models"]["company_growth"]
     assert yaml.safe_load((workspace / "manifest.yaml").read_text())["company_growth_periods"] == 12
     assert growth_projection["display_scope"]["period_count"] == 12

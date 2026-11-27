@@ -318,7 +318,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 if args.selection_file is not None:
                     prepared = prepare_selected_workspace(
                         draft=GeneratedResearchSelectionDraft.model_validate_json(
-                            args.selection_file.read_text()
+                            args.selection_file.read_text(encoding="utf-8")
                         ),
                         db_path=args.db,
                         workspace=args.workspace,

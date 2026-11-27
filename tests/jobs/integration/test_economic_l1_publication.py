@@ -354,6 +354,45 @@ def test_handoff_validation_timer_counts_only_entered_checks_including_failure(
     assert json.loads((tmp_path / "plan/applied.json").read_bytes()) == report
 
 
+def test_candidate_lease_expires_during_checksum_before_any_put(tmp_path, setup, monkeypatch):
+    from types import SimpleNamespace
+
+    from baibai_jobs.integration import economic_sources
+
+    store, _, handle = setup
+    stage(tmp_path, store)
+    before = store.values.copy()
+    put_keys = list(store.put_keys)
+    moment = handle.acquired_at_utc
+    verify_held = economic_sources.verify_held
+    digest = economic_sources.hashlib
+
+    def finish_candidate_checksum(stream, method):
+        nonlocal moment
+        result = digest.file_digest(stream, method)
+        # The snapshot already exists, but its conditional upload has not started.
+        moment = handle.expires_at_utc
+        return result
+
+    monkeypatch.setattr(
+        economic_sources,
+        "hashlib",
+        SimpleNamespace(md5=digest.md5, file_digest=finish_candidate_checksum),
+    )
+    monkeypatch.setattr(
+        economic_sources,
+        "verify_held",
+        lambda remote, active: verify_held(remote, active, now=moment),
+    )
+
+    with pytest.raises(LeaseError, match="expired or replaced"):
+        run(tmp_path, setup)
+    assert moment == handle.expires_at_utc
+    assert store.values == before
+    assert store.put_keys == put_keys
+    assert not (tmp_path / "run.sqlite").exists()
+
+
 def test_expired_lease_before_seal_does_not_advance_watermark(tmp_path, setup, monkeypatch):
     store, _, handle = setup
     stage(tmp_path, store)

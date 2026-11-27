@@ -260,6 +260,63 @@ def test_prepare_then_checkpoint_cli_updates_only_notes(
     assert db.read_bytes() == first_app
 
 
+@pytest.mark.parametrize("condition", ["default", "legacy_locale", "invalid_utf8"])
+def test_prepare_reads_utf8_selection_independent_of_the_locale(
+    tmp_path, monkeypatch, capsys, condition
+):
+    from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
+
+    from baibai_engine.cli.investment_judgment import main as judgment_main
+    from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
+    from baibai_engine.investment_judgment.workflow.operation.service import OperationService
+
+    db, runs, workspace = tmp_path / "app", tmp_path / "runs", tmp_path / "ws"
+    draft = tmp_path / "selection.json"
+    source = seed_generated_selection(runs=runs, now=OPERATION_NOW, tickers=("1234",))
+    content = generated_draft_for(source).model_dump_json().encode("utf-8")
+    assert source.selection_summary.encode("utf-8") in content
+    original = b'{"invalid_utf8": "\xff"}' if condition == "invalid_utf8" else content
+    draft.write_bytes(original)
+
+    if condition == "legacy_locale":
+        # Emulate default file decoding on a CP932 system without needing that locale in CI.
+        read_text = Path.read_text
+
+        def read_text_with_legacy_locale(path, encoding=None, errors=None, newline=None):
+            if path == draft and encoding is None:
+                encoding = "cp932"
+            return read_text(path, encoding=encoding, errors=errors, newline=newline)
+
+        monkeypatch.setattr(Path, "read_text", read_text_with_legacy_locale)
+    code = judgment_main(
+        [
+            "prepare",
+            "--selection-file",
+            str(draft),
+            "--db",
+            str(db),
+            "--runs-path",
+            str(runs),
+            "--workspace",
+            str(workspace),
+        ],
+        now=OPERATION_NOW,
+    )
+    result = _emitted(capsys)
+    assert draft.read_bytes() == original
+    if condition == "invalid_utf8":
+        assert code == 3
+        assert result["status"] == "invalid_source"
+        assert result["operation_id"] is None
+        assert not db.exists()
+        assert not workspace.exists()
+    else:
+        assert code == 0
+        saved = selection_binding(OperationService(db).get(result["operation_id"]).payload)
+        assert saved.request == source.request
+        assert saved.selection_summary == source.selection_summary
+
+
 def test_db_init_cli_creates_the_application_database_at_the_current_schema(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
