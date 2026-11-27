@@ -48,9 +48,9 @@ from baibai_web.sources.proposal import read_proposal_views
 
 @pytest.fixture
 def payload():
-    return json.loads(Path("tests/fixtures/domain-assessment-proposal-synthetic.json").read_text())[
-        "investment_proposal"
-    ]
+    return json.loads(
+        Path("tests/fixtures/domain-assessment-proposal-synthetic.json").read_bytes()
+    )["investment_proposal"]
 
 
 def _pair(

@@ -92,11 +92,14 @@ def test_stage_output_failure_still_closes_store(tmp_path, monkeypatch, capsys):
 
 
 @pytest.mark.parametrize("command", ["stage", "download"])
-def test_missing_command_argument_does_not_construct_store(tmp_path, monkeypatch, command):
+def test_missing_stage_id_does_not_construct_store(tmp_path, monkeypatch, capsys, command):
+    source = "tradingview" if command == "download" else "jpx-earnings"
+    if command == "stage":
+        (tmp_path / "result.json").write_text('{"bundle_ids": ["fixture-original"]}')
+
     def unexpected(**kwargs):
-        raise AssertionError("remote store should not be constructed")
+        pytest.fail("remote store should not be constructed")
 
     monkeypatch.setattr(source_handoff, "Boto3R2Store", unexpected)
-    assert (
-        source_handoff.main([command, "--source", "tradingview", "--directory", str(tmp_path)]) == 1
-    )
+    assert source_handoff.main([command, "--source", source, "--directory", str(tmp_path)]) == 1
+    assert capsys.readouterr().err == "source handoff failed: ValueError\n"
