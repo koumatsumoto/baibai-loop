@@ -79,6 +79,27 @@ it('shows the exact older owner with its SIP source, saved ID, SHA and a list ba
   expect(combined(snapshot, 'proposal=' + previous.proposal_id)).toContain(previous.draft_sha256)
 })
 
+it('explains which comparison input is missing on the selected deferred report, without borrowing a close from another report', () => {
+  const unknown = { action: 'defer', comparison: null, comparison_horizon_et: null } as const
+  const data: LatestUSProposalView = {
+    ...snapshot,
+    proposal: { ...current, ...unknown, official_close: null },
+    history: { ...snapshot.history, proposals: [{ ...previous, ...unknown }] },
+  }
+  const missingClose = combined(data, 'proposal=' + current.proposal_id)
+  const recordedClose = combined(data, previousQuery)
+  expect(missingClose).toContain('比較の起点となる公式終値は未確認です。')
+  expect(missingClose).not.toContain('公式終値は確認済みです。')
+  expect(recordedClose).toContain('公式終値は確認済みです。')
+  expect(recordedClose).toContain('基本・下方ケースとUSD現金を同じ終期で比べた結果は、この判断にはありません。')
+  expect(recordedClose).not.toContain('比較の起点となる公式終値は未確認です。')
+  for (const html of [missingClose, recordedClose]) {
+    expect(html).toContain('判断保留')
+    expect(html).toContain('比較未確定')
+    expect(html).not.toMatch(/>現金との差<|>見送り<|<form|<button/)
+  }
+})
+
 it.each([
   ['out of this window', 'proposal=us-proposal-unlisted', 'この表示範囲にありません'],
   ['wrong exact ticker', 'proposal=' + previous.proposal_id + '&ticker=GOOG', 'この表示範囲にありません'],
