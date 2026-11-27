@@ -14,7 +14,10 @@ from baibai_engine.data_collection.receipts.native_sources.records import (
     read_snapshots,
     store_snapshot,
 )
-from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
+from baibai_engine.data_collection.receipts.native_sources.store import (
+    initialize_database,
+    open_read_only_connection,
+)
 from baibai_engine.storage.objects.r2 import (
     LakePublishError,
 )
@@ -311,6 +314,7 @@ def test_acquisition_deadline_leaves_time_to_stage_confirmed_sibling_receipts(
     from baibai_engine.data_collection.transport.http import AcquisitionDeadlineExceeded
 
     expired = False
+    requested = []
 
     def check(waiting=0):
         if expired:
@@ -318,6 +322,7 @@ def test_acquisition_deadline_leaves_time_to_stage_confirmed_sibling_receipts(
 
     def fetch(source, **kwargs):
         nonlocal expired
+        requested.append(source.source_id)
         expired = True
         return {DAY: [{"value": "confirmed before cutoff"}]}
 
@@ -329,8 +334,26 @@ def test_acquisition_deadline_leaves_time_to_stage_confirmed_sibling_receipts(
     directory = tmp_path / "stage"
     assert acquire("boj", "", DAY, directory, database) == 1
     report = json.loads((directory / "result.json").read_text())
-    assert sum(row["status"] == "ok" for row in report["sources"]) == 1
+    (confirmed,) = [row for row in report["sources"] if row["status"] == "ok"]
+    assert confirmed["record_count"] == 1
+    assert requested == [confirmed["source_id"]]
     assert any(row["status"] == "failed" for row in report["sources"])
+
     store = MemoryR2Store()
-    save_handoff(store, "deadline-boj", directory)
-    assert any(key.endswith("handoff.json") for key in store.put_keys)
+    stage = save_handoff(store, "deadline-boj", directory)
+    readback = tmp_path / "readback"
+    load_handoff(store, stage, readback)
+    assert json.loads((readback / "result.json").read_text()) == report
+    assert (readback / "receipts.sqlite").read_bytes() == (
+        directory / "receipts.sqlite"
+    ).read_bytes()
+    with closing(open_read_only_connection(readback / "receipts.sqlite")) as conn:
+        receipts = tuple(read_snapshots(conn, DAY, DAY, source_id=confirmed["source_id"]))
+        assert len(receipts) == 1
+        assert receipts[0].records == ({"value": "confirmed before cutoff"},)
+        # A bounded source can also have valid empty dates. No failed sibling can have a
+        # purported observation, and only the single received record belongs to the success.
+        counts = conn.execute(
+            "SELECT source_id, SUM(record_count) FROM economic_source_records GROUP BY source_id"
+        )
+        assert [tuple(row) for row in counts] == [(confirmed["source_id"], 1)]

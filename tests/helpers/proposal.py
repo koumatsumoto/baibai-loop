@@ -76,6 +76,7 @@ def backend_case(
     required_rate=None,
     horizon_months=None,
     tickers=("1234",),
+    models=(),
 ):
     """実writerで固定選定/Operationと評価・Reviewのpairを作る。新Operation行のSQL seedはしない。"""
     app, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
@@ -219,6 +220,7 @@ def backend_case(
         runs=runs,
         now=min(opened_at, pair.published_at + timedelta(minutes=1)),
         tickers=tickers,
+        models=models,
         scope="review_positions" if holding else "specified_stocks",
     )
     operations = OperationService(app, runs_path=runs)

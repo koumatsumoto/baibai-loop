@@ -450,6 +450,7 @@ def _external(e: Row, ticker: str, limit: date, cutoff: datetime) -> Reading | N
             ("consensus_target", "コンセンサス目標"),
             ("per_company_forecast", "外部試算（PER方式、利益は発行会社の予想）"),
             ("pbr", "PBR方式の外部試算"),
+            ("per_consensus", "外部試算（PER方式、前提はアナリスト予想）"),
         ):
             value, origin = _num(obs.get(key)), obs.get(f"{key}_origin")
             if value is None or value <= 0 or not isinstance(origin, str) or not origin:

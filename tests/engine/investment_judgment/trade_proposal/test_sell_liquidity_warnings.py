@@ -1,14 +1,16 @@
 """売却下限を約定規模とせず、全量回収の既存ADV注意を保存する。"""
 
+import sqlite3
+from contextlib import closing
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 import pytest
 from tests.helpers import proposal as fixtures
-from tests.helpers.generated_selection import seed_generated_selection
 from tests.helpers.proposal import PUBLISHED, backend_case, bind_review, read_saved_proposal
 from tests.helpers.proposal import reviewed_proposal as draft_for
+from tests.helpers.screening_sqlite import seed_daily_bars
 
 from baibai_engine.investment_judgment.trade_proposal import service as service_owner
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
@@ -19,6 +21,7 @@ from baibai_engine.investment_judgment.trade_proposal.preview import preview_cur
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.investment_judgment.trade_proposal.warnings import build_proposal_warnings
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
+from baibai_engine.portfolio.ledger.drafts import apply_draft, build_share_conversion_draft
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
 
@@ -122,22 +125,18 @@ def test_sell_equality_is_warning_free_and_unconfirmed_terms_do_not_invent_scale
     assert result.terms_warnings == {}
 
 
-def _with_model(monkeypatch):
-    def seeded(**kwargs):
-        model = GeneratedModel(
-            model_id="market_context",
-            subject="1234",
-            calculation_revision="synthetic-market-v1",
-            payload={"price": {"avg_turnover_20d_oku": 0.02, "resolved_date": "2026-10-14"}},
-        )
-        return seed_generated_selection(**kwargs, models=(model,))
-
-    monkeypatch.setattr(fixtures, "seed_generated_selection", seeded)
+def _case_with_liquidity(tmp_path):
+    model = GeneratedModel(
+        model_id="market_context",
+        subject="1234",
+        calculation_revision="synthetic-market-v1",
+        payload={"price": {"avg_turnover_20d_oku": 0.02, "resolved_date": "2026-10-14"}},
+    )
+    return backend_case(tmp_path, holding=True, broken=True, models=(model,))
 
 
-def test_sell_warning_follows_normal_check_save_exact_retry_and_preview(tmp_path, monkeypatch):
-    _with_model(monkeypatch)
-    case = backend_case(tmp_path, holding=True, broken=True)
+def test_sell_warning_follows_normal_check_save_exact_retry_and_preview(tmp_path):
+    case = _case_with_liquidity(tmp_path)
     proposal = _sell(case, limit=500)
     assert proposal.items[0].terms.warnings == ("adv_participation_exceeds_warning",)
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
@@ -162,8 +161,7 @@ def test_sell_warning_follows_normal_check_save_exact_retry_and_preview(tmp_path
 def test_legacy_saved_sell_without_warning_remains_exact_but_preview_adds_current_attention(
     tmp_path, monkeypatch
 ):
-    _with_model(monkeypatch)
-    case = backend_case(tmp_path, holding=True, broken=True)
+    case = _case_with_liquidity(tmp_path)
 
     def legacy(*args, **kwargs):
         result = build_proposal_warnings(*args, **kwargs)
@@ -187,3 +185,59 @@ def test_legacy_saved_sell_without_warning_remains_exact_but_preview_adds_curren
     assert preview.items[0]["saved_terms"]["warnings"] == []
     assert preview.items[0]["current_terms_warnings"] == ["adv_participation_exceeds_warning"]
     assert case.app.read_bytes() == before
+
+
+@pytest.mark.parametrize("share_basis", ["unchanged", "unconfirmed_split", "confirmed_split"])
+def test_sell_preview_does_not_mix_saved_full_quantity_with_current_share_units(
+    tmp_path, share_basis
+):
+    case = _case_with_liquidity(tmp_path)
+    proposal = _sell(case)
+    saved = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+    ).publish(proposal)
+    now = datetime.fromisoformat("2026-10-15T16:20:00+09:00")
+    split = share_basis != "unchanged"
+    quote = 550 if split else 1100
+    seed_daily_bars(case.market, [("1234", "2026-10-15", quote, 0.5 if split else 1.0)])
+    if split:
+        with closing(sqlite3.connect(case.market)) as connection, connection:
+            connection.execute(
+                "UPDATE jquants_daily_bars SET ex_right_type='1' WHERE traded_at='2026-10-15'"
+            )
+    store = LedgerStoreService(case.app)
+    confirmed = share_basis == "confirmed_split"
+    if confirmed:
+        draft = build_share_conversion_draft(
+            store,
+            action_id="synthetic-split",
+            ticker="1234",
+            basis_date=now.date(),
+            numerator=2,
+            denominator=1,
+            quantity_before=100,
+            quantity_after=200,
+            confirmed_at=now,
+            source_ref="synthetic:human-confirmed",
+            now=now,
+        )
+        assert draft is not None
+        apply_draft(store, draft, human_confirmed=True, now=now)
+    before = case.app.read_bytes()
+    preview = preview_current_terms(
+        proposal_id=saved.proposal_id, db_path=case.app, sqlite_path=case.market, now=now
+    )
+    current = preview.current_inputs
+    assert current.positions[0].quantity_basis_confirmed is (share_basis != "unconfirmed_split")
+    assert current.positions[0].quantity == (200 if confirmed else 100)
+    assert current.quotes[0].price_yen == quote
+    assert current.available_cash_yen == saved.inputs.available_cash_yen
+    row = preview.items[0]
+    assert row["saved_terms"]["quantity"] == 100
+    assert row["saved_terms"]["warnings"] == ["adv_participation_exceeds_warning"]
+    assert ("quantity_basis_unconfirmed" in {reason["code"] for reason in row["blockers"]}) is split
+    assert row["current_terms_warnings"] == [
+        "adv_participation_unassessed" if split else "adv_participation_exceeds_warning"
+    ]
+    assert case.app.read_bytes() == before
+    assert read_saved_proposal(proposal_id=saved.proposal_id, db_path=case.app) == saved

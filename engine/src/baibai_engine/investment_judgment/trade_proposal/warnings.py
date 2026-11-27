@@ -43,6 +43,7 @@ def build_proposal_warnings(
         raise ProposalError(f"current proposal policy permits at most {MAX_NEW_BUYS} new buy")
     ready_buys = [item for item in buys if item.terms is not None]
     quotes = {quote.ticker: quote for quote in inputs.quotes}
+    positions = {position.ticker: position for position in inputs.positions}
     checked_date = inputs.checked_at.astimezone(JST).date()
     values: dict[str, Decimal] = {}
     warnings: list[str] = []
@@ -53,7 +54,7 @@ def build_proposal_warnings(
         for item in items
         if item.action == "hold" and item.ticker in active_tickers
     )
-    for position in inputs.positions:
+    for position in positions.values():
         quote = quotes.get(position.ticker)
         if (
             quote is None
@@ -191,9 +192,12 @@ def build_proposal_warnings(
         terms_warnings[buy.ticker] = tuple(buy_warnings)
     for sell in (item for item in items if item.action == "sell" and item.terms is not None):
         assert sell.terms is not None
-        # A sell floor is not the observed order scale; lowering it must not hide liquidity risk.
+        # Use the observed full holding, not the sell floor or an old quantity in new share units.
+        current_position = positions.get(sell.ticker)
         reference_notional = (
-            quotes[sell.ticker].price_yen * sell.terms.quantity if sell.ticker in values else None
+            values.get(sell.ticker)
+            if current_position is not None and current_position.quantity == sell.terms.quantity
+            else None
         )
         context = liquidity.get(sell.ticker)
         warning = _adv_warning(reference_notional, None if context is None else context.adv_yen)

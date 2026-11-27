@@ -20,6 +20,15 @@ from baibai_engine.investment_judgment.contracts import (
 from baibai_engine.machine_analysis.observations.prices.sessions import latest_eligible_close_date
 
 
+def _evidence_after(value: datetime, boundary: datetime) -> bool:
+    # Compare UTC deltas without losing an original offset or ignoring a repeated local hour.
+    value_offset, boundary_offset = value.utcoffset(), boundary.utcoffset()
+    assert value_offset is not None
+    assert boundary_offset is not None
+    wall_delta = value.replace(tzinfo=None) - boundary.replace(tzinfo=None)
+    return wall_delta > value_offset - boundary_offset
+
+
 class Source(BaseModel):
     model_config = _CONFIG
 
@@ -151,11 +160,12 @@ class ObservedFact(BaseModel):
 
     def postdates_cited_retrievals(self, sources: Mapping[str, Source]) -> bool:
         """価格時刻の矛盾だけを判定し、日付精度・参照の妥当性は別で扱う。"""
+        observed_at = self.observed_at
         return (
-            self.observed_at is not None
+            observed_at is not None
             and bool(self.source_ids)
             and all(
-                ref in sources and self.observed_at > sources[ref].retrieved_at
+                ref in sources and _evidence_after(observed_at, sources[ref].retrieved_at)
                 for ref in self.source_ids
             )
         )
