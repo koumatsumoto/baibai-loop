@@ -10,21 +10,25 @@ import yaml
 ROOT = Path(__file__).resolve().parents[3]
 
 
+def _workflow() -> dict:
+    return yaml.load(
+        (ROOT / ".github/workflows/web.yml").read_text(encoding="utf-8"),
+        Loader=yaml.BaseLoader,
+    )
+
+
 def test_web_push_and_pull_request_validate_the_same_inputs():
-    workflow = yaml.load(
-        (ROOT / ".github/workflows/web.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader
-    )
+    workflow = _workflow()
     events = workflow["on"]
-    assert set(events["push"]["paths"]) == set(events["pull_request"]["paths"])
+    assert events["push"] == {"branches": ["main"]}
+    assert events["pull_request"]["branches"] == ["main"]
+    assert set(workflow["env"]["WEB_INPUTS"].split()) == {
+        path.removesuffix("/**") for path in events["pull_request"]["paths"]
+    }
 
 
-def _target_step() -> dict[str, object]:
-    workflow = yaml.load(
-        (ROOT / ".github/workflows/web.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader
-    )
-    return next(
-        step for step in workflow["jobs"]["quality"]["steps"] if step.get("id") == "deploy-target"
-    )
+def _step(job: str, step_id: str) -> dict[str, object]:
+    return next(step for step in _workflow()["jobs"][job]["steps"] if step.get("id") == step_id)
 
 
 def _git(directory: Path, *args: str) -> str:
@@ -60,15 +64,30 @@ def checkout(tmp_path: Path) -> tuple[Path, Path, str]:
     return origin, runner, target
 
 
-def _check_target(runner: Path, target: str, output: Path) -> subprocess.CompletedProcess[str]:
+def _run_step(
+    runner: Path,
+    job: str,
+    step_id: str,
+    output: Path,
+    **step_env: str,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["bash", "-euo", "pipefail", "-c", str(_target_step()["run"])],
+        ["bash", "-euo", "pipefail", "-c", str(_step(job, step_id)["run"])],
         cwd=runner,
-        env={**os.environ, "TARGET_SHA": target, "GITHUB_OUTPUT": str(output)},
+        env={
+            **os.environ,
+            "WEB_INPUTS": _workflow()["env"]["WEB_INPUTS"],
+            "GITHUB_OUTPUT": str(output),
+            **step_env,
+        },
         capture_output=True,
         text=True,
         check=False,
     )
+
+
+def _check_target(runner: Path, target: str, output: Path) -> subprocess.CompletedProcess[str]:
+    return _run_step(runner, "quality", "deploy-target", output, TARGET_SHA=target)
 
 
 @pytest.mark.parametrize(
@@ -85,17 +104,24 @@ def _check_target(runner: Path, target: str, output: Path) -> subprocess.Complet
 )
 def test_deploy_target_compares_all_build_inputs(checkout, tmp_path, changed_path, current):
     origin, runner, target = checkout
+    after = target
     if changed_path is not None:
         changed = origin / changed_path
         changed.parent.mkdir(parents=True, exist_ok=True)
         changed.write_text("new input\n", encoding="utf-8")
-        _commit(origin)
+        after = _commit(origin)
     output = tmp_path / "output"
 
     result = _check_target(runner, target, output)
 
     assert result.returncode == 0, result.stderr
     assert output.read_text(encoding="utf-8") == f"current={str(current).lower()}\n"
+
+    # The push detector sees the same input surface, even without GitHub's path filter.
+    scope = tmp_path / "scope"
+    result = _run_step(runner, "scope", "changes", scope, BEFORE_SHA=target, TARGET_SHA=after)
+    assert result.returncode == 0, result.stderr
+    assert scope.read_text(encoding="utf-8") == f"web={str(not current).lower()}\n"
 
 
 @pytest.mark.parametrize("failure", ["fetch", "compare"])

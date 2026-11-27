@@ -83,30 +83,44 @@ def test_publication_lease_surrounds_every_cloud_writer(
         assert {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"} <= set(step["env"])
 
 
-def test_worker_deploy_token_is_limited_to_the_verified_main_dispatch() -> None:
+def test_worker_deploy_token_is_limited_to_verified_main_push_or_dispatch() -> None:
     """Check the declared Wrangler entry point and gate without executing a deployment."""
     grants = []
     for path in WORKFLOWS.glob("*.y*ml"):
         workflow = _workflow(path.name)
-        for job in workflow["jobs"].values():
+        for job_id, job in workflow["jobs"].items():
             for scope in (workflow, job, *job.get("steps", [])):
                 if "CLOUDFLARE_API_TOKEN" in scope.get("env", {}):
                     assert scope.get("working-directory") == "web/edge"
                     command = scope.get("run", "").strip(" \t\n")
                     assert re.fullmatch(r"npx[ \t]+wrangler[ \t]+deploy", command)
                     guard = scope["if"].removeprefix("${{").removesuffix("}}")
-                    grants.append((path.name, {term.strip() for term in guard.split("&&")}))
+                    grants.append((path.name, job_id, {term.strip() for term in guard.split("&&")}))
     assert grants == [
         (
             "web.yml",
+            "quality",
             {
                 "success()",
-                "github.event_name == 'workflow_dispatch'",
-                "github.ref == 'refs/heads/main'",
+                "env.PRODUCTION == 'true'",
                 "steps.deploy-target.outputs.current == 'true'",
             },
         )
     ]
+
+    web = _workflow("web.yml")
+    assert web["env"]["PRODUCTION"] == (
+        "${{ github.ref == 'refs/heads/main' && "
+        "(github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}"
+    )
+    job = web["jobs"]["quality"]
+    steps = _steps(web, "quality")
+    assert all("PRODUCTION" not in item.get("env", {}) for item in (job, *steps))
+    verify = next(step for step in steps if step.get("id") == "deploy-target")
+    assert verify["if"] == "${{ env.PRODUCTION == 'true' }}"
+    assert steps.index(verify) < next(
+        i for i, step in enumerate(steps) if "CLOUDFLARE_API_TOKEN" in step.get("env", {})
+    )
 
 
 def test_every_setup_uv_step_resolves_one_exact_root_version() -> None:
