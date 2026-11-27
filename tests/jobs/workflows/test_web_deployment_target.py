@@ -28,15 +28,11 @@ def test_web_push_and_pull_request_validate_the_same_inputs():
 
 
 def _step(job: str, step_id: str) -> dict[str, object]:
-    return next(
-        step for step in _workflow()["jobs"][job]["steps"] if step.get("id") == step_id
-    )
+    return next(step for step in _workflow()["jobs"][job]["steps"] if step.get("id") == step_id)
 
 
 def _git(directory: Path, *args: str) -> str:
-    return subprocess.check_output(
-        ["git", "-C", str(directory), *args], text=True
-    ).strip()
+    return subprocess.check_output(["git", "-C", str(directory), *args], text=True).strip()
 
 
 def _commit(directory: Path) -> str:
@@ -90,9 +86,7 @@ def _run_step(
     )
 
 
-def _check_target(
-    runner: Path, target: str, output: Path
-) -> subprocess.CompletedProcess[str]:
+def _check_target(runner: Path, target: str, output: Path) -> subprocess.CompletedProcess[str]:
     return _run_step(runner, "quality", "deploy-target", output, TARGET_SHA=target)
 
 
@@ -108,9 +102,7 @@ def _check_target(
         (".github/workflows/web.yml", False),
     ],
 )
-def test_deploy_target_compares_all_build_inputs(
-    checkout, tmp_path, changed_path, current
-):
+def test_deploy_target_compares_all_build_inputs(checkout, tmp_path, changed_path, current):
     origin, runner, target = checkout
     after = target
     if changed_path is not None:
@@ -127,9 +119,7 @@ def test_deploy_target_compares_all_build_inputs(
 
     # The push detector sees the same input surface, even without GitHub's path filter.
     scope = tmp_path / "scope"
-    result = _run_step(
-        runner, "scope", "changes", scope, BEFORE_SHA=target, TARGET_SHA=after
-    )
+    result = _run_step(runner, "scope", "changes", scope, BEFORE_SHA=target, TARGET_SHA=after)
     assert result.returncode == 0, result.stderr
     assert scope.read_text(encoding="utf-8") == f"web={str(not current).lower()}\n"
 
