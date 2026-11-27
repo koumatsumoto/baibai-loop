@@ -143,6 +143,9 @@ class SecStatementComparison:
     prior: SecUsdResult | Literal["invalid_fact"]
 
 
+type SecComparativeResult = tuple[SecStatementComparison, ...] | _UnavailableReceipt
+
+
 @dataclass(frozen=True, slots=True)
 class _PinnedCompanyFacts:
     capture: SecCompanyFactsCapture
@@ -207,7 +210,7 @@ def observe_sec_comparatives(
     prior_fiscal_start: date,
     cutoff: datetime,
     publicly_observed_by: SecPublicFilingObservation | None = None,
-) -> tuple[SecStatementComparison, ...] | _UnavailableReceipt:
+) -> SecComparativeResult:
     """Read the operator-selected current and prior-year columns of one 10-Q.
 
     Specify the reporting quarter as confirmed in the filing, not the
