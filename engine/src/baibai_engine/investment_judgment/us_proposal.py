@@ -11,6 +11,7 @@ from decimal import Context, Decimal, localcontext
 from hashlib import sha256
 from pathlib import Path
 from typing import Annotated, ClassVar, Literal, Self, cast
+from urllib.parse import unquote
 from zoneinfo import ZoneInfo
 
 from pydantic import (
@@ -302,12 +303,25 @@ def sip_official_close_fields(observation: NasdaqOfficialClose) -> dict[str, obj
     return _NasdaqSipClose.model_validate(observation, from_attributes=True).model_dump(mode="json")
 
 
+def _require_matching_direct_nasdaq_link(draft: ReportDraft, close: _OfficialClose) -> None:
+    if close.source_url.host not in {"nasdaq.com", "www.nasdaq.com"}:
+        return
+    path = (close.source_url.path or "").removesuffix("/")
+    # Split before decoding so an encoded slash cannot become a route separator.
+    match tuple(unquote(part) for part in path.split("/")):
+        case ("", "market-activity", "stocks", ticker, "historical-nocp"):
+            if not ticker.isascii() or ticker.upper() != draft.ticker:
+                raise ValueError("direct Nasdaq NOCP link does not match the report ticker")
+
+
 def require_close_receipt(draft: ReportDraft, sip_proof: SipCloseProof | None = None) -> None:
-    """Admit a new SIP judgment by replaying its receipt, not by trusting a typed claim."""
+    """Check attached official-close evidence before new report or decision admission."""
     close = draft.official_close
     if not isinstance(close, _NasdaqSipClose):
         if sip_proof is not None:
             raise ValueError("SIP receipt requires the explicit relayed close variant")
+        if isinstance(close, _OfficialClose):
+            _require_matching_direct_nasdaq_link(draft, close)
         return
     if sip_proof is None:
         raise ValueError("relayed close requires its original SIP receipt")

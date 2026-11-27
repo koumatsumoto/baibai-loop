@@ -15,10 +15,13 @@ from tools.experiments.us_research_report import main
 
 from baibai_engine.investment_judgment.us_proposal import (
     ReportDraft,
+    ReportReview,
     ReviewedReport,
     USProposalDraft,
     USProposalReview,
+    draft_digest,
     prepare_us_proposal,
+    render,
     save_us_proposal,
 )
 from baibai_engine.primitives.json import canonical_json
@@ -171,6 +174,87 @@ def test_reviewed_report_round_trips_without_substitution_or_overwrite(
 
 
 @pytest.mark.parametrize(
+    ("ticker", "path", "admitted"),
+    [
+        ("GOOGL", "/market-activity/stocks/GOOGL/historical-nocp", True),
+        ("GOOG", "/market-activity/stocks/goog/historical-nocp", True),
+        (
+            "GOOGL",
+            "/%6darket-activity/stocks/GOO%47L/historical-%6eocp/?from=2026-11-27#quote",
+            True,
+        ),
+        ("GOOGL", "/market-activity/stocks/goog/historical-nocp?symbol=GOOGL", False),
+        ("GOOG", "/market-activity/stocks/googl/historical-nocp", False),
+        ("GOOGL", "/market-activity/stocks/g%6F%6fg/historical-nocp", False),
+        ("GOOGL", "/market-activity/stocks/goo%2Fgl/historical-nocp", False),
+        ("GOOGL", "/market-activity/stocks/goog/historical", True),
+        ("GOOGL", "/market-activity/stocks/goog", True),
+    ],
+)
+def test_new_direct_nasdaq_nocp_link_must_name_the_report_symbol(
+    tmp_path, capsys, ticker, path, admitted
+):
+    payload = _draft(ticker=ticker)
+    payload["official_close"]["source_url"] = f"https://www.nasdaq.com{path}"
+    code = main(["draft-digest", _write(tmp_path / "draft.json", payload)])
+    captured = capsys.readouterr()
+    if admitted:
+        assert code == 0
+        assert captured.err == ""
+        assert json.loads(captured.out)["report_id"] == payload["report_id"]
+    else:
+        assert code == 2
+        assert (captured.out, captured.err) == ("", "FAIL draft\n")
+
+
+def test_direct_nasdaq_symbol_check_leaves_an_existing_saved_report_readable(tmp_path, capsys):
+    payload = _draft(ticker="GOOGL")
+    payload["official_close"]["source_url"] = (
+        "https://www.nasdaq.com/market-activity/stocks/goog/historical-nocp"
+    )
+    draft = ReportDraft.model_validate(payload)
+    review = ReportReview.model_validate(
+        {
+            "report_id": draft.report_id,
+            "draft_sha256": draft_digest(draft),
+            "reviewer_identity": "synthetic reviewer",
+            "reviewed_at": "2026-11-28T16:00:00Z",
+            "conclusion": "pass",
+            "notes": "synthetic prior save",
+        }
+    )
+    rendered = render(draft, review)
+    saved = ReviewedReport(draft=draft, review=review, rendered_sha256=sha256(rendered).hexdigest())
+    saved_path = _write(tmp_path / "saved.json", saved.model_dump(mode="json"))
+    rendered_path = tmp_path / "rendered.md"
+    rendered_path.write_bytes(rendered)
+    assert main(["check-render", saved_path, str(rendered_path)]) == 0
+    assert capsys.readouterr().out == "PASS exact private analytical report render\n"
+
+    new_path = tmp_path / "new.json"
+    draft_path = _write(tmp_path / "draft.json", payload)
+    review_path = _write(tmp_path / "review.json", review.model_dump(mode="json"))
+    assert main(["save", draft_path, review_path, "--output", str(new_path)]) == 2
+    assert capsys.readouterr().err == "FAIL review/save\n"
+    assert not new_path.exists()
+
+    decision_path = _write(
+        tmp_path / "decision.json",
+        {
+            "proposal_id": "us-proposal-synthetic",
+            "author_identity": "synthetic decision author",
+            "prepared_at": "2026-11-28T17:00:00Z",
+            "action": "no_action",
+            "reason": "synthetic reason",
+            "revisit_when": "synthetic condition",
+        },
+    )
+    assert main(["proposal-digest", saved_path, decision_path]) == 2
+    captured = capsys.readouterr()
+    assert (captured.out, captured.err) == ("", "FAIL US proposal draft\n")
+
+
+@pytest.mark.parametrize(
     "ticker",
     ["A.", "A..B", "A.B.C", ".ABC", "BRK-B", "BRK/B", "BRK.B ", "brk.b", "ＡAPL", "ABC12.CD3"],
 )
@@ -197,6 +281,12 @@ def test_invalid_ticker_is_rejected_by_owner_and_cli(tmp_path, capsys, ticker):
         (("official_close", "basis"), "split_adjusted_closes"),
         (("official_close", "price_usd"), 0),
         (("official_close", "source_url"), "https://nasdaq.com.example/private-token"),
+        (("official_close", "source_url"), "https://www.nasdaq.com@example.test/nocp"),
+        (("official_close", "source_url"), "https://viewer@www.nasdaq.com/synthetic-close"),
+        (
+            ("official_close", "source_url"),
+            "https://example.test/nocp?source=https://www.nasdaq.com/synthetic-close",
+        ),
         (("official_close", "source_url"), "https://data.alpaca.markets/private-token"),
         (("official_close", "observed_at"), "2026-11-27T17:59:59Z"),
         (("official_close", "session_et"), "2026-11-26"),
