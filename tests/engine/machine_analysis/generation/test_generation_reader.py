@@ -327,8 +327,8 @@ def test_edinet_uses_one_fixed_shared_read_and_preserves_delayed_source_contract
         assert financial["edinet_source_doc_id"] in ("S100SAVED", "S100OTHER")
 
 
-@pytest.mark.parametrize("market_cap", [200.0, None])
-def test_optional_provider_capital_preserves_the_expected_price_basis(tmp_path, market_cap):
+@pytest.mark.parametrize(("market_cap", "high"), [(200.0, None), (None, None), (200.0, 9.0)])
+def test_optional_provider_capital_preserves_the_expected_price_basis(tmp_path, market_cap, high):
     path = market_store(
         tmp_path / "market.sqlite",
         daily_bars=(("1234", "2025-12-30", 9.0, 1.0), ("1234", "2026-01-05", 10.0, 1.0)),
@@ -337,6 +337,10 @@ def test_optional_provider_capital_preserves_the_expected_price_basis(tmp_path, 
         connection.executemany(
             "UPDATE jquants_daily_bars SET market_cap_million_yen=? WHERE ticker='1234' AND traded_at=?",
             [(190.0, "2025-12-30"), (market_cap, "2026-01-05")],
+        )
+        connection.execute(
+            "UPDATE jquants_daily_bars SET high=? WHERE ticker='1234' AND traded_at='2026-01-05'",
+            (high,),
         )
         connection.executemany(
             "INSERT OR REPLACE INTO jquants_market_calendar(day,holiday_division) VALUES (?,?)",
@@ -365,9 +369,11 @@ def test_optional_provider_capital_preserves_the_expected_price_basis(tmp_path, 
         generated = materialize_generation(stream)
     payload = generated.result("company_financials", "1234").payload
     earnings = payload["earnings_price"]
-    assert (earnings["price_date"], earnings["price_yen"]) == ("2026-01-05", 10.0)
+    assert (earnings["price_date"], earnings["price_yen"]) == (
+        ("2026-01-05", 10.0) if high is None else ("2025-12-30", 9.0)
+    )
     assert earnings["market_cap_yen"] is None  # No issuer shares in this fixture.
-    if market_cap is None:
+    if market_cap is None or high is not None:
         assert payload["provider_capital_observation"] is None
     else:
         assert payload["provider_capital_observation"] == {

@@ -47,7 +47,8 @@ def read_adjusted_bars(
         clause = " AND ticker IN (" + ",".join("?" for _ in tickers) + ")"
         parameters += tuple(tickers)
     query = (
-        "SELECT ticker, traded_at, close, adjustment_factor, turnover_value, ex_right_type "  # nosec B608
+        "SELECT ticker, traded_at, close, adjustment_factor, turnover_value, ex_right_type, "  # nosec B608
+        "high, low "
         "FROM jquants_daily_bars WHERE traded_at >= ? AND traded_at <= ?"
         + clause
         + " ORDER BY ticker, traded_at"
@@ -57,7 +58,7 @@ def read_adjusted_bars(
     rows = connection.execute(query, parameters)
     for ticker, group in groupby(rows, key=lambda row: row[0]):
         entries: list[tuple[date, float | None, float | None, float | None]] = []
-        for _, traded_at, close, factor, turnover, action in group:
+        for _, traded_at, close, factor, turnover, action, high, low in group:
             _require_action_factor(ticker, traded_at, factor, action)
             if not isinstance(traded_at, str):
                 continue
@@ -65,10 +66,15 @@ def read_adjusted_bars(
             if day is None:
                 day = date.fromisoformat(traded_at)
                 dates[traded_at] = day
+            raw_close = float(close) if isinstance(close, int | float) else None
+            if raw_close is not None and price_models.close_conflicts_with_observed_range(
+                raw_close, high=high, low=low
+            ):
+                raw_close = None
             entries.append(
                 (
                     day,
-                    float(close) if isinstance(close, int | float) else None,
+                    raw_close,
                     float(factor) if isinstance(factor, int | float) else None,
                     float(turnover) if isinstance(turnover, int | float) else None,
                 )

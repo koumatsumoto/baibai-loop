@@ -78,6 +78,59 @@ def test_collect_preserves_meta_cutoff_and_stable_daily_label(tmp_path):
     assert context.calculations["1234"]["maximum_common_grid_price_yen"] == "1000"
 
 
+@pytest.mark.parametrize(
+    ("entry", "expected"),
+    [
+        ({"C": 800}, None),
+        ({"C": 1160}, None),
+        ({"C": 1160, "L": None}, None),
+        ({"C": 1050, "O": None, "H": None}, 1050),
+        ({"O": None, "H": None, "L": None, "Vo": None}, 1100),
+        ({"Vo": -5}, 1100),
+    ],
+)
+def test_proposal_quote_requires_coherence_with_observed_raw_daily_range(tmp_path, entry, expected):
+    from tests.helpers.price_native import project_price_records
+
+    case = backend_case(tmp_path)
+    today = {
+        "Code": "12340",
+        "Date": "2026-10-14",
+        "O": 1100,
+        "H": 1150,
+        "L": 1050,
+        "C": 1100,
+        "Vo": 2000,
+        "Va": 2222222,
+        "AdjFactor": 1,
+        "AdjC": 180,
+    }
+    project_price_records(
+        case.market,
+        [{**today, "Date": "2026-10-13"}, {**today, **entry}],
+    )
+    context = build_proposal_context(
+        proposal_id=PROPOSAL_ID,
+        operation_id=case.operation.operation_id,
+        db_path=case.app,
+        sqlite_path=case.market,
+        now=PREPARED,
+    )
+    calculation = context.calculations["1234"]
+    if expected is None:
+        assert context.inputs.quotes == ()  # No previous-date quote or vendor AdjC substitute.
+        assert calculation["current_quote_projection"] is None
+        assert "buy_at_actual_quote" not in calculation
+    else:
+        (quote,) = context.inputs.quotes
+        assert (quote.price_yen, quote.price_as_of, quote.price_basis) == (
+            Decimal(expected),
+            PREPARED.date(),
+            "last_close_unadjusted",
+        )
+        assert calculation["buy_at_actual_quote"]["current_price_above_maximum"] is True
+
+
 def test_collect_uses_one_quote_read_for_holdings_and_candidates(tmp_path):
     from tests.helpers.screening_sqlite import seed_daily_bars
 
@@ -125,8 +178,7 @@ def test_collect_uses_one_quote_read_for_holdings_and_candidates(tmp_path):
     assert sum("SELECT MAX(traded_at)" in statement for statement in statements) == 1
     assert (
         sum(
-            "SELECT ticker, close FROM jquants_daily_bars" in statement
-            or "SELECT traded_at, close FROM jquants_daily_bars" in statement
+            "SELECT ticker, close, high, low FROM jquants_daily_bars" in statement
             for statement in statements
         )
         == 1

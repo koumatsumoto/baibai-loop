@@ -114,7 +114,7 @@ def test_bulk_market_close_is_exact_and_reads_one_market_date_across_chunks(tmp_
     assert statements[0] == "PRAGMA user_version"
     assert statements[1].startswith("SELECT MAX(traded_at)")
     assert all(
-        statement.startswith("SELECT ticker, close FROM jquants_daily_bars")
+        statement.startswith("SELECT ticker, close, high, low FROM jquants_daily_bars")
         for statement in statements[2:]
     )
 

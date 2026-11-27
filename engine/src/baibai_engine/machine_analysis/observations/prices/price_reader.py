@@ -13,6 +13,7 @@ from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsPr
 from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsAdjustmentFactorEvent,
     JQuantsDailyBar,
+    close_conflicts_with_observed_range,
 )
 from baibai_engine.storage.sqlite.source_cache.convert import optional_float
 from baibai_engine.storage.sqlite.source_cache.coverage import range_covered, uncovered_days
@@ -34,7 +35,7 @@ def read_daily_bars(sqlite_path: Path, start: date, end: date) -> list[JQuantsDa
             return None
         rows = conn.execute(
             "SELECT ticker, traded_at, close, turnover_value, volume, "
-            "adjustment_factor, ex_right_type "
+            "adjustment_factor, ex_right_type, high, low "
             "FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ? "
             "ORDER BY ticker, traded_at",
             (start.isoformat(), end.isoformat()),
@@ -112,7 +113,7 @@ def read_ticker_bars(
         rows = conn.execute(
             f"WITH marks(ticker, traded_at) AS (VALUES {placeholders}) "  # nosec B608
             "SELECT b.ticker, b.traded_at, b.close, b.turnover_value, b.volume, "
-            "b.adjustment_factor, b.ex_right_type FROM marks "
+            "b.adjustment_factor, b.ex_right_type, b.high, b.low FROM marks "
             "JOIN jquants_daily_bars b USING (ticker, traded_at) ORDER BY b.ticker, b.traded_at",
             tuple(chain.from_iterable(batch)),
         )
@@ -161,15 +162,20 @@ def _daily_bars_from_rows(rows: Iterable[tuple[Any, ...]]) -> list[JQuantsDailyB
         volume,
         adjustment_factor,
         ex_right_type,
+        high,
+        low,
     ) in rows:
         if close is None or traded_at is None:
             continue
         try:
+            raw_close = float(close)
+            if close_conflicts_with_observed_range(raw_close, high=high, low=low):
+                continue
             bars.append(
                 JQuantsDailyBar(
                     ticker=str(ticker),
                     traded_at=date.fromisoformat(traded_at),
-                    close=float(close),
+                    close=raw_close,
                     turnover_value=optional_float(turnover_value),
                     volume=optional_float(volume),
                     adjustment_factor=optional_float(adjustment_factor),

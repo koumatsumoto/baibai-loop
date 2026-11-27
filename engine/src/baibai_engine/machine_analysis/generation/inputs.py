@@ -70,6 +70,7 @@ from baibai_engine.machine_analysis.observations.prices.calendar_context import 
 from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsAdjustmentFactorEvent,
     PriceBar,
+    close_conflicts_with_observed_range,
 )
 from baibai_engine.machine_analysis.observations.prices.price_observation import (
     PriceCalendar,
@@ -131,15 +132,15 @@ def _read_market_price_inputs(
         # It can lag or use another basis and is never a replacement denominator.
         provider_capital: dict[str, dict[str, object]] = {}
         if path_calendar.expected_price_date is not None:
-            for ticker, close, market_cap in connection.execute(
-                "SELECT ticker,close,market_cap_million_yen FROM jquants_daily_bars "
+            for ticker, close, market_cap, high, low in connection.execute(
+                "SELECT ticker,close,market_cap_million_yen,high,low FROM jquants_daily_bars "
                 "WHERE traded_at=? AND close IS NOT NULL AND market_cap_million_yen IS NOT NULL",
                 (path_calendar.expected_price_date.isoformat(),),
             ):
                 if not all(
                     isinstance(value, (int, float)) and isfinite(value) and value > 0
                     for value in (close, market_cap)
-                ):
+                ) or close_conflicts_with_observed_range(close, high=high, low=low):
                     continue
                 provider_capital[str(ticker)] = {
                     "price_date": path_calendar.expected_price_date.isoformat(),
