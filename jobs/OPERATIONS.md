@@ -334,9 +334,9 @@ uv run baibai-jobs article-evidence --source <SOURCE> --stage-id <STAGE_ID> --ma
 
 ### 先行切替の旧writerフェンス (#2913 / #2829)
 
-旧記事 `401275764`、旧経済 `394769782`、旧経済reusable `394769781`、旧日次 `317890420` は明示無効のまま維持する。[既存の確認](../tools/diagnostics/check_article_cutoff.py)はこの4旧IDを対象とし、今回の記事停止を判定しない。
+日次・経済取得の前に、[旧writer確認](../.github/workflows/cloud-writer-retirement.yml)が停止した記事・経済・日次workflowの明示無効とrunの終端を確かめる。対象のID・パスと例外のrun・SHAは[診断実装](../tools/diagnostics/check_article_cutoff.py)が持ち、workflowは `--report-v2-condition` で判定する。この確認だけでは現在の記事取得停止や入力の充足を証明しない。
 
-旧日次run `43097164269`・固定SHA `b720659b300e0c8dfbbefa003794bd83265d6261`・`main`の定期attempt 1は、同じqueued状態でjobが0件と確定した場合だけ例外。この旧コードはv2 leaseを受理せず、v2で稼働中の本番へは書き込めない。現行日次は同じ読取世代に対する取得CAS、現行経済は書込前の読取で正常なv2を確認する。別run・別attempt・状態変化・一覧不明は例外にしない。未終端中にv2の記録を削除・旧版化しない。
+未終了runの例外は、既知の旧日次が同じqueued状態でjobが0件と確認でき、現行writerがv2 leaseを検証した場合だけ。それ以外の未終了runや例外の状態変化、一覧不明なら止める。例外が残る間はv2の記録を削除・旧版化しない。
 
 ### JPX PDF
 

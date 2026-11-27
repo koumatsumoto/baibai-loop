@@ -6,7 +6,7 @@ import re
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from fractions import Fraction
 from math import gcd, isclose, isfinite
@@ -197,6 +197,16 @@ class ExecutionEvent(_EventBase):
     @classmethod
     def _parse_price(cls, value: object) -> Decimal:
         return _price(value)
+
+    def overlaps_reported_occurrence(self, occurrence: date) -> bool:
+        """Test possible duplicate identity without treating a replay key as a reported time."""
+        if isinstance(occurrence, datetime):
+            if occurrence.tzinfo is None:
+                return False
+            if self.occurred_on is None:
+                return self.occurred_at.astimezone(UTC) == occurrence.astimezone(UTC)
+            return self.occurred_on == occurrence.astimezone(JST).date()
+        return (self.occurred_on or self.occurred_at.astimezone(JST).date()) == occurrence
 
 
 def sell_charge_event_ids(sale_event_id: str) -> tuple[str, str]:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -17,6 +17,7 @@ from baibai_engine.portfolio.ledger.drafts import (
     load_draft,
 )
 from baibai_engine.portfolio.ledger.events import (
+    ExecutionEvent,
     PortfolioLedgerError,
 )
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
@@ -332,6 +333,124 @@ def test_sell_cli_passes_execution_id_and_reports_retry_as_no_change(
     assert main([*args, "--out", "retry.yaml"], now=OCCURRED_AT - timedelta(days=1)) == 0
     assert yaml.safe_load(capsys.readouterr().out)["status"] == "no_change"
     assert not (tmp_path / "retry.yaml").exists()
+
+
+@pytest.mark.parametrize(
+    ("first_date_only", "retry_date_only"),
+    [(True, True), (False, False), (True, False), (False, True)],
+)
+def test_new_id_cannot_double_book_a_saved_idless_sale_and_its_charges(
+    tmp_path, capsys, first_date_only, retry_date_only
+):
+    db = tmp_path / "app.sqlite"
+    service = _seed(db)
+    opening = portfolio_snapshot(service.load())
+    before = db.read_bytes()
+    # The first timestamp's local date differs from the report's JST date.
+    old_offset = timezone(timedelta(hours=-3, minutes=-30))
+    stored = OCCURRED_AT.astimezone(old_offset)
+    assert stored.date() != OCCURRED_AT.date()
+    day = ["--occurred-on", OCCURRED_AT.date().isoformat()]
+    first_at = day if first_date_only else ["--occurred-at", stored.isoformat()]
+    retry_at = (
+        day if retry_date_only else ["--occurred-at", OCCURRED_AT.astimezone(UTC).isoformat()]
+    )
+    args = [
+        "sell-execution-draft",
+        "--root",
+        str(tmp_path),
+        "--db",
+        str(db),
+        "--ticker",
+        "2331",
+        "--quantity",
+        "100",
+    ]
+    details = [
+        "--fees-yen",
+        "500",
+        "--tax-yen",
+        "900",
+        "--decision-reference",
+        DECISION_REF,
+    ]
+    assert (
+        main(
+            [*args, *first_at, *details, "--price-yen", "1100.0000", "--out", "first.yaml"],
+            now=OCCURRED_AT,
+        )
+        == 0
+    )
+    assert yaml.safe_load(capsys.readouterr().out)["status"] == "draft_created"
+    assert db.read_bytes() == before
+    apply_draft(service, load_draft(tmp_path / "first.yaml"), human_confirmed=True)
+    before = db.read_bytes()
+    saved, head = service.load_with_head()
+    after_first = portfolio_snapshot(saved)
+    assert _holding(service, "2331").quantity == 100
+    assert after_first.available_cash_yen == opening.available_cash_yen + 110_000 - 500 - 900
+    assert after_first.realized_gross_pnl_yen == 6_000
+    assert after_first.confirmed_cost_yen == opening.confirmed_cost_yen + 500
+    assert after_first.confirmed_tax_yen == opening.confirmed_tax_yen + 900
+
+    if first_date_only == retry_date_only:
+        exact_retry = [*args, *retry_at, *details, "--price-yen", "1100", "--out", "unchanged.yaml"]
+        assert main(exact_retry, now=OCCURRED_AT) == 0
+        assert yaml.safe_load(capsys.readouterr().out)["status"] == "no_change"
+        assert not (tmp_path / "unchanged.yaml").exists()
+    arbitrary_id = [*args, *retry_at, "--price-yen", "1100", "--execution-id", "new-id"]
+    # Omitting or amending fee, tax or Proposal metadata does not identify a separate sale.
+    for report in (
+        details,
+        ["--fees-yen", "200", "--decision-reference", "updated-ref"],
+    ):
+        assert main([*arbitrary_id, *report, "--out", "duplicate.yaml"], now=OCCURRED_AT) == 2
+        output = capsys.readouterr()
+        assert output.out == ""
+        assert "sale previously reported without a broker ID" in output.err
+        assert not (tmp_path / "duplicate.yaml").exists()
+        assert service.load_with_head() == (saved, head)
+        assert db.read_bytes() == before
+
+
+@pytest.mark.parametrize("date_only", [False, True])
+def test_two_confirmed_sale_ids_can_have_equal_trade_terms(tmp_path, date_only):
+    db = tmp_path / "app.sqlite"
+    service = _seed(db)
+    opening = portfolio_snapshot(service.load())
+    report = dict(
+        ticker="2331",
+        **({"occurred_on": OCCURRED_AT.date()} if date_only else {"occurred_at": OCCURRED_AT}),
+        quantity=100,
+        price_yen=Decimal("1100"),
+        fees_yen=500,
+        tax_yen=900,
+        now=OCCURRED_AT,
+    )
+    before = db.read_bytes()
+    preview = build_sell_execution_draft(service, **report)
+    original = preview.replacement.events[-3]
+    assert isinstance(original, ExecutionEvent)
+    # A real broker ID identical to the text of the hypothetical generated ID
+    # does not make the saved explicit sale a fallback.
+    for broker_id in (original.execution_id, "other-broker-sale"):
+        draft = build_sell_execution_draft(service, **report, execution_id=broker_id)
+        assert draft is not None
+        sale = draft.replacement.events[-3]
+        assert isinstance(sale, ExecutionEvent)
+        assert sale.event_id != original.event_id
+        assert db.read_bytes() == before
+        apply_draft(service, draft, human_confirmed=True)
+        before = db.read_bytes()
+        assert build_sell_execution_draft(service, **report, execution_id=broker_id) is None
+        assert db.read_bytes() == before
+
+    closing = portfolio_snapshot(service.load())
+    assert all(item.ticker != "2331" for item in closing.holdings)
+    assert closing.available_cash_yen == opening.available_cash_yen + 220_000 - 1_000 - 1_800
+    assert closing.realized_gross_pnl_yen == 17_000
+    assert closing.confirmed_cost_yen == opening.confirmed_cost_yen + 1_000
+    assert closing.confirmed_tax_yen == opening.confirmed_tax_yen + 1_800
 
 
 def test_sell_fees_and_tax_over_proceeds_and_cash_are_rejected(tmp_path: Path) -> None:

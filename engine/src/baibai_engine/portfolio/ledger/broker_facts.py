@@ -115,6 +115,18 @@ def record_broker_fact(
                     "conflicting human report for existing fill classification"
                 )
             return BrokerFactRecordingResult(document=document, changed=False, event_ids=())
+        if execution_id is not None:
+            _require_distinct_broker_fill(
+                document,
+                decision_reference=decision_reference,
+                occurred_at=occurred_at,
+                occurred_on=occurred_on,
+                ticker=ticker,
+                side=side,
+                quantity=quantity,
+                price_yen=price_yen,
+                reservation_id=reservation_id,
+            )
     if status in {"cancelled", "expired"} and reservation_id is not None:
         release_reason: Literal["cancelled", "expired"] = (
             "cancelled" if status == "cancelled" else "expired"
@@ -547,6 +559,60 @@ def _fill_suffix(
         )
     raw = f"{decision_reference}|{side}|{ticker}|date:{occurred_on.isoformat()}|{reservation_id}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def _require_distinct_broker_fill(
+    document: PortfolioLedgerDocument,
+    *,
+    decision_reference: str | None,
+    occurred_at: datetime | None,
+    occurred_on: date | None,
+    ticker: str,
+    side: Literal["buy", "sell"],
+    quantity: int | None,
+    price_yen: Decimal | None,
+    reservation_id: str | None,
+) -> None:
+    """A previously ID-less fill makes an unseen broker ID ambiguous if the facts overlap.
+
+    Without a reference, the caller is deciding whether to mint one for a direct buy.
+    That new reference is not evidence of a separate unreserved manual fill.
+    """
+    occurrence = occurred_on or occurred_at
+    if occurrence is None:
+        return
+
+    for event in document.events:
+        if (
+            not isinstance(event, ExecutionEvent)
+            or event.ticker != ticker
+            or event.side != side
+            or event.reservation_id != reservation_id
+            or event.quantity != quantity
+            or event.price_yen != price_yen
+            or event.decision_reference is None
+        ):
+            continue
+        reference = event.decision_reference
+        if decision_reference is not None:
+            if reference != decision_reference:
+                continue
+        elif not (
+            side == "buy" and reservation_id is None and reference.startswith("manual-fact-")
+        ):
+            continue
+
+        if not event.overlaps_reported_occurrence(occurrence):
+            continue
+        suffix = _fill_suffix(
+            reference, side, ticker, event.occurred_at, event.occurred_on, reservation_id
+        )
+        # A stable broker ID can have the same spelling as the fallback. Match both stored IDs.
+        if (event.event_id, event.execution_id) == (f"human-fill-{suffix}", f"execution-{suffix}"):
+            raise BrokerFactRecordingError(
+                "cannot distinguish new execution_id from a matching fill previously reported "
+                "without a broker ID; verify the broker record and retry with the original identity"
+            )
 
 
 def _validate_execution_id(value: str) -> None:

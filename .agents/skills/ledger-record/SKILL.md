@@ -27,6 +27,8 @@ eventはappend-onlyで、遅延報告でも既存ID/同時刻順を変えない�
 
 約定は報告の日付・銘柄・数量・単価を使う。IDなしの同日同内容は再送とし、別約定との区別がつかない場合だけ確認する。broker execution ID（注文内のみ一意なら注文IDとの組）で識別し、注文ID単独/推定時刻を使わない。同ID同内容は予約消滅後もno-change、異内容は拒否する。
 
+`broker-fact-draft`は、IDなしで記帳済みの約定と注文・内容が一致し、発生時点が重なる場合、新しいIDを添えてもdraftを作らない。実時刻同士は同じ瞬間、どちらかが報告日だけならJST同日を照合する。注文・参照を指定しない直接買付でも、既存の手入力約定に一致すれば保留する。再送は元のID指定（なしを含む）と注文・参照を保つ。別約定かはbroker明細で確認し、区別できなければ時刻やIDを変えて通さない。
+
 買付は具体buyの公開Proposal IDと確認済み実注文条件を使う。
 
 ```bash
@@ -45,6 +47,8 @@ uv run baibai-engine portfolio sell-execution-draft --db stores/application/baib
   --ticker <TICKER> --quantity <QTY> --price-yen <PRICE> \
   --occurred-on <YYYY-MM-DD> --execution-id <BROKER_EXECUTION_ID> --out <DRAFT>
 ```
+
+売却の`--execution-id`は初回記帳からbrokerの約定IDを使う。IDなしで記帳済みの同条件の売却を、後からIDや費用・税・参照の違いだけで別約定として追加しない。片方が日付のみなら日本時間の同日を照合し、明細で区別できない報告は保留する。
 
 <a id="human-result-semantics"></a>
 ### 予約・約定・cash

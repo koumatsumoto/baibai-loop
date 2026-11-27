@@ -19,6 +19,7 @@ from baibai_engine.portfolio.ledger.broker_facts import (
     BrokerFactStatus,
     _provided_execution_suffix,
     _require_date_only_expiry_reached,
+    _require_distinct_broker_fill,
     _validate_execution_id,
     _validate_report_time,
     find_reported_execution,
@@ -164,6 +165,23 @@ def build_broker_fact_draft(
                         "direct-fact report without a saved broker identity needs its "
                         "saved manual-fact reference; select the existing fact or explicitly "
                         "identify a new fact"
+                    )
+                if (
+                    execution_id is not None
+                    and order_id is None
+                    and not requested_ids
+                    and (occurred_at is None) != (occurred_on is None)
+                ):
+                    _require_distinct_broker_fill(
+                        source,
+                        decision_reference=None,
+                        occurred_at=occurred_at,
+                        occurred_on=occurred_on,
+                        ticker=ticker,
+                        side="buy",
+                        quantity=quantity,
+                        price_yen=price_yen,
+                        reservation_id=None,
                     )
                 decision_reference = f"manual-fact-{uuid4()}"
             binding_addition = DecisionReferenceBinding(
@@ -510,6 +528,22 @@ def build_sell_execution_draft(
         return None
     # Only a new sell needs a clock check; a date-only replay key is not its fill time.
     _validate_report_time(occurred_on or occurred_at, now=now)
+    if execution_id is not None and any(
+        isinstance(event, ExecutionEvent)
+        and event.side == "sell"
+        and event.ticker == ticker
+        and event.reservation_id == reservation_id
+        and event.quantity == quantity
+        and event.price_yen == price_yen
+        and event.overlaps_reported_occurrence(occurred_on or occurred_at)
+        and _has_generated_sell_ids(event)
+        for event in source.events
+    ):
+        # Neither a proposal reference nor amended charges prove a second settlement.
+        raise ValueError(
+            "cannot distinguish new execution_id from a matching sale previously reported "
+            "without a broker ID; verify the broker record and retry with the original identity"
+        )
     if reservation_id is not None:
         active = {
             item.reservation_id: item
@@ -710,6 +744,23 @@ def _sell_event_suffix(
     if reservation_id is not None:
         raw += f"|{reservation_id}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def _has_generated_sell_ids(event: ExecutionEvent) -> bool:
+    suffix = _sell_event_suffix(
+        occurred_at=event.occurred_at,
+        ticker=event.ticker,
+        quantity=event.quantity,
+        price_yen=event.price_yen,
+        decision_reference=event.decision_reference,
+        reservation_id=event.reservation_id,
+        occurred_on=event.occurred_on,
+    )
+    # Match the pair from the original payload, not the spelling of a broker ID.
+    return (event.event_id, event.execution_id) == (
+        f"human-sell-{suffix}",
+        f"sell-execution-{suffix}",
+    )
 
 
 def write_draft(path: Path, draft: LedgerDraft) -> None:

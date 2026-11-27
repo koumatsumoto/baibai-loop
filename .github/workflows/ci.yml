@@ -47,12 +47,15 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Check source and evidence imports without development tools
+      - name: Check production imports without development tools
         run: |
           uv run --locked --no-dev python - <<'PYTHON'
           from openpyxl import DEFUSEDXML
           from baibai_jobs.acquisition import article_evidence
-          from baibai_jobs.integration import economic_handoff, source_handoff
+          from baibai_jobs.acquisition.tradingview import market_daily
+          from baibai_jobs.integration import economic_handoff, models, source_handoff
+          from baibai_web import materialize
+          from tools.diagnostics import check_daily_jp_inputs
 
           if not DEFUSEDXML:
               raise RuntimeError("external workbook readers require defusedxml")
