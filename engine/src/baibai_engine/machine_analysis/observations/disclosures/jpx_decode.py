@@ -43,6 +43,7 @@ _EARNINGS_RANK_ROLLING = 0
 _EARNINGS_RANK_DATED = 1
 _EARNINGS_RANK_UNDATED = 2
 _EARNINGS_RANK_NO_FORWARD_VIEW = 3
+_CURRENT_DESIGNATIONS = "現在の指定状況"
 _TRADING_HALT_EMPTY_MARKER = "現在、該当する情報はありません。"
 _LOGGER = logging.getLogger(__name__)
 _MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False)
@@ -347,7 +348,7 @@ def parse_regulation_rows(
     if source_name == JPX_SPECIAL_CAUTION_SOURCE_NAME:
         return _parse_special_attention_html_rows(html, url)
     if source_name == "整理銘柄":
-        return _parse_reorganization_html_rows(html, url)
+        return _current_designation_codes(_current_designation_index(html), source_name, url)
     if source_name == "取引停止":
         return _parse_trading_halt_html_rows(html, url)
     if source_name == "上場廃止警告":
@@ -361,36 +362,10 @@ def parse_current_listing_designations(
     """Read current listing designations from the receipt, not the historical L2 flags."""
     if url != JPX_REGULATION_URLS["整理銘柄"]:
         raise JPXProviderError(f"unexpected JPX listing designation source: {url}")
-    heading = "現在の指定状況"
-    indexer = _JpxHtmlIndexer(subsections_of=heading)
-    indexer.feed(_decode_html_text(content, url, content_type_header))
-    indexer.close()
+    indexer = _current_designation_index(_decode_html_text(content, url, content_type_header))
     current: dict[str, set[str]] = {}
     for label in ("監理銘柄（確認中）", "監理銘柄（審査中）", "整理銘柄"):
-        tables = [
-            table
-            for table in indexer.tables
-            if table.preceding_h2 == heading and table.preceding_h3 == label
-        ]
-        # Neither a missing section nor an empty declaration from its neighbour is evidence.
-        section = indexer.subsection_text.get(label)
-        if (
-            not tables
-            and section is not None
-            and "".join(section).strip() == _TRADING_HALT_EMPTY_MARKER
-        ):
-            continue
-        if len(tables) != 1 or "fixedhead" not in tables[0].classes:
-            raise JPXProviderError(f"failed to identify current JPX listing designation: {label}")
-        codes = _codes_from_parsed_table(
-            tables[0],
-            url=url,
-            header_rows=1,
-            code_column=2,
-            expected_header="コード",
-            error_label=label,
-        )
-        for code in codes:
+        for code in _current_designation_codes(indexer, label, url):
             current.setdefault(parse_jpx_code(code), set()).add(label)
     return {ticker: tuple(sorted(flags)) for ticker, flags in sorted(current.items())}
 
@@ -485,24 +460,36 @@ def _parse_special_attention_html_rows(html: str, url: str) -> list[str]:
     return list(codes.values())
 
 
-def _parse_reorganization_html_rows(html: str, url: str) -> list[str]:
-    indexer = _JpxHtmlIndexer()
+def _current_designation_index(html: str) -> _JpxHtmlIndexer:
+    indexer = _JpxHtmlIndexer(subsections_of=_CURRENT_DESIGNATIONS)
     indexer.feed(html)
-    error_label = "h3>整理銘柄 + table.fixedhead"
-    table = _select_table(
-        indexer,
-        url=url,
-        error_label=error_label,
-        table_classes=("fixedhead",),
-        preceding_h3="整理銘柄",
-    )
+    indexer.close()
+    return indexer
+
+
+def _current_designation_codes(indexer: _JpxHtmlIndexer, label: str, url: str) -> list[str]:
+    tables = [
+        table
+        for table in indexer.tables
+        if table.preceding_h2 == _CURRENT_DESIGNATIONS and table.preceding_h3 == label
+    ]
+    # Only an explicit empty statement in the target subsection is evidence of zero rows.
+    section = indexer.subsection_text.get(label)
+    if (
+        not tables
+        and section is not None
+        and "".join(section).strip() == _TRADING_HALT_EMPTY_MARKER
+    ):
+        return []
+    if len(tables) != 1 or "fixedhead" not in tables[0].classes:
+        raise JPXProviderError(f"failed to locate JPX HTML table for current {label}: {url}")
     return _codes_from_parsed_table(
-        table,
+        tables[0],
         url=url,
         header_rows=1,
         code_column=2,
         expected_header="コード",
-        error_label=error_label,
+        error_label=label,
     )
 
 
@@ -561,15 +548,12 @@ def _select_table(
     error_label: str,
     table_classes: tuple[str, ...],
     preceding_h2: str | None = None,
-    preceding_h3: str | None = None,
     header_text: str | None = None,
 ) -> _ParsedTable:
     for table in indexer.tables:
         if not all(cls in table.classes for cls in table_classes):
             continue
         if preceding_h2 is not None and table.preceding_h2 != preceding_h2:
-            continue
-        if preceding_h3 is not None and table.preceding_h3 != preceding_h3:
             continue
         if header_text is not None and header_text not in table.header_th_texts:
             continue
