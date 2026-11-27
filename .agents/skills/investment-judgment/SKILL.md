@@ -7,7 +7,7 @@ description: 人間の依頼に合わせて調査対象を選び、普通株一�
 
 ここは人間の依頼で始まる企業判断（L3）の手順。日次の観測と索引（L2）は比較に使う材料で、調査対象や買い注文を決めない。[投資方針](../../../docs/doctrine.md)に沿って[一株の価値と反証](../../../docs/reference/stock-assessment.md)を検証し、[資金の使い方を提案](../../../docs/reference/trade-proposal.md)する。提案を採用して発注するかは人間が決める。
 
-選定・評価・提案は `uv run baibai-engine investment-judgment`、作業記録の参照・更新・完了は `uv run baibai-engine operation` で行う。引数は`--help`、pathは返却値を使う。`<APP_DB>`の準備と保存後の反映は[application手順](../../../jobs/OPERATIONS.md#application-db-を反映する)に従う。
+`baibai-engine` のコマンド群は用途で選ぶ。選定・評価・提案は `investment-judgment`、作業記録の参照・更新・完了は `operation` を使う。実行例は以下の各節に示す。引数は `--help` で確認し、パスは返却値を使う。`<APP_DB>`の準備と保存後の反映は[application手順](../../../jobs/OPERATIONS.md#application-db-を反映する)に従う。
 
 判断・査読の執筆YAMLでは同じmapping内に同名キーを置かない。読取エラー時は原稿の構文や重複を直してから再確認し、保存済み本文は書き換えない。
 
