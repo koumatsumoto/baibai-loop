@@ -106,10 +106,10 @@
     /* An offset, opaque focus outline reads against the surrounding surface,
        including on buttons whose fill is already the action color. */
     --ring: var(--primary-ink);
-    /* Dampen allocation categories so they cannot be read as action or P&L. */
-    --chart-1: #866b5b;
-    --chart-2: #958878;
-    --chart-3: #63594e;
+    /* Terracotta, oat, warm stone: separate holdings, available cash and reserves, not returns. */
+    --chart-1: #a06657;
+    --chart-2: #9c907a;
+    --chart-3: #504c46;
     --radius: 0.625rem;
 }
 

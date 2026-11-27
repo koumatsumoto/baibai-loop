@@ -234,6 +234,8 @@ describe('brand palette', () => {
     for (const name of ['--selection', '--warning-surface', ...SERIES_COLORS]) {
       expect(profit).not.toContain(tokenValue(name))
     }
+    const allocation = SERIES_COLORS.map((name) => tokenValue(name))
+    expect(new Set(allocation).size).toBe(allocation.length)
     const components = componentSources((entry) => !entry.endsWith('.css')).join('\n').toLowerCase()
     for (const color of mark) expect(components).not.toContain(color)
   })
