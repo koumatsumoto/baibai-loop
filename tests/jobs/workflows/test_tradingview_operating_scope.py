@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+
 from baibai_jobs.acquisition.tradingview.cli import main as archived_tradingview
 from baibai_jobs.cli import build_parser
 
