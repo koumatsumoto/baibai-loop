@@ -4,42 +4,28 @@ import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
 
 import { AppShell } from '../src/components/AppShell'
-import { ACTIONS_URL, NAV_TABS } from '../src/lib/nav'
-
-function activeLabels(pathname: string): string[] {
-  return NAV_TABS.filter((tab) => tab.match(pathname)).map((tab) => tab.label)
-}
-
-describe('NAV_TABS active matching', () => {
-  it.each<[string, string[]]>([
-    ['/', ['資産状況']],
-    ['/tasks', []],
-    ['/proposal', ['売買提案']],
-    ['/proposal/unknown', []],
-    ['/us-proposal', ['米国株']],
-    ['/us-proposal/unknown', []],
-    ['/nowhere', []],
-    ['/tasks/unknown', []],
-  ])('selects only the current page for %s', (pathname, labels) => {
-    expect(activeLabels(pathname)).toEqual(labels)
-  })
-})
+import { ACTIONS_URL } from '../src/lib/nav'
 
 describe('shared primary navigation', () => {
   it.each([
-    ['/', '/'],
-    ['/proposal?view=all#top', '/proposal'],
-    ['/us-proposal', '/us-proposal'],
-    ['/nowhere', null],
-  ])('marks only the current page at %s', (entry, activeHref) => {
+    ['/', '/', '/proposal'],
+    ['/proposal', '/proposal', '/proposal'],
+    ['/proposal?proposal=saved-id&ticker=4755#top', '/proposal', '/proposal'],
+    ['/proposal/', '/proposal', '/proposal'],
+    ['/us-proposal', '/us-proposal', '/us-proposal'],
+    ['/us-proposal/?ignored=value', '/us-proposal', '/us-proposal'],
+    ['/proposal/unknown', null, '/proposal'],
+    ['/us-proposal/unknown', null, '/proposal'],
+    ['/nowhere', null, '/proposal'],
+    ['/tasks', null, '/proposal'],
+  ])('shows one proposal entry and marks the active page at %s', (entry, activeHref, proposalHref) => {
     const html = renderToStaticMarkup(createElement(MemoryRouter, { initialEntries: [entry] }, createElement(AppShell)))
     const nav = html.match(/<nav\b[^>]*>[\s\S]*?<\/nav>/)?.[0] ?? ''
     const links = [...nav.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g)]
 
-    expect(links).toHaveLength(3)
-    expect(links.map((link) => link[1].match(/href="([^"]*)"/)?.[1])).toEqual(['/', '/proposal', '/us-proposal'])
-    expect(links.map((link) => link[2].replace(/<[^>]*>/g, ''))).toEqual(['資産状況', '売買提案', '米国株'])
-    expect(nav).toContain('grid-cols-3')
+    expect(links.map((link) => link[1].match(/href="([^"]*)"/)?.[1])).toEqual(['/', proposalHref])
+    expect(links.map((link) => link[2].replace(/<[^>]*>/g, ''))).toEqual(['資産状況', '売買提案'])
+    expect(nav).toContain('grid-cols-2')
     for (const [, attributes, contents] of links) {
       expect(attributes).toContain('min-h-10')
       expect(attributes).toContain('justify-center')
