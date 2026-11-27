@@ -97,6 +97,20 @@ describe('Dashboard valuation display', () => {
     expect(html).not.toContain('未評価')
   })
 
+  it.each([false, true])('labels the oldest saved close when every holding is valued on different dates (reverse: %s)', reverse => {
+    const rows = [holding('1234'), { ...holding('8255'), market_price_as_of: '2026-09-25' }]
+    const html = render(dashboard({ generated_at: '2026-09-25T20:00:00+09:00', holdings: reverse ? rows.reverse() : rows }))
+    expect(html).toContain('株価基準（銘柄別・最古） 2026-09-24')
+    expect(html).not.toContain('株価基準 2026-09-24')
+    expect(html).not.toContain('未評価')
+  })
+
+  it('shows one common basis when every position uses the same close date', () => {
+    const html = render(dashboard({ holdings: [holding('1234'), holding('8255')] }))
+    expect(html).toContain('株価基準 2026-09-24')
+    expect(html).not.toContain('最古')
+  })
+
   it('keeps the server total rather than summing individually rounded positions', () => {
     const holdings = ['1234', '5678'].map(ticker => ({
       ...holding(ticker), quantity: 25, market_price_yen: '400.1', deployed_cost_yen: 10_000,

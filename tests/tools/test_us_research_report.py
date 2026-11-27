@@ -6,6 +6,7 @@ from contextlib import closing
 from datetime import UTC, datetime, timedelta, timezone
 from hashlib import sha256
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 from pydantic import ValidationError
@@ -187,6 +188,10 @@ def test_invalid_ticker_is_rejected_by_owner_and_cli(tmp_path, capsys, ticker):
     ("fields", "value"),
     [
         (("currency",), "JPY"),
+        (("cik",), "0000000000"),
+        (("cik",), "1652044"),
+        (("cik",), "00000000001"),
+        (("cik",), "000000０００１"),
         (("buy_quantity",), 100),
         (("official_close", "basis"), "split_adjusted_closes"),
         (("official_close", "price_usd"), 0),
@@ -736,3 +741,60 @@ def test_unrepresentable_perspective_time_is_a_validation_error():
                 "model_perspectives": [row],
             }
         )
+
+
+@pytest.mark.parametrize(
+    ("owner", "clock"),
+    [
+        ("iex_band", "received_at"),
+        ("official_close", "observed_at"),
+        ("financial_evidence", "observed_at"),
+    ],
+)
+def test_report_evidence_does_not_round_receipts_into_cutoff(tmp_path, capsys, owner, clock):
+    payload = _draft()
+    source = payload[owner][0] if owner == "financial_evidence" else payload[owner]
+    path = tmp_path / "draft.json"
+
+    # The ordinary CLI receives the original text, before Pydantic can truncate it.
+    source[clock] = "2026-11-28T09:00:00.000000001-05:00"
+    assert main(["draft-digest", _write(path, payload)]) == 2
+    assert capsys.readouterr().out == ""
+    source[clock] = "2026-11-28T09:00:00.000000000-05:00"
+    assert main(["draft-digest", _write(path, payload)]) == 0
+    assert json.loads(capsys.readouterr().out)["report_id"] == payload["report_id"]
+
+
+def test_report_uses_instants_across_both_occurrences_of_a_new_york_hour():
+    payload = _draft()
+    ny = ZoneInfo("America/New_York")
+    cutoff = datetime(2026, 11, 1, 1, 30, tzinfo=ny, fold=0)
+    payload.update(
+        cutoff_at=cutoff,
+        expected_session_et="2026-10-30",
+        session_close_at="2026-10-30T16:00:00-04:00",
+        iex_band=None,
+        official_close=None,
+        comparison=None,
+        unresolved=["合成。価格・比較は未確認。"],
+    )
+    fact = payload["financial_evidence"][0]
+    # 01:29 EST is 59 minutes *after* 01:30 EDT.
+    fact["observed_at"] = cutoff.replace(minute=29, fold=1)
+    with pytest.raises(ValidationError, match="financial evidence is unavailable at cutoff"):
+        ReportDraft.model_validate(payload)
+    fact["observed_at"] = cutoff
+    draft = ReportDraft.model_validate(payload)
+    assert draft.model_dump(mode="json")["cutoff_at"] == "2026-11-01T01:30:00-04:00"
+    assert ReportDraft.model_validate_json(draft.model_dump_json()) == draft
+
+
+def test_financial_evidence_accepts_the_first_representable_exchange_local_instant():
+    payload = _draft()
+    first_et = datetime.min.replace(tzinfo=ZoneInfo("America/New_York")).astimezone(UTC)
+    fact = payload["financial_evidence"][0]
+    fact.update(period_end="0001-01-01", observed_at=first_et.isoformat())
+    assert ReportDraft.model_validate(payload).financial_evidence[0].observed_at == first_et
+    fact["observed_at"] = (first_et - timedelta(microseconds=1)).isoformat()
+    with pytest.raises(ValidationError, match="representable New York date"):
+        ReportDraft.model_validate(payload)

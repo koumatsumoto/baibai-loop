@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import sqlite3
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -10,6 +12,7 @@ import yaml
 from hypothesis import given
 from hypothesis import strategies as st
 from pydantic import ValidationError
+from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger, portfolio_snapshot
 
 from baibai_engine.portfolio.ledger.events import (
@@ -19,6 +22,7 @@ from baibai_engine.portfolio.ledger.events import (
     replay_events_through,
     snapshot_to_payload,
 )
+from baibai_engine.portfolio.ledger.store import LedgerStoreService
 from baibai_engine.portfolio.policy import PORTFOLIO_POLICY
 from baibai_engine.primitives.yaml import safe_load
 
@@ -401,6 +405,85 @@ def test_ticker_sector_and_common_factor_include_active_reservation() -> None:
     assert warnings[("ticker", "2331")].actual_pct == 3.25
     assert warnings[("sector", "サービス業")].actual_pct == 3.25
     assert warnings[("common_factor", "labor-automation")].actual_pct == 3.25
+
+
+def _factor_buy(ticker, factors):
+    return {
+        "event_id": f"buy-{ticker}",
+        "execution_id": f"fill-{ticker}",
+        "type": "execution",
+        "occurred_at": "2026-07-10T09:00:00+09:00",
+        "ticker": ticker,
+        "side": "buy",
+        "quantity": 100,
+        "price_yen": 1000,
+        "sector": "synthetic",
+        "common_factors": factors,
+    }
+
+
+@pytest.mark.parametrize("factors", [["a", ""], ["a", 1]])
+def test_execution_memberships_do_not_silence_invalid_factors(factors):
+    raw = _raw()
+    raw["events"] = [raw["events"][0], _factor_buy("1001", factors)]
+    with pytest.raises(ValidationError):
+        _document(raw)
+
+
+def test_preexisting_duplicate_execution_factors_load_without_rewriting_the_ledger(tmp_path):
+    path = tmp_path / "application.sqlite"
+    raw = _raw()
+    raw["events"] = [raw["events"][0], _factor_buy("1001", ["a", "b"])]
+    seed_ledger(path, _document(raw))
+    # Reproduce an already accepted direct-fill payload, bypassing today's writer.
+    with closing(sqlite3.connect(path)) as db:
+        stored_payload = db.execute(
+            "UPDATE ledger_event SET payload = json_set(payload, '$.common_factors', json(?)) "
+            "WHERE event_id = 'buy-1001' RETURNING payload",
+            ('["a","a","b"]',),
+        ).fetchone()[0]
+        db.commit()
+        document, head = LedgerStoreService(path).load_with_head()
+        assert head == 2
+        assert document.model_dump(mode="json")["events"][-1]["common_factors"] == ["a", "b"]
+        assert db.execute(
+            "SELECT payload FROM ledger_event WHERE event_id = 'buy-1001'"
+        ).fetchone() == (stored_payload,)
+
+
+def test_risk_factor_exposure_counts_each_classified_holding_once():
+    raw = _raw()
+    opening = raw["events"][0] | {"amount_yen": 500_000}
+    raw["events"] = [
+        opening,
+        _factor_buy("1001", ["b", "a", "a"]),
+        _factor_buy("1002", ["a", "c"]),
+    ]
+    tickers = ("1001", "1002")
+    prices = tuple(
+        MarketPrice.model_validate(
+            {
+                "ticker": ticker,
+                "price_yen": 1000,
+                "price_as_of": "2026-07-10",
+                "source_kind": "test_fixture",
+                "price_basis": "unadjusted_close",
+                "source_ref": "synthetic",
+            }
+        )
+        for ticker in tickers
+    )
+    doc = _document(raw)
+    assert doc.model_dump(mode="json")["events"][1]["common_factors"] == ["a", "b"]
+    snapshot = _snapshot(doc, prices=prices)
+    assert [(h.ticker, h.common_factors) for h in snapshot.holdings] == [
+        ("1001", ("a", "b")),
+        ("1002", ("a", "c")),
+    ]
+    assert snapshot.total_capital_yen == 500_000
+    assert [(w.key, w.actual_pct) for w in snapshot.warnings if w.scope == "common_factor"] == [
+        ("a", 40.0)
+    ]
 
 
 def test_ticker_concentration_at_ten_percent_does_not_warn() -> None:

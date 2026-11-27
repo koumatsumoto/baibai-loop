@@ -558,6 +558,57 @@ def test_application_push_does_not_require_the_common_lease(tmp_path):
     assert not (Path(env["AWS_FAKE_STATE"]) / "lease-checks").exists()
 
 
+@pytest.mark.parametrize("profile", ["file", "mixed", "complete", "defaults"])
+def test_credential_fallback_resolves_one_r2_target(tmp_path, profile):
+    root = _fake_repo(tmp_path)
+    binary, log = _fake_aws(tmp_path)
+    env = _environment(binary, log)
+    env["GITHUB_ACTIONS"] = "true"
+    if profile != "complete":
+        env.pop("R2_ACCESS_KEY_ID")
+    if profile == "file":
+        env.pop("R2_ACCOUNT_ID")
+        env.pop("R2_SECRET_ACCESS_KEY")
+    if profile in {"mixed", "complete"}:
+        env.update(R2_STORES_BUCKET="shell-stores", R2_SERVING_BUCKET="shell-serving")
+    settings = (
+        "R2_ACCOUNT_ID=file-account\nR2_ACCESS_KEY_ID=file-id\nR2_SECRET_ACCESS_KEY=file-secret\n"
+    )
+    if profile != "defaults":
+        settings += "R2_STORES_BUCKET=file-stores\nR2_SERVING_BUCKET=file-serving\n"
+    (root / ".env").write_text(settings)
+    env["EXPECT_FAKE_R2_CREDENTIALS"] = (
+        ("access-for-test" if profile == "complete" else "file-id")
+        + ":"
+        + ("file-secret" if profile == "file" else "secret-for-test")
+    )
+    output = tmp_path / "serving"
+    (output / "views").mkdir(parents=True)
+    for name in _SERVING_VIEW_ORDER:
+        (output / "views" / f"{name}.json").write_text("{}")
+    for command in (["push-indicators"], ["upload-portfolio-views", output]):
+        result = subprocess.run(
+            [root / "jobs/scripts/r2_transfer.sh", *command],
+            env=env,
+            cwd=root,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+    prefix = {"file": "file", "mixed": "shell", "complete": "shell", "defaults": "baibai"}[profile]
+    account = "file-account" if profile == "file" else "account-for-test"
+    calls = [line for line in _transfer_commands(log) if line.startswith(("s3api ", "s3 "))]
+    checks = (Path(env["AWS_FAKE_STATE"]) / "lease-checks").read_text().splitlines()
+    assert set(checks) == {f"verify {prefix}-stores"}
+    assert any(line.startswith("s3api put-object ") for line in calls)
+    assert any(line.startswith("s3 cp ") for line in calls)
+    assert all(f"--bucket {prefix}-stores " in line for line in calls if line.startswith("s3api "))
+    assert all(f"s3://{prefix}-serving/views/" in line for line in calls if line.startswith("s3 "))
+    assert all(
+        f"--endpoint-url https://{account}.r2.cloudflarestorage.com" in line for line in calls
+    )
+
+
 def test_transfer_lease_verifies_the_selected_stores_bucket_not_a_late_env_override(tmp_path):
     root = _fake_repo(tmp_path)
     binary, log = _fake_aws(tmp_path)

@@ -89,7 +89,10 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
             <InfoHint label="資産と損益">{HINT.allocation}</InfoHint>
           </CardHeader>
           {data.valuation_as_of !== null && (
-            <p className="text-xs text-muted-foreground">株価基準 {data.valuation_as_of.slice(0, 10)}</p>
+            <p className="text-xs text-muted-foreground">
+              {data.holdings.some(holding => holding.market_price_as_of !== data.valuation_as_of)
+                ? '株価基準（銘柄別・最古）' : '株価基準'} {data.valuation_as_of.slice(0, 10)}
+            </p>
           )}
           {data.valuation_error !== null && (
             <Alert className="mt-2">

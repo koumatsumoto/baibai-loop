@@ -64,11 +64,11 @@ def test_portfolio_only_decodes_requested_traded_closes(tmp_path):
 
     with closing(connect_read_only(database)) as connection:
         connection.execute("BEGIN")
-        bars = read_ticker_bars(connection, ("1301", "2345"), START, END)
+        bars = read_ticker_bars(connection, ("1301", "2345"), (START, END))
         assert bars is not None
         assert [(bar.ticker, bar.close) for bar in bars] == [("1301", 100.0), ("1301", 101.0)]
         with pytest.raises(JQuantsProviderError, match=r"corrupt SQLite row.*3456"):
-            read_ticker_bars(connection, ("3456",), START, END)
+            read_ticker_bars(connection, ("3456",), (START, END))
 
 
 @pytest.mark.parametrize("missing", ["store", "calendar", "bars", "ticker"])
@@ -86,7 +86,7 @@ def test_market_input_owners_preserve_unavailable_and_missing_ticker_distinction
         with closing(connect_read_only(database)) as connection:
             connection.execute("BEGIN")
             tickers = ("9999",) if missing == "ticker" else ("1301",)
-            assert read_ticker_bars(connection, tickers, START, END) == (
+            assert read_ticker_bars(connection, tickers, (START, END)) == (
                 [] if missing == "ticker" else None
             )
 
@@ -99,7 +99,7 @@ def test_caller_keeps_the_same_snapshot_for_unit_checks_after_prices(tmp_path):
     with closing(connect_read_only(database)) as reader:
         reader.execute("BEGIN")
         calendar = read_market_calendar(database, START, END, connection=reader)
-        bars = read_ticker_bars(reader, ("1301",), START, END)
+        bars = read_ticker_bars(reader, ("1301",), (START, END))
         assert calendar is not None
         assert bars is not None
         with closing(sqlite3.connect(database)) as writer, writer:

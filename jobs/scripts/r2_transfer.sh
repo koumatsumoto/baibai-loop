@@ -2,12 +2,6 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-stores_bucket="${R2_STORES_BUCKET:-baibai-stores}"
-generation_dir="${R2_GENERATION_DIR:-${repo_root}/stores/.r2-generations}"
-# The lake mirror is a fetch-through cache of immutable objects, so it is named next to
-# the stores rather than inside one: every key it holds begins with `lake/`, which is why
-# the mirror root is the directory the stores live in and not one of them.
-lake_mirror="${R2_LAKE_MIRROR:-${repo_root}/stores}"
 transfer_staging=""
 
 cleanup_staging() {
@@ -23,10 +17,19 @@ trap cleanup_staging EXIT
 load_credentials() {
   if [[ -z "${R2_ACCOUNT_ID:-}" || -z "${R2_ACCESS_KEY_ID:-}" || -z "${R2_SECRET_ACCESS_KEY:-}" ]]; then
     if [[ -f "${repo_root}/.env" ]]; then
+      # Fill missing R2 settings from the trusted file; never replace the caller's
+      # account, key or target while completing another missing credential.
+      local name
+      local -a supplied=()
+      for name in R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY \
+        R2_STORES_BUCKET R2_SERVING_BUCKET R2_GENERATION_DIR R2_LAKE_MIRROR; do
+        if [[ -n "${!name:-}" ]]; then supplied+=("$name=${!name}"); fi
+      done
       set -a
       # shellcheck disable=SC1091
       source "${repo_root}/.env"
       set +a
+      if [[ -n "${supplied[0]:-}" ]]; then export "${supplied[@]}"; fi
     fi
   fi
   : "${R2_ACCOUNT_ID:?R2_ACCOUNT_ID is required}"
@@ -395,6 +398,12 @@ validate_command() {
 validate_command "$@" || { usage; exit 2; }
 (cd "${repo_root}" && uv run python -m baibai_jobs.observability.repository_layout)
 load_credentials
+stores_bucket="${R2_STORES_BUCKET:-baibai-stores}"
+generation_dir="${R2_GENERATION_DIR:-${repo_root}/stores/.r2-generations}"
+# The lake mirror is a fetch-through cache of immutable objects, so it is named next to
+# the stores rather than inside one: every key it holds begins with `lake/`, which is why
+# the mirror root is the directory the stores live in and not one of them.
+lake_mirror="${R2_LAKE_MIRROR:-${repo_root}/stores}"
 case "${1:-}" in
   pull-app)
     pull_app

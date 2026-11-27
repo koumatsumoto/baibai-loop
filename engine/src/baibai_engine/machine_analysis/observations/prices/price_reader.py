@@ -14,7 +14,7 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsDailyBar,
 )
 from baibai_engine.storage.sqlite.source_cache.convert import optional_float
-from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
+from baibai_engine.storage.sqlite.source_cache.coverage import range_covered, uncovered_days
 from baibai_engine.storage.sqlite.source_cache.schema import connect_current
 
 
@@ -94,12 +94,12 @@ def _adjustment_events_from_rows(
 
 
 def read_ticker_bars(
-    conn: sqlite3.Connection, tickers: tuple[str, ...], start: date, end: date
+    conn: sqlite3.Connection, tickers: tuple[str, ...], sessions: tuple[date, ...]
 ) -> list[JQuantsDailyBar] | None:
-    """Read held tickers on the caller's calendar snapshot; do not fill missing closes."""
-    if not tickers:
+    """Read held tickers for the verified cash sessions, not for intervening holidays."""
+    if not tickers or not sessions:
         return []
-    if not range_covered(conn, "jquants_daily_bars", start, end):
+    if uncovered_days(conn, "jquants_daily_bars", sessions):
         return None
     placeholders = ", ".join("?" for _ in tickers)
     rows = conn.execute(
@@ -108,9 +108,10 @@ def read_ticker_bars(
         # Local placeholder count; ticker values remain bound.  # nosec B608
         f"WHERE ticker IN ({placeholders}) AND traded_at BETWEEN ? AND ? "
         "ORDER BY ticker, traded_at",
-        (*tickers, start.isoformat(), end.isoformat()),
+        (*tickers, sessions[0].isoformat(), sessions[-1].isoformat()),
     ).fetchall()
-    return _daily_bars_from_rows(rows)
+    on_sessions = {day.isoformat() for day in sessions}
+    return _daily_bars_from_rows(row for row in rows if row[1] in on_sessions)
 
 
 def latest_daily_bar_date(sqlite_path: Path, start: date, end: date) -> date | None:

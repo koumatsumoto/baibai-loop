@@ -187,6 +187,12 @@ class ExecutionEvent(_EventBase):
     def _parse_common_factors(cls, value: object) -> object:
         return _tuple(value)
 
+    @field_validator("common_factors")
+    @classmethod
+    def _distinct_common_factors(cls, factors: tuple[str, ...]) -> tuple[str, ...]:
+        # A factor is membership, not a weight. Older direct fills can repeat tags.
+        return tuple(sorted(set(factors)))
+
     @field_validator("price_yen", mode="before")
     @classmethod
     def _parse_price(cls, value: object) -> Decimal:
