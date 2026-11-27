@@ -11,6 +11,33 @@ uv run --offline python -m tools.experiments.us_research_mvp --bundle /private/m
 
 `research_candidate` は調査を進められる状態。幅や成長を証明するシグナルではない。`hold_for_evidence` は証拠保留で、保有継続を指さない。どちらも `no_action`。終了コード0は報告を出せたことだけを示し、証拠の充足や実データ受入を意味しない。引数やmanifest自体が不正なら2。IEX分割調整済みの**観測20日分**だけで平均と乖離を計算する。NY日付で当日受領しかない足は途中集計として除き、後日同じ束を再読しても採用しない。市場の取引暦が揃ったとはみなさず、公式引けや約定可能値、売買代金を作らない。
 
+## USDの調査・比較を査読して保存する（正式提案は発行しない）
+
+取得した材料から人間が書いた一社の分析を、[ローカルの調査レポートCLI](../../tools/experiments/us_research_report.py)で別担当の確認結果と一緒に新規の私有ファイルへ保存する。App、案件完了、提案の配信・注文には接続しない。既存のIEX・SECの読取や再取得はしない。実データが不足していれば判断保留として記録できる。
+
+1. JSON原稿の例は[合成テスト](../../tests/tools/test_us_research_report.py)の `_draft`。原稿に銘柄・上場市場（NasdaqまたはNYSE）・株式クラス・CIK・USD、情報締切と作成時刻を記録する。取引所の暦で対象立会日と終了時刻を照合し、短縮日を通常の引けで補わない。
+2. IEX観測帯は受領manifestのSHA、分割調整済み終値・観測件数・日付窓・最小／最大／末尾。採用できない場合は `iex_band: null`。公式終値が必要な比較では、同じ立会の**上場取引所による無調整終値**と一次参照・取得時刻を別に書く。IEXで代用しない。公式終値または他の比較根拠が不足なら `comparison: null` と未確認事項。
+3. 財務では原典と実読時刻、会計期間・観測内容を引用。比較が可能な場合だけ、同じ終期で基本／下振れの1株価値・取得権のある分配・仮定を示す。無利息のUSD現金との差を計算し、税・費用・為替は対象外。未確認の残高・執行条件・買付数量は入れない。別担当は出典の本文、銘柄と権利、期間、反対材料と比較前提を確認する。このCLIはリンク先を取得せず、根拠の真偽や別担当の本人性を認証しない。
+
+```bash
+uv run --offline python -m tools.experiments.us_research_report draft-digest /private/draft.json
+# 別担当が、出力の report_id / draft_sha256 と reviewer_identity / reviewed_at
+# （時差付き）/ conclusion: "pass" / notes をJSONに記入してから保存する。
+NEW_REPORT=/private/report.md
+uv run --offline python -m tools.experiments.us_research_report save \
+  /private/draft.json /private/review.json --output /private/reviewed.json &&
+(
+  umask 077
+  set -o noclobber
+  uv run --offline python -m tools.experiments.us_research_report render /private/reviewed.json \
+    > "$NEW_REPORT"
+) &&
+uv run --offline python -m tools.experiments.us_research_report check-render \
+  /private/reviewed.json "$NEW_REPORT"
+```
+
+出力先は作業者の私有ディレクトリ内の新規ファイル。描画に失敗した出力は使わず、`check-render` が成功したファイルだけを使う。原稿を変更したらレビューも取り直す。照合はIDと原稿SHAだけでなく描画本文も比較する。照合成功は私有ファイルの読戻しであり、日本株用Appに正式提案が保存・配信された証拠ではない。
+
 ## 最新のIEX観測だけを確認する
 
 運用受入では対象市場の公式暦で期待するNY取引日（休場・短縮日を含む）を確認し、実受領のmanifestと一緒に明示する。
@@ -131,3 +158,9 @@ uv run --offline python -m tools.experiments.us_research_mvp --bundle /private/m
 `public_index` はCompanyFactsや提出情報とは別の受領。正規HTTPS URLへ、リダイレクトせず `Accept-Encoding: identity` でGETし、全文受領した時だけ `complete: true` とする。実際の応答URL・本文SHA・[索引](https://www.sec.gov/Archives/edgar/data/320193/000032019325000073/0000320193-25-000073-index.htm)のaccessionタイトルと同じ提出の全文リンクを照合する。取得時に実応答にあった `Content-Type`、`Content-Length`、`Content-Encoding`、`Content-Range`、`Transfer-Encoding` を `headers` にそのまま保存する。送られていない値は追加せず、`Content-Length` を保存ファイルのサイズやcurlのダウンロード量で補わない。部分応答、圧縮、内容長の矛盾や本文の手書き・転記を原本にしない。入力の取得・銘柄対応・公表証拠は供給元で固定し、このCLIは再認証しない。cutoffより遅い索引・原本受領で、当時の不足を埋めない。
 
 SECが `text/html` で返す索引では、[HTMLで省略可能な外側の終了タグ](https://www.w3.org/TR/html4/struct/global.html#h-7.3)が原本にないことがある。省略形を読むには、実応答の `Content-Type: text/html` と `Content-Length` を両方保存し、その長さと原本のバイト数が一致している必要がある。EDGARの区切りを認識した場合は、外側の終了タグの有無にかかわらず、書類一覧の全文リンクと空でない提出者情報があり、`contentDiv` の末尾まで閉じていることを確認する。原本にタグを補わない。XHTMLでは外側の終了タグを省略できない。
+
+## Nasdaqの公式終値を固定受領から読む（アダプターのみ）
+
+既存のIEX日足や実験CLIの出力は変えない。上場銘柄・株式クラスとNY取引日の立会終了時刻を別の証拠で確認できるXNAS銘柄に限り、`alpaca_auctions.read_nasdaq_official_close` が[Alpacaの固定されたSIP auction応答](https://docs.alpaca.markets/us/reference/stockauctionsingle-1)を読める。[UTPのQ/M](https://www.utpplan.com/DOC/UtpBinaryOutputSpec_3.0.pdf)はNasdaqの公式終値を示し、他の取引所のMやNasdaqの条件6は代用しない。これは取引所由来の値をSIP経由で読んだもので、取引所からの直接受領、約定、統合終値とは異なる。
+
+指定するNY日内の終了時刻を覆うUTC区間、単一シンボル、`feed=sip`、`currency=USD`、`asof=-` が固定要求URL、実要求URL、最終応答URLで一致することが前提。HTTP 200と本文SHAだけでは、全文受領・非リダイレクトを確かめたことにならない。取得時に確認した完全な原本とその記録があり、終端ページに同一日・同一銘柄のQ/Mが一つの場合だけ、未調整のUSD/株として採用する。イベント時刻のナノ秒、実受領時刻、本文SHAと該当行のJSONポインターを区別して残す。イベントは確認済みの立会終了時刻から要求区間の終端までを両端込みで読む。条件不足では取引価格を作らない。まだ正式提案・App保存・Web配信には接続しない。

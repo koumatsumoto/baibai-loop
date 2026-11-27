@@ -36,6 +36,13 @@ class AlpacaCaptureIncomplete(ValueError):
     """A failed or absent receipt chain cannot establish an empty observation set."""
 
 
+def is_alpaca_symbol(value: object) -> bool:
+    return (
+        type(value) is str
+        and re.fullmatch(r"[A-Z][A-Z0-9]{0,11}(?:\.[A-Z0-9]{1,4})?", value) is not None
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class DailyBarsQuery:
     """One IEX/USD scope. Alpaca's asof identifies symbols, not data availability."""
@@ -50,11 +57,7 @@ class DailyBarsQuery:
         if (
             type(self.symbols) is not tuple
             or not 1 <= len(self.symbols) <= MAX_SYMBOLS
-            or any(
-                type(symbol) is not str
-                or re.fullmatch(r"[A-Z][A-Z0-9]{0,11}(?:\.[A-Z0-9]{1,4})?", symbol) is None
-                for symbol in self.symbols
-            )
+            or any(not is_alpaca_symbol(symbol) for symbol in self.symbols)
             or len(set(self.symbols)) != len(self.symbols)
         ):
             raise ValueError("daily bars require distinct US stock symbol labels")
@@ -158,13 +161,18 @@ def _non_json_number(_: str) -> None:
     raise ValueError("invalid JSON number")
 
 
-def _page_envelope(body: bytes) -> tuple[NativeBarGroups, object]:
-    value = json.loads(
+def decode_alpaca_json(body: bytes) -> object:
+    """Interpret native Alpaca JSON without losing price precision or duplicate fields."""
+    return json.loads(
         body.decode("utf-8"),
         object_pairs_hook=_unique_object,
         parse_constant=_non_json_number,
         parse_float=Decimal,
     )
+
+
+def _page_envelope(body: bytes) -> tuple[NativeBarGroups, object]:
+    value = decode_alpaca_json(body)
     if not isinstance(value, dict) or not isinstance(bars := value.get("bars"), dict):
         raise ValueError("Alpaca bars are not grouped by returned symbol")
     if any(
