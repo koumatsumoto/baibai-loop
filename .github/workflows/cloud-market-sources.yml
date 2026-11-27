@@ -190,6 +190,7 @@ jobs:
           import json
           import os
           from collections import Counter
+          from datetime import UTC, datetime
           from pathlib import Path
           import pyarrow.parquet as pq
 
@@ -198,16 +199,18 @@ jobs:
           counts = Counter(pq.read_table(output / 'daily_bars.parquet', columns=['traded_at']).column(0).to_pylist())
           days = pq.read_table(
               output / 'price_receipt_status.parquet',
-              columns=['day', 'projection_status', 'incomplete_requests'],
+              columns=['day', 'projection_status', 'incomplete_requests', 'request_id'],
           ).to_pylist()
 
           print('### J-Quants 日足原本の限定確認（公開判定ではない）')
           print('| 日付 | 行数 | 投影 | 採用済み | 失敗 | 保留 | 不完全な応答 |')
           print('| --- | ---: | --- | --- | --- | --- | ---: |')
           ready = False
+          target_scope = None
           for row in days:
               day = row['day'].isoformat()
-              adopted, failed, held = (bool(scopes[day].get(key)) for key in ('adopted', 'failure', 'held'))
+              scope = scopes[day]
+              adopted, failed, held = (bool(scope.get(key)) for key in ('adopted', 'failure', 'held'))
               count, status, incomplete = counts[day], row['projection_status'], row['incomplete_requests']
               if status not in ('ok', 'partial', 'unavailable'):
                   status = 'unknown'
@@ -216,6 +219,23 @@ jobs:
               print(f'| {day} | {count} | {status} | {adopted} | {failed} | {held} | {incomplete} |')
               if day == os.environ['ASOF']:
                   ready = status == 'ok' and adopted and not (failed or held or incomplete)
+                  target_scope = scope if ready and row['request_id'] == scope.get('adopted') else None
+          if target_scope is not None:
+              verified_at = datetime.now(UTC)
+              received = '未確認'
+              # changed_at belongs to the adopted content; confirmed_at may be an equal recheck.
+              stamp = target_scope.get('changed_at')
+              if isinstance(stamp, str):
+                  try:
+                      received_at = datetime.fromisoformat(stamp)
+                      if received_at.utcoffset() is not None and received_at <= verified_at:
+                          received = received_at.astimezone(UTC).isoformat()
+                  except (ValueError, OverflowError):
+                      pass
+              print()
+              print(f'- 対象日の現採用内容の受領完了（UTC）: {received}')
+              print(f'- 対象日の読戻し確認（UTC）: {verified_at.isoformat()}')
+              print()
           print('この範囲は現在の原本の確認のみ。休場の証明・収録窓全体・日次公開は未判定。')
           if not ready:
               print('対象日について、未解決のない非空の日足を確認できませんでした。')
