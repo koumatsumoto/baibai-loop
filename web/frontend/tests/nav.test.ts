@@ -14,7 +14,7 @@ describe('NAV_TABS active matching', () => {
   it.each<[string, string[]]>([
     ['/', ['資産状況']],
     ['/tasks', []],
-    ['/proposal', ['売買提案']],
+    ['/proposal', ['日本株']],
     ['/proposal/unknown', []],
     ['/us-proposal', ['米国株']],
     ['/us-proposal/unknown', []],
@@ -28,7 +28,7 @@ describe('NAV_TABS active matching', () => {
 describe('shared primary navigation', () => {
   it.each([
     ['/', '/'],
-    ['/proposal?view=all#top', '/proposal'],
+    ['/proposal?proposal=saved-id&ticker=4755#top', '/proposal'],
     ['/us-proposal', '/us-proposal'],
     ['/nowhere', null],
   ])('marks only the current page at %s', (entry, activeHref) => {
@@ -38,7 +38,9 @@ describe('shared primary navigation', () => {
 
     expect(links).toHaveLength(3)
     expect(links.map((link) => link[1].match(/href="([^"]*)"/)?.[1])).toEqual(['/', '/proposal', '/us-proposal'])
-    expect(links.map((link) => link[2].replace(/<[^>]*>/g, ''))).toEqual(['資産状況', '売買提案', '米国株'])
+    expect(links.map((link) => link[2].replace(/<[^>]*>/g, ''))).toEqual(['資産状況', '日本株', '米国株'])
+    expect(links.map((link) => link[1].match(/aria-label="([^"]*)"/)?.[1]))
+      .toEqual([undefined, '日本株の売買提案', '米国株の判断'])
     expect(nav).toContain('grid-cols-3')
     for (const [, attributes, contents] of links) {
       expect(attributes).toContain('min-h-10')

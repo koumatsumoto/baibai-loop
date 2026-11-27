@@ -50,6 +50,7 @@ export function AppShell() {
             return (
               <Link
                 aria-current={active ? 'page' : undefined}
+                aria-label={item.accessibleLabel}
                 className={cn(
                   'flex min-h-10 min-w-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-1 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:px-4 sm:text-sm',
                   active ? 'bg-surface text-primary shadow-sm' : 'text-muted-foreground hover:bg-surface/60 hover:text-foreground',

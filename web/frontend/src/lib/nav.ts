@@ -6,11 +6,12 @@ export const ACTIONS_URL =
 export interface NavTab {
   readonly to: string
   readonly label: string
+  readonly accessibleLabel?: string
   readonly match: (pathname: string) => boolean
 }
 
 export const NAV_TABS: readonly NavTab[] = [
   { to: '/', label: '資産状況', match: (pathname) => pathname === '/' },
-  { to: '/proposal', label: '売買提案', match: (pathname) => pathname === '/proposal' },
-  { to: '/us-proposal', label: '米国株', match: (pathname) => pathname === '/us-proposal' },
+  { to: '/proposal', label: '日本株', accessibleLabel: '日本株の売買提案', match: (pathname) => pathname === '/proposal' },
+  { to: '/us-proposal', label: '米国株', accessibleLabel: '米国株の判断', match: (pathname) => pathname === '/us-proposal' },
 ]
