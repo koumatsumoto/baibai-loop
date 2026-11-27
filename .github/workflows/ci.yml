@@ -52,7 +52,6 @@ jobs:
           uv run --locked --no-dev python - <<'PYTHON'
           from openpyxl import DEFUSEDXML
           from baibai_jobs.acquisition import article_evidence
-          from baibai_jobs.acquisition.tradingview import market_daily
           from baibai_jobs.integration import economic_handoff, models, source_handoff
           from baibai_web import materialize
           from tools.diagnostics import check_daily_jp_inputs
