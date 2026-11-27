@@ -160,28 +160,29 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
 function warningCopy(warning: WarningView) {
   const actual = formatPct(warning.actual_pct, { digits: 2 })
   const threshold = formatPct(warning.warning_pct, { digits: 2 })
+  const concentration = `保有時価と買付予約額を合わせた総資産比：${actual}（目安 ${threshold}）。丸め前の比率で目安を上回っています。`
   if (warning.code === 'portfolio.ticker-concentration') {
     return {
       title: `銘柄集中度 · ${warning.key}`,
-      description: `構成比 ${actual} が目安 ${threshold} を上回っています。保有全体の集中リスクを確認してください。`,
+      description: concentration,
     }
   }
   if (warning.code === 'portfolio.sector-concentration') {
     return {
       title: `業種集中度 · ${warning.key}`,
-      description: `構成比 ${actual} が目安 ${threshold} を上回っています。同業種への追加購入時に確認してください。`,
+      description: `${concentration}同業種への追加購入時に確認してください。`,
     }
   }
   if (warning.code === 'portfolio.common_factor-concentration') {
     return {
       title: `共通要因の集中度 · ${warning.key}`,
-      description: `構成比 ${actual} が目安 ${threshold} を上回っています。同じリスク要因への追加投資時に確認してください。`,
+      description: `${concentration}同じリスク要因への追加投資時に確認してください。`,
     }
   }
   if (warning.code === 'portfolio.dry-powder') {
     return {
       title: '台帳の未予約現金',
-      description: `未予約現金の比率が ${actual} で、目安 ${threshold} を下回っています。新規購入前に証券会社の発注可能額を確認してください。`,
+      description: `未予約現金の総資産比：${actual}（目安 ${threshold}）。丸め前の比率で目安を下回っています。新規購入前に証券会社の発注可能額を確認してください。`,
     }
   }
   return {

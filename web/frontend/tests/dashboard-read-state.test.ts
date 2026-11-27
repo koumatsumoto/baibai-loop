@@ -102,6 +102,25 @@ it.each(['obsolete market SQLite schema', 'file is not a database'])(
   },
 )
 
+it('shows a rounded threshold breach caused by a pending buy, not a confirmed holding', () => {
+  // Ledger: 100 shares reserved at 1000.01 against 1M cash, no fill or shares held.
+  hooks.values.set(0, {
+    ...dashboard(), total_capital_yen: 1_000_000, available_cash_yen: 899_999,
+    holdings_market_value_yen: 0, reserved_cash_yen: 100_001, holdings: [],
+    reservations: [{ ...pendingBuy, price_guard_yen: '1000.01', reserved_yen: 100_001 }],
+    warnings: [
+      ...[['ticker', '8929'], ['sector', '不動産業'], ['common_factor', '不動産']].map(([scope, key]) =>
+        ({ code: `portfolio.${scope}-concentration`, scope, key, actual_pct: 10, warning_pct: 10, overridden: false })),
+      { code: 'portfolio.dry-powder', scope: 'dry_powder', key: 'portfolio', actual_pct: 90, warning_pct: 90, overridden: false },
+    ],
+  })
+  const html = render()
+  expect(html).toContain('保有銘柄はありません。')
+  expect(html).toContain('未約定注文')
+  expect(html.match(/保有時価と買付予約額を合わせた総資産比：10\.00%（目安 10\.00%）。丸め前の比率で目安を上回っています。/g)).toHaveLength(3)
+  expect(html).toContain('未予約現金の総資産比：90.00%（目安 90.00%）。丸め前の比率で目安を下回っています。')
+})
+
 it.each(['normal', 'unresolved', 'other-holding'])(
   'distinguishes a reported full sale from confirmed zero (%s)', mode => {
     const unresolved = mode !== 'normal'

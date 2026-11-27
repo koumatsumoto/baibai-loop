@@ -183,7 +183,7 @@ describe('Dashboard valuation display', () => {
     }
   })
 
-  it('describes ticker concentration as a holding risk without suggesting an additional purchase', () => {
+  it('describes ticker concentration on the ledger exposure basis without suggesting an additional purchase', () => {
     const html = renderToStaticMarkup(createElement(TooltipProvider, null,
       createElement(MemoryRouter, null, createElement(HoldingsTable, {
         quantityUnresolved: false,
@@ -194,8 +194,8 @@ describe('Dashboard valuation display', () => {
       })),
     ))
     expect(html).toContain('銘柄集中度 · 1234')
-    expect(html).toContain('構成比 30.00% が目安 20.00% を上回っています。')
-    expect(html).toContain('保有全体の集中リスクを確認してください。')
+    expect(html).toContain('保有時価と買付予約額を合わせた総資産比：30.00%（目安 20.00%）。')
+    expect(html).toContain('丸め前の比率で目安を上回っています。')
     expect(html).not.toContain('追加購入')
   })
 
