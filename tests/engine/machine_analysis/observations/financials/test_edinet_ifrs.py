@@ -57,7 +57,9 @@ def test_native_ifrs_facts_keep_scope_and_period(
     fixture = Path(__file__).parents[4] / "fixtures" / "edinet" / f"{doc_id}.tsv"
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
-        archive.writestr("XBRL_TO_CSV/facts.csv", fixture.read_text().encode("utf-16-le"))
+        archive.writestr(
+            "XBRL_TO_CSV/facts.csv", fixture.read_text(encoding="utf-8").encode("utf-16-le")
+        )
     record = parse_csv_zip_metric_record(
         ticker=ticker,
         doc_id=doc_id,
@@ -98,7 +100,7 @@ def test_native_mixed_standard_filing_uses_declared_ifrs_not_japanese_gaap(
     fixture = Path(__file__).parents[4] / "fixtures" / "edinet" / f"{doc_id}.tsv"
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
-        archive.writestr("facts.csv", fixture.read_text().encode("utf-16-le"))
+        archive.writestr("facts.csv", fixture.read_text(encoding="utf-8").encode("utf-16-le"))
     record = parse_csv_zip_metric_record(
         ticker=ticker, doc_id=doc_id, doc_type_code="120", content=buffer.getvalue()
     )
@@ -117,7 +119,7 @@ def test_native_ifrs_combined_capex_keeps_annual_period_and_missing_components()
     fixture = Path(__file__).parents[4] / "fixtures" / "edinet" / "S100YG7Z.tsv"
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
-        archive.writestr("facts.csv", fixture.read_text().encode("utf-16-le"))
+        archive.writestr("facts.csv", fixture.read_text(encoding="utf-8").encode("utf-16-le"))
     record = parse_csv_zip_metric_record(
         ticker="6803",
         doc_id="S100YG7Z",
@@ -202,7 +204,7 @@ def test_native_ifrs_inventory_cash_effect_only_adds_reported_detail(
     # Fixed-input CSV/XBRL checked on 2026-11-12; these are OCF contributions,
     # not balance-sheet changes or a normalized/free-cash-flow adjustment.
     fixture = Path(__file__).parents[4] / "fixtures" / "edinet" / f"{doc_id}.tsv"
-    text = fixture.read_text()
+    text = fixture.read_text(encoding="utf-8")
 
     def parse(content):
         buffer = BytesIO()

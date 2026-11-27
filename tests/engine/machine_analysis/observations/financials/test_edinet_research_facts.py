@@ -155,7 +155,7 @@ def test_profit_basis_and_aggregate_members_are_not_operating_segments():
 def test_debt_zero_dash_and_unknown_header_are_distinct():
     original = facts_at_test_clock()
     # Replace only the source table's numeric cell text, retaining its delimiters.
-    text = (FIXTURES / "S100YR5P.xbrl").read_text()
+    text = (FIXTURES / "S100YR5P.xbrl").read_text(encoding="utf-8")
     assert "&gt;1,282&lt;" in text
     zero = facts_at_test_clock(replace={"&gt;1,282&lt;": "&gt;0&lt;"})
     missing = facts_at_test_clock(replace={"&gt;1,282&lt;": "&gt;－&lt;"})

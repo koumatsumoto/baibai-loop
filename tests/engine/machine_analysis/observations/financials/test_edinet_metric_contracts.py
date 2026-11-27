@@ -323,7 +323,9 @@ def test_capex_original_edinet_rows():
         with zipfile.ZipFile(content, "w") as archive:
             archive.writestr(
                 "XBRL_TO_CSV/statement.csv",
-                (ROOT / "tests/fixtures/edinet" / f"{doc}.tsv").read_text().encode("utf-16"),
+                (ROOT / "tests/fixtures/edinet" / f"{doc}.tsv")
+                .read_text(encoding="utf-8")
+                .encode("utf-16"),
             )
         record = parse_csv_zip_metric_record(
             ticker=ticker,
@@ -387,7 +389,7 @@ def test_annual_cash_flow_details_from_original_edinet_rows():
             archive.writestr(
                 "XBRL_TO_CSV/statement.csv",
                 (ROOT / "tests" / "fixtures" / "edinet" / f"{doc}.tsv")
-                .read_text()
+                .read_text(encoding="utf-8")
                 .encode("utf-16"),
             )
         record = parse_csv_zip_metric_record(

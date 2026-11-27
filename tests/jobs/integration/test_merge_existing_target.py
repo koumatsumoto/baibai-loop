@@ -7,11 +7,9 @@ import pytest
 
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.storage.sqlite.merge import MergeError
-from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.integration import native_source_merge, source_cache_merge
+from baibai_jobs.integration import native_source_merge
 
 _CASES = [
-    pytest.param(source_cache_merge.merge_stores, open_connection, id="market"),
     pytest.param(native_source_merge.merge_stores, initialize_database, id="economic-union"),
     pytest.param(
         native_source_merge.reconcile_stores, initialize_database, id="economic-reconcile"
@@ -65,19 +63,10 @@ def test_merge_does_not_initialize_an_empty_target(tmp_path, merge, initialize):
     assert set(tmp_path.iterdir()) == before_paths
 
 
-@pytest.mark.parametrize(
-    ("main", "initialize", "source_option"),
-    [
-        (source_cache_merge.main, open_connection, "--source"),
-        (native_source_merge.main, initialize_database, "--canonical"),
-    ],
-)
-def test_cli_reports_target_open_failure_without_success_output(
-    tmp_path, monkeypatch, capsys, main, initialize, source_option
-):
+def test_cli_reports_target_open_failure_without_success_output(tmp_path, monkeypatch, capsys):
     source, target = tmp_path / "source.sqlite", tmp_path / "target.sqlite"
     for path in (source, target):
-        with closing(initialize(path)):
+        with closing(initialize_database(path)):
             pass
     before = {path: path.read_bytes() for path in (source, target)}
     uri = target.resolve().as_uri()
@@ -89,7 +78,7 @@ def test_cli_reports_target_open_failure_without_success_output(
         return real_connect(database, *args, **kwargs)
 
     monkeypatch.setattr(sqlite3, "connect", connect)
-    assert main([source_option, str(source), "--target", str(target)]) == 1
+    assert native_source_merge.main(["--canonical", str(source), "--target", str(target)]) == 1
     output = capsys.readouterr()
     assert output.out == ""
     assert "could not open existing merge target" in output.err
