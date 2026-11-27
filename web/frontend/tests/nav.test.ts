@@ -33,9 +33,8 @@ describe('shared primary navigation', () => {
       expect(attributes).toContain('focus-visible:outline-2')
       const selected = attributes.includes(`href="${activeHref}"`)
       expect(attributes.includes('aria-current="page"')).toBe(selected)
-      expect(attributes.includes('bg-selection')).toBe(selected)
-      expect(attributes.includes('decoration-2')).toBe(selected)
-      expect(attributes).not.toContain('bg-primary')
+      expect(attributes).toContain('route-choice')
+      expect(attributes).not.toMatch(/underline|bg-primary/)
       expect(contents).toContain('aria-hidden="true"')
     }
   })

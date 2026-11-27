@@ -111,7 +111,7 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
                 <ResponsiveContainer initialDimension={{ width: 320, height: 200 }}>
                   <PieChart accessibilityLayer>
                     <Tooltip content={AllocationTooltip} />
-                    <Pie data={allocation} dataKey="value" innerRadius={72} isAnimationActive={false} nameKey="key" outerRadius={100} paddingAngle={2} strokeWidth={0} />
+                    <Pie data={allocation} dataKey="value" innerRadius={80} isAnimationActive={false} nameKey="key" outerRadius={100} paddingAngle={2} strokeWidth={0} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -126,7 +126,7 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
                   <div className="mt-1.5 grid justify-items-center gap-0.5">
                     <span className="text-[11px] text-muted-foreground">評価損益</span>
                     <YenAmount
-                      className={cn('text-xs font-semibold', pnl.yen !== null && pnl.yen > 0 && 'rounded-full bg-profit-surface px-2 py-0.5')}
+                      className={cn('text-xs font-semibold', pnl.yen !== null && pnl.yen > 0 && 'rounded-full bg-profit-surface px-2 py-0.5 ring-1 ring-profit/25 ring-inset')}
                       sign
                       tone="pnl"
                       value={pnl.yen}

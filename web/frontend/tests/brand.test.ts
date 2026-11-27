@@ -189,7 +189,7 @@ describe('brand palette', () => {
     ['--primary-foreground', '--primary-hover', 4.5],
     ['--foreground', '--selection', 4.5],
     ['--primary-ink', '--surface', 4.5],
-    ['--primary-ink', '--selection', 3],
+    ['--text-tertiary', '--selection', 3],
     ['--muted-foreground', '--surface-subtle', 4.5],
     ['--profit', '--profit-surface', 4.5],
     ['--warning', '--surface', 4.5],

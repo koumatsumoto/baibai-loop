@@ -66,16 +66,16 @@
 
 :root {
     /* Pale yellow paper, quiet selected yellow, orange only for primary action. */
-    --canvas: #fffbeb;
+    --canvas: #fffcf1;
     --surface: #ffffff;
-    --surface-subtle: #fbf5dc;
-    --primary-soft: #fff9ea;
-    --selection: #faf0c5;
+    --surface-subtle: #f7f1e0;
+    --primary-soft: #fff9eb;
+    --selection: #f7efda;
     --primary-action: #f0872e;
     --primary-hover: #e87925;
     --primary-ink: #9c3f07;
 
-    --border: #e9e1c5;
+    --border: #e9e1cd;
     --border-strong: #8e8164;
     --text-primary: #2c2414;
     --text-secondary: #5e5540;
@@ -97,7 +97,7 @@
     --positive: oklch(0.527 0.154 150.069);
     --destructive: oklch(0.577 0.245 27.325);
     --profit: #6b4b00;
-    --profit-surface: #f6ce67;
+    --profit-surface: #f7db97;
     --loss: oklch(0.52 0.14 250);
     --warning: oklch(0.55 0.135 58);
     --warning-surface: oklch(0.95 0.045 95.277);
@@ -107,10 +107,32 @@
        including on buttons whose fill is already the action color. */
     --ring: var(--primary-ink);
     /* Dampen allocation categories so they cannot be read as action or P&L. */
-    --chart-1: #896655;
-    --chart-2: #938978;
-    --chart-3: #52616b;
+    --chart-1: #866b5b;
+    --chart-2: #958878;
+    --chart-3: #63594e;
     --radius: 0.625rem;
+}
+
+/* Both route levels mark the current link without relying on its background color. */
+@utility route-choice {
+  @apply rounded-lg text-muted-foreground transition-colors;
+
+  &:hover {
+    @apply bg-primary-soft text-foreground;
+  }
+
+  &::before {
+    content: "";
+    @apply mr-px size-1.5 shrink-0 rounded-full;
+  }
+
+  &[aria-current="page"] {
+    @apply bg-selection font-semibold text-foreground;
+  }
+
+  &[aria-current="page"]::before {
+    @apply border-[3px] border-text-tertiary;
+  }
 }
 
 @layer base {
