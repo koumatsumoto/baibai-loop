@@ -57,7 +57,7 @@ class _Parser(argparse.ArgumentParser):
         self.exit(2, "FAIL arguments\n")
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> _Parser:
     parser = _Parser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("draft-digest").add_argument("draft", type=Path)
@@ -79,7 +79,11 @@ def main(argv: list[str] | None = None) -> int:
     show = commands.add_parser("proposal-show", help="read an exact or latest saved US decision")
     show.add_argument("--db", type=Path, required=True)
     show.add_argument("--proposal-id")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     stage = "draft"
     try:
         if args.command in {"draft-digest", "save"}:
