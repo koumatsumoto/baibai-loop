@@ -4,22 +4,30 @@ import json
 import re
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from hashlib import sha256
 
 import pytest
 from tests.helpers.outcome_publication import _publication
 from tests.helpers.proposal import PUBLISHED, backend_case, reviewed_proposal
 
+from baibai_engine.data_collection.providers.alpaca_auctions import (
+    NasdaqOfficialCloseQuery,
+    SipAuctionReceipt,
+    read_nasdaq_official_close,
+)
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.investment_judgment.us_proposal import (
     ReportDraft,
     ReportReview,
+    SipCloseProof,
     USProposalDraft,
     USProposalReview,
     draft_digest,
     prepare_us_proposal,
     reviewed_report,
     save_us_proposal,
+    sip_official_close_fields,
 )
 from baibai_engine.portfolio.performance.store import PortfolioOutcomeStore
 from baibai_engine.storage.paths import APPLICATION_DB_PATH
@@ -41,9 +49,34 @@ JP_OBJECTS = {
 
 
 def _save_us(
-    app, proposal_id, *, comparable=True, action=None, precise=False, published_at=PUBLISHED_US
+    app,
+    proposal_id,
+    *,
+    comparable=True,
+    action=None,
+    precise=False,
+    published_at=PUBLISHED_US,
+    sip_proof=None,
 ):
     action = action or ("no_action" if comparable else "defer")
+    official_close = {
+        "basis": "regular_session_unadjusted",
+        "session_et": "2026-06-02",
+        "price_usd": "100.50",
+        "source_url": "https://www.nasdaq.com/synthetic-official",
+        "observed_at": PRICE_CLOCK,
+    }
+    if sip_proof is not None:
+        official_close = sip_official_close_fields(
+            read_nasdaq_official_close(
+                sip_proof.query,
+                sip_proof.receipt,
+                listing_venue="XNAS",
+                session_et=date(2026, 6, 2),
+                session_close_at=datetime.fromisoformat("2026-06-02T16:00:00-04:00"),
+                cutoff_at=datetime.fromisoformat("2026-06-03T15:00:00Z"),
+            )
+        )
     scenario = {
         "terminal_value_usd_per_share": "100.50" if precise else "105.75",
         "eligible_distributions_usd_per_share": "1.0E-13" if precise else "1.25",
@@ -76,15 +109,7 @@ def _save_us(
                 "high_usd": "130.12",
                 "last_usd": "118.40",
             },
-            "official_close": {
-                "basis": "regular_session_unadjusted",
-                "session_et": "2026-06-02",
-                "price_usd": "100.50",
-                "source_url": "https://www.nasdaq.com/synthetic-official",
-                "observed_at": PRICE_CLOCK,
-            }
-            if comparable
-            else None,
+            "official_close": official_close if comparable else None,
             "financial_evidence": [
                 {
                     "source_url": "https://www.sec.gov/synthetic-filing",
@@ -120,7 +145,7 @@ def _save_us(
             "notes": "synthetic analysis notes, not a Web input",
         }
     )
-    analysis = reviewed_report(draft, report_review)
+    analysis = reviewed_report(draft, report_review, sip_proof=sip_proof)
     decision = USProposalDraft.model_validate(
         {
             "proposal_id": proposal_id,
@@ -140,14 +165,16 @@ def _save_us(
     review = USProposalReview.model_validate(
         {
             "proposal_id": proposal_id,
-            "draft_sha256": prepare_us_proposal(decision, analysis),
+            "draft_sha256": prepare_us_proposal(decision, analysis, sip_proof=sip_proof),
             "reviewer_identity": "synthetic formal peer",
             "reviewed_at": "2026-06-03T16:30:00Z",
             "conclusion": "pass",
             "notes": "synthetic formal notes, not a Web input",
         }
     )
-    return save_us_proposal(app, decision, analysis, review, published_at=published_at)
+    return save_us_proposal(
+        app, decision, analysis, review, published_at=published_at, sip_proof=sip_proof
+    )
 
 
 def _export(root, out):
@@ -229,6 +256,72 @@ def test_projection_uses_exact_formal_proof_no_hidden_body_or_legacy_change(tmp_
         "unresolved": [],
     }
     assert app.read_bytes() == original_app_bytes
+
+
+@pytest.mark.parametrize("action", ["no_action", "defer"])
+def test_projection_keeps_verified_sip_origin_distinct_and_omits_the_raw_receipt(
+    tmp_path, mocker, action
+):
+    app = tmp_path / APPLICATION_DB_PATH
+    initialize_database(app)
+    mocker.patch.object(proposal_source, "datetime").now.return_value = STAMP
+    query = NasdaqOfficialCloseQuery(
+        "GOOGL",
+        datetime.fromisoformat("2026-06-02T19:55:00Z"),
+        datetime.fromisoformat("2026-06-02T21:00:00Z"),
+    )
+    original = b"""{
+      "symbol":"GOOGL","next_page_token":null,"auctions":[{
+      "d":"2026-06-02","o":null,"c":[
+        {"x":"Q","c":"6","p":117.31,"t":"2026-06-02T20:00:00.221350239Z"},
+        {"x":"Q","c":"M","p":100.5000,"t":"2026-06-02T20:00:00.221350240Z"}
+      ]}]
+    }"""
+    digest = sha256(original).hexdigest()
+    proof = SipCloseProof(
+        query,
+        SipAuctionReceipt(
+            query.url(), query.url(), 200, PRICE_CLOCK, digest, True, False, original
+        ),
+    )
+    precise = action == "defer"
+    saved = _save_us(
+        app, "us-proposal-synthetic-sip-view", action=action, precise=precise, sip_proof=proof
+    )
+    before = app.read_bytes()
+    raw = _export(tmp_path, tmp_path / "served")["latest-us-proposal.json"]
+    view = json.loads(raw)
+    assert view["status"] == "ready"
+    proposal = view["proposal"]
+    assert proposal["proposal_id"] == saved.decision.proposal_id
+    assert proposal["draft_sha256"] == saved.review.draft_sha256
+    assert proposal["currency"] == "USD"
+    assert proposal["official_close"] == {
+        "origin": "alpaca_sip_nasdaq_official_close",
+        "price_usd": "100.5000",
+        "observed_at": "2026-06-03T13:00:00Z",
+    }
+    assert proposal["iex_band"]["last_usd"] == "118.40"
+    assert proposal["comparison_horizon_et"] == "2027-05-31"
+    assert proposal["action"] == action
+    assert proposal["comparison"] == {
+        "cash_basis": "same_usd_no_interest_tax_or_fees",
+        "base": {
+            "terminal_value_usd_per_share": "100.50" if precise else "105.75",
+            "eligible_distributions_usd_per_share": "1.0E-13" if precise else "1.25",
+            "difference_from_cash_usd_per_share": "1.0E-13" if precise else "6.5000",
+        },
+        "downside": {
+            "terminal_value_usd_per_share": "80",
+            "eligible_distributions_usd_per_share": "0E-14" if precise else "0",
+            "difference_from_cash_usd_per_share": "-20.50000000000000" if precise else "-20.5000",
+        },
+    }
+    assert digest.encode() not in raw
+    assert b"alpaca.markets" not in raw
+    assert b"221350240" not in raw
+    assert b"/auctions/" not in raw
+    assert app.read_bytes() == before
 
 
 @pytest.mark.parametrize(

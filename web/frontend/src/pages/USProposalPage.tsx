@@ -40,7 +40,9 @@ function renderableProposal(view: LatestUSProposalView | null) {
   if (![proposal.proposal_id, proposal.draft_sha256, proposal.ticker, proposal.venue,
     proposal.share_class, proposal.reason, proposal.revisit_when, proposal.session_et].every(hasText)
     || ![cutoff_at, reviewed_at, published_at].every(hasZonedClock)
-    || (close !== null && (!hasDecimalText(close?.price_usd) || !hasZonedClock(close.observed_at)))
+    || (close !== null && (!hasDecimalText(close?.price_usd) || !hasZonedClock(close.observed_at)
+      || (close.origin !== 'listing_exchange'
+        && (close.origin !== 'alpaca_sip_nasdaq_official_close' || proposal.venue !== 'XNAS'))))
     || (band !== null && (!band || !Number.isInteger(band.observations) || band.observations <= 0
       || ![band.first_session_et, band.last_session_et].every(hasText)
       || ![band.low_usd, band.high_usd, band.last_usd].every(hasDecimalText)))
@@ -58,7 +60,7 @@ function CashComparison({ comparison, horizon, cash }: {
   return <>
     <p className="break-words text-muted-foreground">
       比較の終期（米東部時間）：<time dateTime={horizon}>{horizon}</time>。
-      取引所の無調整終値1株分のUSD {cash}を無利息のUSD現金で持つ場合との比較です。
+      この無調整終値1株分のUSD {cash}を無利息のUSD現金で持つ場合との比較です。
       税・費用・為替は含めません。仮定に基づく比較で、株価予測・口座残高・注文条件ではありません。
     </p>
     <div className="grid min-w-0 gap-3 sm:grid-cols-2">
@@ -84,6 +86,9 @@ export function USProposal({ state }: { state: ViewState }) {
   if (state.kind === 'loading') return <LoadingPage label="米国株の判断を読み込んでいます" />
   const view = state.kind === 'loaded' ? state.data : null
   const proposal = renderableProposal(view)
+  const relayedClose = proposal?.official_close?.origin === 'alpaca_sip_nasdaq_official_close'
+  const officialCloseLabel = relayedClose ? 'Nasdaqの無調整公式終値（Alpaca SIP経由）' : '取引所の無調整終値'
+  const officialCloseClockLabel = relayedClose ? '終値データの受領時刻（JST）' : '終値の取得時刻（JST）'
   return (
     <PageShell title="米国株の判断" lead="保存済みの米ドル（USD）建て判断です。注文・口座操作はできません。" width="reading">
       {state.kind === 'pending' ? (
@@ -113,9 +118,9 @@ export function USProposal({ state }: { state: ViewState }) {
                 <div><dt>情報締切（JST）</dt><dd className="text-muted-foreground"><SavedTime value={proposal.cutoff_at} /></dd></div>
                 <div><dt>対象立会日（米東部時間）</dt><dd className="text-muted-foreground"><time dateTime={proposal.session_et}>{proposal.session_et}</time></dd></div>
                 <div>
-                  <dt>取引所の無調整終値</dt>
+                  <dt>{officialCloseLabel}</dt>
                   <dd className="break-words text-muted-foreground">{proposal.official_close === null ? '未確認' : `USD ${proposal.official_close.price_usd} / 株`}</dd>
-                  {proposal.official_close !== null && <dd className="text-muted-foreground">終値の取得時刻（JST）：<SavedTime value={proposal.official_close.observed_at} /></dd>}
+                  {proposal.official_close !== null && <dd className="text-muted-foreground">{officialCloseClockLabel}：<SavedTime value={proposal.official_close.observed_at} /></dd>}
                 </div>
                 <div>
                   <dt>Alpaca IEXの分割調整済み観測</dt>

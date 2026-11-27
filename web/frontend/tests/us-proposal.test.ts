@@ -66,6 +66,7 @@ it('renders the same saved ID and SHA, keeps USD price evidence distinct, and ha
   expect(html).toContain('現金に比べ下振れの根拠が薄い。')
   expect(html).toContain('次回決算の確認後に見直す。')
   expect(html).toContain('取引所の無調整終値')
+  expect(html).not.toContain('Alpaca SIP経由')
   expect(html).toContain('USD 100.50')
   expect(html).toContain('Alpaca IEXの分割調整済み観測')
   expect(html).toContain('2026-11-27（米東部時間）に19件の観測、USD 90.900〜125.03')
@@ -88,6 +89,45 @@ it('renders the same saved ID and SHA, keeps USD price evidence distinct, and ha
   expect(html).toContain('USD -20.50')
   expect(html).toContain('us-proposal-fixture')
   expect(html).toContain('a'.repeat(64))
+  expect(html).not.toMatch(/<button|<form|href|JPY/)
+})
+
+it.each(['no_action', 'defer'] as const)('shows the SIP receipt and its own USD comparison for %s', action => {
+  if (fixture.proposal?.comparison == null) throw new Error('test fixture requires saved comparison')
+  const received = '2026-11-28T10:05:10.125Z'
+  const data: LatestUSProposalView = {
+    ...fixture,
+    proposal: {
+      ...fixture.proposal,
+      action,
+      official_close: { origin: 'alpaca_sip_nasdaq_official_close', price_usd: '100.5000', observed_at: received },
+      comparison: {
+        ...fixture.proposal.comparison,
+        base: {
+          terminal_value_usd_per_share: '100.50',
+          eligible_distributions_usd_per_share: '1.0E-13',
+          difference_from_cash_usd_per_share: '1.0E-13',
+        },
+        downside: {
+          terminal_value_usd_per_share: '80',
+          eligible_distributions_usd_per_share: '0E-14',
+          difference_from_cash_usd_per_share: '-20.50000000000000',
+        },
+      },
+    },
+  }
+  const html = renderToStaticMarkup(createElement(USProposal, { state: { kind: 'loaded', data } }))
+  expect(html).toMatch(/Nasdaqの無調整公式終値（Alpaca SIP経由）<\/dt><dd[^>]*>USD 100\.5000 \/ 株<\/dd>/)
+  expect(html).toContain('終値データの受領時刻（JST）')
+  expect(html).toContain(`dateTime="${received}" title="${received}">2026-11-28 19:05`)
+  expect(html).toContain('Alpaca IEXの分割調整済み観測')
+  expect(html).toContain('期間末尾：USD 101.03')
+  expect(html).toContain(action === 'no_action' ? '見送り' : '判断保留')
+  expect(html).toContain('この無調整終値1株分のUSD 100.5000')
+  expect(html).toContain('USD +1.0E-13')
+  expect(html).toContain('USD 0E-14')
+  expect(html).not.toContain('取引所の無調整終値')
+  expect(html).not.toContain('終値の取得時刻（JST）')
   expect(html).not.toMatch(/<button|<form|href|JPY/)
 })
 
@@ -179,6 +219,9 @@ it.each([
   ['other market currency', { ...fixture.proposal, currency: 'JPY' }],
   ['unknown action', { ...fixture.proposal, action: 'buy' }],
   ['missing nested close', { ...fixture.proposal, official_close: undefined }],
+  ['unknown official origin', { ...fixture.proposal, official_close: { ...fixture.proposal?.official_close, origin: 'other_feed' } }],
+  ['missing official origin', { ...fixture.proposal, official_close: { ...fixture.proposal?.official_close, origin: undefined } }],
+  ['SIP Nasdaq origin with a non-Nasdaq listing', { ...fixture.proposal, venue: 'XNYS', official_close: { ...fixture.proposal?.official_close, origin: 'alpaca_sip_nasdaq_official_close' } }],
   ['incomplete no-action basis', { ...fixture.proposal, official_close: null, comparison_horizon_et: null }],
   ['unusable saved clock', { ...fixture.proposal, published_at: 'unknown' }],
   ['unusable information cutoff', { ...fixture.proposal, cutoff_at: 'unknown' }],
