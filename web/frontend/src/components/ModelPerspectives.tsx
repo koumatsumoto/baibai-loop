@@ -62,13 +62,14 @@ export function ModelPerspectives({ assessment }: { assessment: SavedAssessmentV
     const observation = authored ? undefined : fixed?.rows.find(item => item.model === model)
     return { model, label, authored, observation }
   })
+  const hasObservation = rows.some(({ observation }) => observation !== undefined)
   return (
     <section className="grid min-w-0 gap-4" aria-label="7モデルの観点">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h4 className="text-sm font-semibold">7モデルの観点</h4>
         <p className="text-xs text-muted-foreground">評価基準日 <time dateTime={assessment.as_of}>{assessment.as_of}</time></p>
       </div>
-      {rows.some(({ observation }) => observation !== undefined) && (
+      {hasObservation && (
         <p className="text-xs leading-6 text-muted-foreground">
           資料のプラス・マイナスは黒字・赤字や騰落などの方向です。投資仮説への支持・反証を意味しません。
         </p>
@@ -102,7 +103,9 @@ export function ModelPerspectives({ assessment }: { assessment: SavedAssessmentV
           </tbody>
         </table>
       </div>
-      <p className="text-xs leading-6 text-muted-foreground">提案時の固定資料を、後から表示用に読み取った観測です。作者・査読者の判断ではなく、点数や売買の票にしません。</p>
+      {hasObservation && (
+        <p className="text-xs leading-6 text-muted-foreground">提案時の固定資料を、後から表示用に読み取った観測です。作者・査読者の判断ではなく、点数や売買の票にしません。</p>
+      )}
       <details className="rounded-lg border p-4">
         <summary className="cursor-pointer text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-4">7モデルの理由・根拠を読む</summary>
         <div className="mt-5 grid divide-y">
