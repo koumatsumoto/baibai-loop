@@ -113,3 +113,28 @@ def test_index_requires_the_market_price_own_basis_and_session(basis, price_day,
         int(ready),
         2 - int(ready),
     )
+
+
+@pytest.mark.parametrize(
+    ("price_day", "usable"),
+    [("2025-12-30", True), ("2026-01-05", True), ("2026-01-06", False)],
+)
+def test_financial_paths_need_a_price_session_no_later_than_the_generation(price_day, usable):
+    data = payloads()
+    assert metadata().as_of.isoformat() == "2026-01-05"
+    baseline = read(data)
+    assert {c["path_id"] for c in baseline["coordinates"]} == {
+        "earning_power",
+        "business_expansion",
+        "operating_recovery",
+        "capital_productivity",
+    }
+    financials = data["company_financials"]
+    financials["expected_price_date"] = financials["earnings_price"]["price_date"] = price_day
+    row = read(data)
+    assert row["coordinates"] == (baseline["coordinates"] if usable else [])
+    assert row["matched_paths"]["financial"] == (
+        baseline["matched_paths"]["financial"] if usable else []
+    )
+    assert row["financial_state"] == baseline["financial_state"]
+    assert row["matched_paths"]["growth"] == baseline["matched_paths"]["growth"]

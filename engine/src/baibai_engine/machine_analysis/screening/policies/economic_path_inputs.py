@@ -65,7 +65,11 @@ def project_economic_coordinates(
     cap = _positive(earnings.get("market_cap_yen"))
     expected = financial_model.get("expected_price_date")
     expected_date = _date(expected)
-    price_on_expected_day = isinstance(expected, str) and earnings.get("price_date") == expected
+    price_on_expected_day = (
+        expected_date is not None
+        and expected_date <= as_of
+        and earnings.get("price_date") == expected
+    )
     pricing_valid = (
         cap is not None
         and _positive(earnings.get("price_yen")) is not None
