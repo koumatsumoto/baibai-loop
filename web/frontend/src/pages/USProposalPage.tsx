@@ -11,6 +11,7 @@ import { PERSPECTIVE_JUDGMENTS, REPORT_MODELS } from '../lib/report-perspectives
 import { USReportPerspectives } from '../components/USReportPerspectives'
 import { formatJstDateTime } from '../lib/format'
 import { PROPOSAL_MARKETS } from '../lib/nav'
+import { shortWhole } from '../lib/proposal-history'
 
 type ViewState<T> = { kind: 'loading' | 'pending' | 'unavailable' } | { kind: 'loaded'; data: T }
 type USProposalRead = Omit<LatestUSProposalView, 'history'>
@@ -300,6 +301,7 @@ export function USProposalHistory({ state, search }: {
               <ArrowUpRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" />
             </div>
             <p className="text-sm">{row.action === 'no_action' ? '見送り' : '判断保留'}{row.proposal_id === latestId && <span className="ml-2 text-xs text-muted-foreground">最新の保存判断</span>}</p>
+            <p className="break-words text-sm leading-6 text-muted-foreground">{shortWhole(row.reason, 160) ?? '判断理由の全文は個別レポートで確認できます。'}</p>
             <dl className="grid gap-1 border-t pt-2 text-xs text-muted-foreground">
               <div><dt className="inline">発行日時（JST）：</dt><dd className="inline"><SavedTime value={row.published_at} /></dd></div>
               <div><dt className="inline">対象立会日（米東部時間）：</dt><dd className="inline"><time dateTime={row.session_et}>{row.session_et}</time></dd></div>

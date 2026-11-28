@@ -63,6 +63,29 @@ it('restores the top-level current exactly once; keeps publication order, identi
   expect(html).not.toMatch(/JPY|<form|<button/)
 })
 
+it('shows each short signed reason whole and leaves a long reason to its exact saved detail', () => {
+  const brief = '四半期の合成資料では売上が増えたが、運転資本が増えて現金回収は進まなかった。現金と同じ終期で比較すると、下振れに見合う差は出なかった。一次資料の売上と資金繰りの両方を照合した。受注残は前向きな材料だが、現時点では利益計画への反映時期が確定していない。'
+  const long = '長い判断理由の合成例。' + '重要な比較前提。'.repeat(24) + 'ただし最後の条件も見逃せません。'
+  expect([...brief].length).toBeGreaterThan(90)
+  expect([...brief].length).toBeLessThanOrEqual(160)
+  expect([...long].length).toBeGreaterThan(160)
+
+  const approved = { ...current, reason: brief }
+  const detailed = { ...previous, reason: long }
+  const data = { ...snapshot, proposal: approved, history: { ...snapshot.history, proposals: [detailed, first] } }
+  const list = combined(data)
+  const card = (row: USProposalView) => list.split(`href="/us-proposal?proposal=${row.proposal_id}&amp;ticker=${row.ticker}"`)[1]?.split('</a>')[0]
+  expect(card(approved)).toContain(brief)
+  expect(card(detailed)).toContain('判断理由の全文は個別レポートで確認できます。')
+  expect(card(detailed)).not.toContain(brief)
+  expect(list).not.toContain('長い判断理由の合成例。')
+  expect(list).not.toContain('ただし最後の条件も見逃せません。')
+  const detail = combined(data, previousQuery)
+  expect(detail).toContain(long)
+  expect(detail).toContain(detailed.draft_sha256)
+  expect(detail).not.toContain(brief)
+})
+
 it('shows the exact older owner with its SIP source, saved ID, SHA and a list back link, never the latest body', () => {
   const html = combined(snapshot, previousQuery)
   expect(html).toContain('href="/us-proposal"')
