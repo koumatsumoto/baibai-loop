@@ -82,7 +82,7 @@ def diagnose_receipts(
     with closing(sqlite3.connect(uri, uri=True)) as conn:
         conn.execute("PRAGMA query_only=ON")
         conn.execute("BEGIN")
-        validate_market_schema(conn)
+        # A sealed packet needs only the exact receipt table, not unrelated Market tables.
         for receipt_id in receipt_ids:
             (receipt,) = read_tool_results(conn, (receipt_id,))
             symbols = receipt.requested_symbols

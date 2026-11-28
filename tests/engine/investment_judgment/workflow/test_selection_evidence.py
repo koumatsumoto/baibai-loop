@@ -141,10 +141,18 @@ def evidence_case(tmp_path, monkeypatch, *, generation_version=1, selection_vers
     with monkeypatch.context() as history:
         history.setattr(operation_service.OperationService, "start", install_historical_operation)
         case = backend_case(tmp_path)
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     original = service.publish(reviewed_proposal(case))
     wrong = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(minutes=1)
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED + timedelta(minutes=1),
     ).publish(reviewed_proposal(case, action="no_action", proposal_id=WRONG))
     records = ProposalRecordService(case.app, clock=lambda: PUBLISHED + timedelta(hours=1))
     records.correct(

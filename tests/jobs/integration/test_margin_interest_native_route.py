@@ -51,12 +51,18 @@ def test_native_market_commits_all_sources_without_legacy_lake(tmp_path, monkeyp
     monkeypatch.setattr(jquants_calendar_native, "calendar_window", lambda *a: (first, asof))
     for module, name in (
         (jquants_calendar_native, "acquire_calendar_native"),
-        (jquants_master_native, "acquire_master_native"),
         (jquants_price_native, "acquire_price_native"),
     ):
         monkeypatch.setattr(
             module, name, lambda *a, **kw: {"failed": 0, "held": 0, "incomplete": 0}
         )
+    monkeypatch.setattr(
+        jquants_master_native,
+        "acquire_master_native",
+        lambda *a, **kw: jquants_master_native.MasterNativeAcquisition(
+            {"failed": 0, "held": 0, "incomplete": 0}
+        ),
+    )
     monkeypatch.setattr(
         objects, "open_lake", lambda **_: pytest.fail("legacy lake is not an input")
     )

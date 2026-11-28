@@ -104,7 +104,9 @@ def test_exact_dates_skip_unrequested_ranges_and_deduplicate(monkeypatch, capsys
         assert start == end
         assert owner.directory.name == start.isoformat()
         seen.append(start)
-        return dict.fromkeys(("failed", "held", "halted", "incomplete"), 0)
+        return jquants_master_native.MasterNativeAcquisition(
+            dict.fromkeys(("failed", "held", "halted", "incomplete"), 0)
+        )
 
     monkeypatch.setattr(jquants_master_native, "Boto3R2Store", lambda **_: Closeable())
     monkeypatch.setattr(jquants_master_native, "JQuantsHTTP", lambda *_: Closeable())

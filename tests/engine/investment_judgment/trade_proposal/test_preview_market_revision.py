@@ -24,14 +24,23 @@ from baibai_engine.storage.sqlite.application.read import connect_read_only
 
 
 def _publish(case, *, action="no_action"):
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     draft = _draft(case, action)
     return service, draft, service.publish(draft)
 
 
 def _preview(case, saved, *, now=PUBLISHED + timedelta(minutes=3)):
     return preview_current_terms(
-        proposal_id=saved.proposal_id, db_path=case.app, sqlite_path=case.market, now=now
+        proposal_id=saved.proposal_id,
+        db_path=case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        now=now,
     )
 
 
@@ -49,7 +58,9 @@ def _fixed_case(tmp_path, document):
     app, market, runs, operation = _prepare(tmp_path, market_document=document)
     with closing(connect_read_only(app)) as connection:
         pair = load_reviewed_assessment(connection, assessment_id())
-    return SimpleNamespace(app=app, market=market, runs=runs, operation=operation, pair=pair)
+    return SimpleNamespace(
+        app=app, market=market, runs=runs, operation=operation, pair=pair, listing_reader=None
+    )
 
 
 @pytest.mark.parametrize("action", ["buy", "hold", "sell", "no_action", "defer"])

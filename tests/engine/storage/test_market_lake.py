@@ -168,7 +168,6 @@ def test_edinet_document_lists_manifest_round_trips_as_required_l2() -> None:
     [
         ("jquants.daily_bars", "l1_source"),
         ("jquants.fin_summaries", "l1_source"),
-        ("jquants.master_snapshots", "l1_source"),
         ("jquants.source_pages", "l2_processed"),
     ],
 )
@@ -1226,17 +1225,11 @@ def test_release_requires_the_current_dataset_contract(monkeypatch) -> None:
         )
 
 
-@pytest.mark.parametrize(
-    ("legacy_dataset", "old_version"),
-    [
-        ("jquants.master_snapshots", 2),
-        ("jquants.fin_summaries", 4),
-    ],
-)
 def test_mixed_jquants_release_rejects_previous_contract(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, legacy_dataset: str, old_version: int
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    names = ("jquants.master_snapshots", "jquants.fin_summaries")
+    legacy_dataset, old_version = "jquants.fin_summaries", 4
+    names = ("jquants.daily_bars", legacy_dataset)
     narrow_release_policy(monkeypatch, datasets=names)
     manifests = {name: _load_dataset(_dataset_payload(dataset=name)) for name in names}
 

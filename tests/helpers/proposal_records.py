@@ -48,10 +48,16 @@ def snapshot(path: Path):
 def records_case(tmp_path: Path):
     case = backend_case(tmp_path)
     original = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(reviewed_proposal(case))
     wrong = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(minutes=1)
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED + timedelta(minutes=1),
     ).publish(reviewed_proposal(case, action="no_action", proposal_id=SECOND_PROPOSAL_ID))
     case.operations.complete(
         case.operation.operation_id,

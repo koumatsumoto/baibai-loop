@@ -15,6 +15,7 @@ from tests.helpers.proposal import (
     evaluate_buy_terms,
     read_saved_proposal,
     reviewed_proposal,
+    write_jp_proposal_listing,
 )
 from tests.helpers.screening_sqlite import seed_daily_bars
 
@@ -117,10 +118,12 @@ def test_fresh_morning_proposal_observes_received_price_action(tmp_path, mode):
     case.operations.record_assessment(
         case.operation.operation_id, pair.assessment_id, now=_morning("09:10:00")
     )
+    write_jp_proposal_listing(case.listing_path, received_at=_morning("08:40:00"))
     raw = authored_defer_fixture(
         operation_id=case.operation.operation_id,
         proposal_id=template["proposal_id"],
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=_morning("09:20:00"),
     )
@@ -143,7 +146,10 @@ def test_fresh_morning_proposal_observes_received_price_action(tmp_path, mode):
         reviewer_identity="synthetic-independent-morning-reviewer",
     )
     service = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: _morning("09:30:00")
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: _morning("09:30:00"),
     )
     assert service.check(draft).valid
     saved = service.publish(draft)
@@ -165,6 +171,7 @@ def test_fresh_morning_proposal_observes_received_price_action(tmp_path, mode):
         proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=_morning("09:35:00"),
     )
@@ -172,6 +179,7 @@ def test_fresh_morning_proposal_observes_received_price_action(tmp_path, mode):
     preview = preview_current_terms(
         proposal_id=saved.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=_morning("09:35:00"),
     )
@@ -200,7 +208,9 @@ def test_saved_proposal_survives_unresolved_closed_quantity_without_rebinding(tm
     case = backend_case(tmp_path, holding=True)
     draft = reviewed_proposal(case, action="hold")
     now = datetime.fromisoformat("2026-10-14T16:20:00+09:00")
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: now)
+    service = TradeProposalService(
+        case.app, listing_reader=case.listing_reader, sqlite_path=case.market, clock=lambda: now
+    )
     saved = service.publish(draft)
     now = datetime.fromisoformat("2026-10-16T18:00:00+09:00")
     ledger = LedgerStoreService(case.app)
@@ -225,6 +235,7 @@ def test_saved_proposal_survives_unresolved_closed_quantity_without_rebinding(tm
                 tickers=(),
                 proposal_id="",
                 now=now,
+                current_listing=case.listing_reader(),
                 sqlite_path=case.market,
                 budget_min_yen=200000,
                 budget_max_yen=300000,

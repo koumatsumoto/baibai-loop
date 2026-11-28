@@ -252,11 +252,10 @@ def hydrate_release(
     """Fill the working store from one resolved release, never from a second head."""
     deferred = None
     if mode == "portfolio":
-        # App owns saved proposals/outcomes; only prices, calendar and names are needed.
+        # App owns saved proposals/outcomes. Names come from the pinned listing file.
         dataset_names: tuple[str, ...] = (
             "jquants.daily_bars",
             "jquants.market_calendar",
-            "jquants.master_snapshots",
         )
     else:
         dataset_names = release.dataset_names()

@@ -8,7 +8,7 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from tests.helpers.financial_native import fixed_empty_financial_input
 from tests.helpers.lake_release import market_store
-from tests.helpers.master import insert_master_rows
+from tests.helpers.master_calendar_native import pinned_jp_listing, seed_listing_session
 from tests.helpers.model_generation import materialize_generation, publish_generation
 
 from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
@@ -46,14 +46,17 @@ def source(tmp_path, benchmark_count):
     )
     # Future values cannot turn missing/short current history into a full benchmark.
     rows.append(("1321", (ASOF + timedelta(days=1)).isoformat(), 10000.0, 1000.0))
-    return market_store(tmp_path / "market.sqlite", daily_bars=rows)
+    path = market_store(tmp_path / "market.sqlite", daily_bars=rows)
+    seed_listing_session(path, ASOF)
+    return path
 
 
-def generate(path, *, identity="shared", tickers=TICKERS):
+def generate(path, *, identity="shared", tickers=TICKERS, current_master=None):
     with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=path.parent / "lake") as snapshot:
         stream = read_and_generate_models(
             generation_id=identity,
             financial_input=fixed_empty_financial_input(path.parent / "financial-native", ASOF),
+            current_master=current_master or pinned_jp_listing(as_of=ASOF, tickers=tickers),
             market_snapshot=snapshot,
             market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),
             economic_input=None,
@@ -72,7 +75,7 @@ def test_common_benchmark_keeps_missingness_dates_and_its_own_lookback(tmp_path,
     result = generate(path)
     shared = result.result("market_context", "market")
     benchmark = shared.payload["benchmark_trend"]
-    assert shared.calculation_revision == "shared-market-context-v22-breadth-price-date-membership"
+    assert shared.calculation_revision == "shared-market-context-v23-current-listing-breadth"
     assert (
         result.result("market_context", TICKERS[0]).calculation_revision
         == "shared-market-context-v20-classified-sector-peers"
@@ -126,10 +129,6 @@ def test_generation_excludes_unclassified_from_peers_but_not_market_breadth(tmp_
         ],
     )
     with closing(sqlite3.connect(path)) as connection, connection:
-        insert_master_rows(
-            connection,
-            [(ASOF.isoformat(), t, t, "プライム", label, "011") for t, (label, _) in scope.items()],
-        )
         connection.executemany(
             "INSERT INTO jquants_market_calendar VALUES (?,?)",
             [(d.isoformat(), "1" if d in sessions else "0") for d in days],
@@ -137,7 +136,11 @@ def test_generation_excludes_unclassified_from_peers_but_not_market_breadth(tmp_
         connection.execute(
             "UPDATE jquants_daily_bars SET open=close,high=close,low=close,turnover_value=close*volume"
         )
-    publication = generate(path, tickers=tuple(scope))
+    pin = pinned_jp_listing(
+        as_of=ASOF,
+        companies=[(t, t, "プライム", label, "011") for t, (label, _) in scope.items()],
+    )
+    publication = generate(path, tickers=tuple(scope), current_master=pin)
     unknown = publication.result("market_context", "1001").payload
     assert unknown["master"]["sector_33"] == "その他"
     assert unknown["relative"]["sector"] is None
@@ -260,9 +263,6 @@ def test_exact_benchmark_ties_do_not_create_a_technical_match(tmp_path, close, e
     path, _ = activity_source(tmp_path)
     ticker = "1001"
     with closing(sqlite3.connect(path)) as connection, connection:
-        insert_master_rows(
-            connection, [(ASOF.isoformat(), ticker, "Test", "プライム", "食料品", "011")]
-        )
         connection.execute("UPDATE jquants_daily_bars SET close=close*200 WHERE ticker='1321'")
         connection.executemany(
             "UPDATE jquants_daily_bars SET close=? WHERE ticker=? AND traded_at=?",
@@ -271,7 +271,13 @@ def test_exact_benchmark_ties_do_not_create_a_technical_match(tmp_path, close, e
         connection.execute(
             "UPDATE jquants_daily_bars SET open=close,high=close,low=close,turnover_value=100000"
         )
-    result = generate(path, tickers=(ticker,))
+    result = generate(
+        path,
+        tickers=(ticker,),
+        current_master=pinned_jp_listing(
+            as_of=ASOF, companies=[(ticker, "Test", "プライム", "食料品", "011")]
+        ),
+    )
     models = tuple(model for model in result.models if model.subject == ticker)
     market = result.result("market_context", ticker).payload
     comparison = market["price_path_relative"]["comparisons"]["R20"]
@@ -457,6 +463,7 @@ def test_turnover_uses_the_sealed_source_and_not_future_values_or_live_correctio
         result = materialize_generation(
             read_and_generate_models(
                 generation_id="sealed",
+                current_master=pinned_jp_listing(as_of=ASOF, tickers=("1001",)),
                 financial_input=fixed_empty_financial_input(tmp_path / "financial-native", ASOF),
                 market_snapshot=snapshot,
                 market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),

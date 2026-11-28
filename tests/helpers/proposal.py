@@ -3,6 +3,7 @@
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timedelta
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,6 +20,16 @@ from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_p
 from baibai_engine.investment_judgment.trade_proposal.warnings import build_proposal_warnings
 from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
+from baibai_engine.machine_analysis.observations.stocks.listing_master import (
+    JapanListingAttributes,
+    ListingMasterRow,
+    ListingSlice,
+)
+from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
+    CurrentListingMarket,
+    encode_current_listing_master,
+    read_local_listing_master,
+)
 from baibai_engine.portfolio.ledger.events import OpeningBalanceEvent, PortfolioLedgerDocument
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.storage.sqlite.application.write import initialize_database
@@ -29,12 +40,51 @@ from tests.helpers.assessment_v1 import (
 )
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.generated_selection import seed_generated_selection
-from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import add_source_coverage, seed_daily_bars
 
 PREPARED = datetime.fromisoformat("2026-10-14T16:10:00+09:00")
 PUBLISHED = datetime.fromisoformat("2026-10-14T16:20:00+09:00")
 PROPOSAL_ID = "investment-proposal-00000000-0000-4000-8000-000000000003"
+
+
+def write_jp_proposal_listing(
+    path: Path,
+    *,
+    tickers=("1234",),
+    received_at=PREPARED,
+    session=None,
+    market_segment="Prime",
+    product_category="011",
+    sector="情報・通信業",
+) -> CurrentListingMarket:
+    current = CurrentListingMarket(
+        ListingSlice(
+            "JP",
+            session or received_at.date(),
+            tuple(
+                ListingMasterRow(
+                    ("XTKS", f"{ticker}0"),
+                    "合成企業",
+                    "common_stock" if product_category == "011" else "etf",
+                    "listed",
+                    japan=JapanListingAttributes(product_category, market_segment, sector),
+                )
+                for ticker in tickers
+            ),
+        ),
+        "jquants",
+        received_at,
+        max(1, len(tickers)),
+    )
+    path.write_bytes(encode_current_listing_master({"JP": current}))
+    return current
+
+
+def read_jp_proposal_listing(path: Path) -> CurrentListingMarket | None:
+    try:
+        return read_local_listing_master(path).get("JP")
+    except FileNotFoundError:
+        return None
 
 
 def seed_context_ledger(app: Path, at: datetime) -> None:
@@ -148,15 +198,10 @@ def backend_case(
         }
     )
     seed_ledger(app, ledger)
+    listing_path = tmp_path / "current-listings.json"
+    write_jp_proposal_listing(listing_path, tickers=tickers)
     seed_daily_bars(market, [(ticker, "2026-10-14", 1100.0, 1.0) for ticker in tickers])
     with closing(sqlite3.connect(market)) as connection, connection:
-        insert_master_rows(
-            connection,
-            [
-                ("2026-10-14", ticker, "合成企業", "Prime", "情報・通信業", "011")
-                for ticker in tickers
-            ],
-        )
         connection.executemany(
             "INSERT INTO jquants_market_calendar(day,holiday_division) VALUES (?,?)",
             [
@@ -239,6 +284,9 @@ def backend_case(
     return SimpleNamespace(
         app=app,
         market=market,
+        listing_path=listing_path,
+        listing_reader=partial(read_jp_proposal_listing, listing_path),
+        listing_args=["--current-listing-master", str(listing_path)],
         runs=runs,
         ledger=ledger,
         pair=pair,
@@ -291,6 +339,7 @@ def reviewed_proposal(case, *, action="buy", proposal_id=PROPOSAL_ID):
         operation_id=case.operation.operation_id,
         proposal_id=proposal_id,
         db_path=case.app,
+        listing_reader=getattr(case, "listing_reader", None),
         sqlite_path=case.market,
         now=PREPARED,
     )

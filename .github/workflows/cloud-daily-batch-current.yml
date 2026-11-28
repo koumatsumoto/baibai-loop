@@ -189,6 +189,17 @@ jobs:
           uv run python -m baibai_jobs.integration.sources check --directory "$RUNNER_TEMP/integration"
           uv run python -m baibai_jobs.integration.edinet_metric_acceptance --conditions "$RUNNER_TEMP/edinet-metrics-acceptance.json" --integration-report "$RUNNER_TEMP/integration/applied.json" --market stores/market/market.sqlite
 
+      # Use the same checked file for the required L2 input and later Web display.
+      - name: Pin the current listing master
+        id: listing-master
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          umask 077
+          uv run python -m baibai_jobs.integration.listing_master_current --output "$RUNNER_TEMP/current-listing-master.json"
+
       # EDINET acceptance precedes the combined Machine and Lake publication.
       # Web is not part of the engine's success or publication path.
       - name: Generate models and candidates, then publish one current Machine and Lake release
@@ -200,7 +211,7 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
-          args=(--asof "$INTEGRATION_ASOF" --integration-report "$RUNNER_TEMP/integration/applied.json" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json" --notice-output "$RUNNER_TEMP/batch-notice.json" --daily-origin)
+          args=(--asof "$INTEGRATION_ASOF" --integration-report "$RUNNER_TEMP/integration/applied.json" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json" --notice-output "$RUNNER_TEMP/batch-notice.json" --current-listing-master "$RUNNER_TEMP/current-listing-master.json" --daily-origin)
           set +e
           uv run baibai-jobs model-integration "${args[@]}"
           code=$?
@@ -252,7 +263,8 @@ jobs:
           (
             set -e
             jobs/scripts/r2_transfer.sh pull-app
-            uv run python -m baibai_web.materialize --output-dir "$RUNNER_TEMP/serving"
+            uv run python -m baibai_web.materialize --output-dir "$RUNNER_TEMP/serving" \
+              --current-listing-master "$RUNNER_TEMP/current-listing-master.json"
             jobs/scripts/r2_transfer.sh upload-portfolio-views "$RUNNER_TEMP/serving"
           ) > "$RUNNER_TEMP/portfolio-views-private.log" 2>&1
           code=$?

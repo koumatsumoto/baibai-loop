@@ -28,10 +28,6 @@ def test_tradingview_input_copies_retained_state_from_asof_without_sql_dependenc
         conn.execute(
             "INSERT INTO jquants_market_calendar VALUES (?, ?)", (saturday.isoformat(), "0")
         )
-        conn.execute(
-            "INSERT INTO jquants_master_snapshots SELECT ?, security_code, record_json FROM jquants_master_snapshots",
-            (saturday.isoformat(),),
-        )
         for day in (DAY, saturday):
             record_source_coverage(
                 conn,
@@ -90,7 +86,6 @@ def test_tradingview_input_copies_retained_state_from_asof_without_sql_dependenc
                 (asof.isoformat(),),
             ).fetchall()
         )
-        assert target.execute("SELECT COUNT(*) FROM jquants_master_snapshots").fetchone()[0] == 0
         assert target.execute("SELECT COUNT(*) FROM jquants_market_calendar").fetchone()[0] == 0
         assert target.execute("SELECT COUNT(*) FROM source_coverage").fetchone()[0] == 0
         assert target.execute("SELECT COUNT(*) FROM lake_store_origin").fetchone()[0] == 0
@@ -118,7 +113,6 @@ def test_tradingview_input_keeps_unprojected_receipt_without_calendar_or_master(
         assert conn.execute(
             "SELECT receipt_id,master_asof FROM tradingview_source_receipts"
         ).fetchall() == [(receipt_id, monday.isoformat())]
-        assert conn.execute("SELECT COUNT(*) FROM jquants_master_snapshots").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM jquants_market_calendar").fetchone()[0] == 0
 
 

@@ -11,6 +11,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 from tests.helpers.lake_release import market_store
+from tests.helpers.master_calendar_native import pinned_jp_listing, seed_listing_session
 from tests.helpers.model_generation import materialize_generation, publish_generation
 from tests.helpers.r2_store import MemoryR2Store
 from tests.helpers.research_selection import selected_target
@@ -136,9 +137,11 @@ def test_production_native_generation_reference_survives_source_advance_and_cach
         daily_bars=(("1301", AS_OF.isoformat(), 100.0, 1.0),),
         short_sale_reports=(),
     )
+    seed_listing_session(market, AS_OF)
     with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "mirror") as snapshot:
         stream = read_and_generate_models(
             generation_id="native-research-reference",
+            current_master=pinned_jp_listing(as_of=AS_OF),
             market_snapshot=snapshot,
             market_release=InputRelease(release_id="market-only", manifest_sha256="a" * 64),
             economic_input=None,

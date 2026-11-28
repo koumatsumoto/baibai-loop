@@ -121,6 +121,7 @@ def native_generation(*, completed_action):
                 )
             },
             financial_release=release,
+            subjects=("1001",),
             companies=(
                 CompanyModelInputs(
                     ticker="1001",
@@ -129,6 +130,7 @@ def native_generation(*, completed_action):
                     adjustment_events=(),
                     sector="情報・通信業",
                     capital_actions=(action,) if completed_action else (),
+                    market_context={"master": {"sector_33": "情報・通信業"}},
                 ),
             ),
             trading_dates=(AS_OF,),
@@ -136,7 +138,6 @@ def native_generation(*, completed_action):
             ttm_rules=DEFAULT_TTM_RULES,
             external_observations={},
             market_context=None,
-            securities_context={"1001": {"master": {"sector_33": "情報・通信業"}}},
             market_context_revision="synthetic-v1",
         )
     )

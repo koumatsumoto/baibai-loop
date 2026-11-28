@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 from tests.helpers.financial_native import fixed_empty_financial_input
+from tests.helpers.master_calendar_native import pinned_jp_listing, seed_listing_session
 from tests.helpers.model_generation import materialize_generation, publish_generation
 
 from baibai_engine.machine_analysis.generation import query
@@ -189,6 +190,7 @@ def test_generation_reuses_saved_comparisons_with_identical_complete_output(
     store, _, _, lists, archives, _ = fixtures(tmp_path / "native")
     market = market_store(tmp_path / "market.sqlite")
     materialize_lists(lists, market)
+    seed_listing_session(market, ASOF)
     runs = tmp_path / "runs.sqlite"
     with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "lake") as snapshot:
         fixed = read_edinet_input(
@@ -196,6 +198,7 @@ def test_generation_reuses_saved_comparisons_with_identical_complete_output(
         )
         arguments = dict(
             generation_id="models-serving",
+            current_master=pinned_jp_listing(as_of=ASOF, tickers=("436A", other_ticker)),
             financial_input=fixed_empty_financial_input(tmp_path / "financial-native", ASOF),
             market_snapshot=snapshot,
             market_release=InputRelease(release_id="serving", manifest_sha256="a" * 64),
@@ -294,6 +297,7 @@ def test_overlapping_input_failure_keeps_disclosure_precedence_and_joins(
         return {}
 
     market = market_store(tmp_path / "market.sqlite", daily_bars=())
+    seed_listing_session(market, DAY)
     monkeypatch.setattr(inputs, "_read_market_price_inputs", bad_price)
     monkeypatch.setattr(inputs, "read_comparison_population", disclosure)
     expected = "invalid disclosure" if disclosure_fails else "invalid price basis"
@@ -302,6 +306,7 @@ def test_overlapping_input_failure_keeps_disclosure_precedence_and_joins(
         with pytest.raises(ValueError, match=expected):
             inputs.read_and_generate_models(
                 generation_id="model-input-failure",
+                current_master=pinned_jp_listing(as_of=DAY),
                 financial_input=fixed_empty_financial_input(tmp_path / "financial-native", DAY),
                 market_snapshot=snapshot,
                 market_release=InputRelease(release_id="test-release", manifest_sha256="a" * 64),

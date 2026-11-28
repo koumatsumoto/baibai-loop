@@ -31,7 +31,6 @@ for prefix in (
     'baibai_engine.data_collection.transport.public_pages',
     'baibai_jobs.acquisition.external_assessments',
     'baibai_engine.machine_analysis.observations.external_assessments.store',
-    'baibai_jobs.maintenance.tradingview_context',
     'baibai_engine.storage.sqlite.source_cache',
     'baibai_engine.storage.snapshots.writer',
 ):

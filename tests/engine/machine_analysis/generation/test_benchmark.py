@@ -89,7 +89,7 @@ def test_prepared_benchmark_keeps_400_calendar_day_input_window_and_asof(tmp_pat
         sqlite_path=tmp_path / "unused.sqlite",
         asof_date=ASOF,
         master=None,
-        bars_by_ticker={"1321": bars},
+        bars_by_ticker={"1321": bars}.items(),
         subjects=(),
     )
     snapshot = prepared.benchmark_trend
@@ -111,7 +111,7 @@ def test_shared_benchmark_keeps_split_adjustment_without_event_day_close(tmp_pat
         sqlite_path=path,
         asof_date=ASOF,
         master=None,
-        bars_by_ticker=read_price_bars(path, start=date.min, end=ASOF),
+        bars_by_ticker=read_price_bars(path, start=date.min, end=ASOF).items(),
         subjects=(),
     )
     snapshot = prepared.benchmark_trend

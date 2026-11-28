@@ -4,13 +4,15 @@ import json
 import re
 import sqlite3
 from contextlib import closing
-from datetime import date, datetime, timedelta
+from dataclasses import replace
+from datetime import UTC, date, datetime, timedelta
 from hashlib import sha256
 from typing import get_args
 
 import pytest
 from tests.helpers.outcome_publication import _publication
 from tests.helpers.proposal import PUBLISHED, backend_case, reviewed_proposal
+from tests.helpers.screening_sqlite import seed_daily_bars
 
 from baibai_engine.data_collection.providers.alpaca_auctions import (
     NasdaqOfficialCloseQuery,
@@ -23,23 +25,35 @@ from baibai_engine.investment_judgment.us_proposal import (
     ReportDraft,
     ReportReview,
     SipCloseProof,
+    USProposal,
     USProposalDraft,
     USProposalReview,
     draft_digest,
-    prepare_us_proposal,
     published_us_proposal_ids,
     reviewed_report,
-    save_us_proposal,
     sip_official_close_fields,
 )
+from baibai_engine.machine_analysis.observations.stocks.listing_master import (
+    JapanListingAttributes,
+    ListingMasterRow,
+    ListingSlice,
+)
+from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
+    CurrentListingMarket,
+    encode_current_listing_master,
+)
 from baibai_engine.portfolio.performance.store import PortfolioOutcomeStore
-from baibai_engine.storage.paths import APPLICATION_DB_PATH
+from baibai_engine.primitives.json import canonical_json
+from baibai_engine.primitives.time import JST
+from baibai_engine.storage.paths import APPLICATION_DB_PATH, MARKET_DB_PATH
 from baibai_engine.storage.sqlite.application.write import initialize_database
+from baibai_web import materialize
 from baibai_web.contracts_export import build_schema
 from baibai_web.materialize import export_read_models
 from baibai_web.readmodel.builders import dashboard
 from baibai_web.readmodel.proposal_models import SavedModelPerspectiveView
 from baibai_web.readmodel.us_proposal_models import USProposalPerspectiveView
+from baibai_web.sources import db_sources
 from baibai_web.sources import proposal as proposal_source
 from baibai_web.sources import us_proposal as us_source
 
@@ -178,19 +192,34 @@ def _save_us(
             "model_perspectives": perspectives,
         }
     )
+    # Seed a pre-cutover record for the read-model test, not a new admission.
+    payload = {
+        "decision": decision.model_dump(mode="json"),
+        "analysis": analysis.model_dump(mode="json"),
+    }
     review = USProposalReview.model_validate(
         {
             "proposal_id": proposal_id,
-            "draft_sha256": prepare_us_proposal(decision, analysis, sip_proof=sip_proof),
+            "draft_sha256": sha256(canonical_json(payload).encode()).hexdigest(),
             "reviewer_identity": "synthetic formal peer",
             "reviewed_at": "2026-06-03T16:30:00Z",
             "conclusion": "pass",
             "notes": "synthetic formal notes, not a Web input",
         }
     )
-    return save_us_proposal(
-        app, decision, analysis, review, published_at=published_at, sip_proof=sip_proof
+    record = USProposal(
+        decision=decision, analysis=analysis, review=review, published_at=published_at
     )
+    with closing(sqlite3.connect(app, autocommit=True)) as connection:
+        connection.execute(
+            "INSERT INTO us_equity_proposal VALUES (?,?,?)",
+            (
+                proposal_id,
+                published_at.astimezone(UTC).isoformat(timespec="microseconds"),
+                canonical_json(record.model_dump(mode="json")),
+            ),
+        )
+    return record
 
 
 def _export(root, out):
@@ -221,7 +250,10 @@ def test_projection_uses_exact_formal_proof_no_hidden_body_or_legacy_change(
     # proposal, portfolio and outcomes. Their serialized bytes must not change.
     case = backend_case(tmp_path)
     japan = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(reviewed_proposal(case))
     app = tmp_path / APPLICATION_DB_PATH
     app.parent.mkdir(parents=True, exist_ok=True)
@@ -311,6 +343,129 @@ def test_projection_uses_exact_formal_proof_no_hidden_body_or_legacy_change(
         "unresolved": [],
     }
     assert app.read_bytes() == original_app_bytes
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        "current",
+        "closed_jst",
+        "unprovided",
+        "absent",
+        "corrupt",
+        "corrupt_session",
+        "stale",
+        "late",
+        "unverified",
+        "wrong_class",
+        "invalid",
+    ],
+)
+def test_pinned_current_jp_master_changes_only_the_held_listing_display_name(
+    tmp_path, mocker, caplog, state
+):
+    case = backend_case(tmp_path, holding=True)
+    jp = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    ).publish(reviewed_proposal(case, action="hold"))
+    us = _save_us(case.app, "us-proposal-unaffected-by-current-jp-master")
+    PortfolioOutcomeStore(case.app).publish(_publication())
+    if state == "closed_jst":
+        # 00:30 Saturday in Tokyo, yet still Friday in UTC.
+        now = datetime(2026, 10, 16, 15, 30, tzinfo=UTC)
+        session = date(2026, 10, 16)
+        seed_daily_bars(
+            case.market,
+            [("1234", day, 1100.0, 1.0) for day in ("2026-10-15", "2026-10-16")],
+        )
+    else:
+        now = STAMP
+        session = now.astimezone(JST).date()
+    mocker.patch.object(proposal_source, "datetime").now.return_value = now
+    mocker.patch.object(dashboard, "datetime").now.return_value = now
+    app, market = tmp_path / APPLICATION_DB_PATH, tmp_path / MARKET_DB_PATH
+    for source, target in ((case.app, app), (case.market, market)):
+        target.parent.mkdir(parents=True)
+        source.rename(target)
+
+    # The fixture includes a valued holding and an old SQLite company name.
+    # Default export deliberately uses neither that name nor any unpinned current file.
+    baseline = _export(tmp_path, tmp_path / "unprovided")
+    expected = json.loads(baseline["portfolio-dashboard.json"])
+    assert expected["holdings"][0]["company_name"] is None
+    assert expected["holdings"][0]["quantity"] == 100
+    assert expected["holdings"][0]["market_value_yen"] == 110_000
+    assert json.loads(baseline["latest-proposal.json"])["proposal"]["proposal_id"] == jp.proposal_id
+    assert (
+        json.loads(baseline["latest-us-proposal.json"])["proposal"]["proposal_id"]
+        == us.decision.proposal_id
+    )
+    untouched = app.read_bytes(), market.read_bytes()
+    current_reader = mocker.spy(db_sources, "read_current_jp_master")
+    row = ListingMasterRow(
+        ("XTKS", "12340"),
+        "新しい現行表示名",
+        "domestic_share",
+        "listed",
+        japan=JapanListingAttributes("011", "プライム", "卸売業"),
+    )
+    by_state = {
+        "unverified": replace(row, listing_state="unverified"),
+        "wrong_class": replace(row, key=("XTKS", "12345")),
+        "invalid": replace(row, security_name=""),
+    }
+    section = CurrentListingMarket(
+        ListingSlice(
+            "JP",
+            session - timedelta(days=1) if state == "stale" else session,
+            (by_state.get(state, row),),
+        ),
+        source="jquants-jpx",
+        received_at=now + (timedelta(seconds=1) if state == "late" else -timedelta(minutes=15)),
+        received_count=1,
+    )
+    path = tmp_path / "SYNTHETIC_PRIVATE_MASTER.json"
+    if state == "corrupt":
+        path.write_text("{SYNTHETIC_PRIVATE_BODY")
+    elif state != "absent":
+        encoded = encode_current_listing_master({"JP": section})
+        if state == "corrupt_session":
+            body = json.loads(encoded)
+            body["JP"]["slice"]["session"] = "2026-10-0x/SYNTHETIC_PRIVATE_DAY"
+            encoded = json.dumps(body).encode()
+        path.write_bytes(encoded)
+    (tmp_path / "pyproject.toml").touch()
+    (tmp_path / "engine/src/baibai_engine").mkdir(parents=True)
+    output = tmp_path / "current"
+    read_file = mocker.spy(materialize, "read_local_listing_master")
+    argv = ["--root", str(tmp_path), "--output-dir", str(output)]
+    if state != "unprovided":
+        argv.extend(("--current-listing-master", str(path)))
+    assert materialize.main(argv) == 0
+    if state == "unprovided":
+        read_file.assert_not_called()
+    else:
+        read_file.assert_called_once_with(path)
+    current = {view.name: view.read_bytes() for view in (output / "views").glob("*.json")}
+    assert "SYNTHETIC_PRIVATE" not in caplog.text
+
+    current_dashboard = json.loads(current.pop("portfolio-dashboard.json"))
+    expected["holdings"][0]["company_name"] = (
+        row.security_name if state in {"current", "closed_jst"} else None
+    )
+    assert current_dashboard == expected
+    del baseline["portfolio-dashboard.json"]
+    assert current == baseline  # Both markets' saved proposal IDs/bodies and outcomes are exact.
+    assert (app.read_bytes(), market.read_bytes()) == untouched
+    if state in {"unprovided", "absent", "corrupt", "corrupt_session"}:
+        current_reader.assert_not_called()
+    else:
+        current_reader.assert_called_once()
+        assert current_reader.call_args.kwargs["evaluation_time"] == now
+        assert current_reader.call_args.kwargs["tickers"] == ("1234",)
 
 
 @pytest.mark.parametrize("action", ["no_action", "defer"])

@@ -43,7 +43,12 @@ def _draft(case, *, limit="900", broken=False):
 def test_normal_saved_sell_keeps_floor_comparison_separate_from_observed_quote(tmp_path, limit):
     case = backend_case(tmp_path, holding=True)
     draft = _draft(case, limit=limit)
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     check = service.check(draft)
     assert check.valid
     saved = service.publish(draft)
@@ -81,7 +86,10 @@ def test_broken_sell_does_not_reuse_invalidated_value_for_floor_comparison(tmp_p
     case = backend_case(tmp_path, holding=True, broken=True, valuation_unresolved=unresolved)
     draft = _draft(case, broken=True)
     saved = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(draft)
     item = project_saved_proposal(saved, {case.pair.assessment_id: case.pair}).items[0]
     assert item.action == "sell"
@@ -92,7 +100,10 @@ def test_old_display_omission_and_missing_terms_do_not_create_a_floor(tmp_path):
     case = backend_case(tmp_path, holding=True)
     draft = _draft(case)
     saved = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(draft)
     raw = saved.payload()
     raw["items"][0].update(
@@ -111,9 +122,12 @@ def test_saved_floor_stays_on_exact_pair_after_a_later_assessment(tmp_path):
     from datetime import timedelta
 
     case = backend_case(tmp_path, holding=True)
-    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        _draft(case)
-    )
+    TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    ).publish(_draft(case))
     first = read_proposal_views(case.app).latest.proposal
     document, review = pair_payload(review_number=3)
     AssessmentStoreService(
@@ -135,7 +149,10 @@ def test_historical_projection_does_not_fill_a_missing_value_basis(tmp_path, mis
 
     case = backend_case(tmp_path, holding=True)
     saved = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(_draft(case))
     document = case.pair.document
     if missing == "date":

@@ -7,8 +7,9 @@ import io
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Literal
+from datetime import UTC, date, datetime
+from typing import Literal, cast
+from zoneinfo import ZoneInfo
 
 from baibai_engine.data_collection.providers.alpaca import is_alpaca_symbol
 from baibai_engine.data_collection.providers.nasdaq_symbols import (
@@ -16,8 +17,15 @@ from baibai_engine.data_collection.providers.nasdaq_symbols import (
     USListing,
     USSymbolDirectory,
 )
+from baibai_engine.machine_analysis.observations.stocks.listing_master import (
+    ListingKey,
+    ListingMasterRow,
+)
 
+_NY = ZoneInfo("America/New_York")
 _BUYABLE_VENUES: dict[str, PrimaryUSVenue] = {"NASDAQ": "XNAS", "NYSE": "XNYS"}
+RAKUTEN_LISTING_EXCHANGES = frozenset(_BUYABLE_VENUES)
+_BROKER_EXCHANGE_BY_MIC: dict[str, str] = {venue: name for name, venue in _BUYABLE_VENUES.items()}
 # NYSE CQS .A/.B are regular classes; preferred and warrant suffixes are distinct.
 # The primary native name is display text and can omit "Common Stock" (e.g. LEN.B).
 _NYSE_BROKER_CLASS = re.compile(r"([A-Z]+) ([AB])")
@@ -45,61 +53,109 @@ class RakutenOrdinaryRow:
     buy_status: str
 
 
+type RakutenRestriction = Literal["sell_only", "buy_suspended"]
+
+
+@dataclass(frozen=True, slots=True)
+class RakutenRestrictionRow:
+    """The broker's negative observation, not a confirmed listing or security kind."""
+
+    ticker: str
+    exchange: str
+    restriction: RakutenRestriction
+
+
 @dataclass(frozen=True, slots=True)
 class RakutenOrdinarySnapshot:
     catalog_mode: str
-    observed_at: datetime
+    effective_session: date
+    catalog_received_at: datetime
+    exclusions_received_at: datetime | None
     reported_count: int
     exclusions_reported_count: int | None
     rows: tuple[RakutenOrdinaryRow, ...]
+    restriction_only: tuple[RakutenRestrictionRow, ...]
+
+
+def _received_on_session(stamp: object, effective_session: date) -> datetime:
+    if not isinstance(stamp, datetime) or stamp.utcoffset() is None:
+        raise ValueError("Rakuten capture receipt time must include a UTC offset")
+    if stamp.astimezone(_NY).date() != effective_session:
+        raise ValueError("Rakuten capture receipt is outside its target NY session date")
+    return stamp.astimezone(UTC)
 
 
 def parse_rakuten_ordinary_snapshot(
     catalog_csv: str,
     *,
     catalog_mode: str,
-    observed_at: datetime,
+    effective_session: date,
+    catalog_received_at: datetime,
     reported_count: int,
     exclusions_csv: str | None = None,
+    exclusions_received_at: datetime | None = None,
     exclusions_reported_count: int | None = None,
 ) -> RakutenOrdinarySnapshot:
     """Read normalized current Rakuten cash data, not the vendor's raw CSV layout.
 
-    Capture the all-market ordinary results and restrictions in one current refresh.
-    The "cash_ordinary_tradable" mode requires the broker's tradable filter and a
-    complete official sell-only/buy-suspension capture; the catalog-only mode is
-    informational. Supply counts from the capture independently of these CSV files.
-    A missing restriction capture is not a completed capture with zero rows.
-    This determines screening scope only; no account or order acceptance is checked.
+    The acquisition caller supplies a confirmed target NY trading session and separately
+    verified source scope, counts, and actual receipt times. The clocks must be on that
+    date, but are not release or restriction-effective timestamps. A matching date does
+    not make a partial view an authoritative catalog or permit backdating.
+
+    Only a complete tradable ordinary catalog plus a complete restriction capture
+    establishes positive screening scope. Keep restrictions outside the catalog without
+    counting them as ordinary securities, inferring listing state, or requesting prices.
     """
     if catalog_mode not in ("cash_ordinary_tradable", "cash_ordinary_catalog"):
         raise ValueError("unsupported Rakuten ordinary snapshot mode")
-    if observed_at.utcoffset() is None:
-        raise ValueError("Rakuten snapshot time must include a UTC offset")
-    if (exclusions_csv is None) != (exclusions_reported_count is None) or (
-        catalog_mode == "cash_ordinary_tradable" and exclusions_csv is None
+    if type(effective_session) is not date:
+        raise ValueError("Rakuten snapshot requires a target NY session date")
+    if (
+        (exclusions_csv is None) != (exclusions_reported_count is None)
+        or (exclusions_csv is None) != (exclusions_received_at is None)
+        or (catalog_mode == "cash_ordinary_tradable" and exclusions_csv is None)
     ):
         raise ValueError("incomplete Rakuten buy restriction capture")
+    catalog_received_at = _received_on_session(catalog_received_at, effective_session)
     catalog = _read_rakuten_snapshot_csv(catalog_csv, ("ticker", "exchange"), reported_count)
     if not catalog:
         raise ValueError("empty Rakuten ordinary catalog")
-    exclusions: dict[tuple[str, str], str] = {}
-    if exclusions_csv is not None and exclusions_reported_count is not None:
+    exclusions: dict[tuple[str, str], RakutenRestrictionRow] = {}
+    if (
+        exclusions_csv is not None
+        and exclusions_reported_count is not None
+        and exclusions_received_at is not None
+    ):
+        exclusions_received_at = _received_on_session(exclusions_received_at, effective_session)
         for ticker, exchange, restriction in _read_rakuten_snapshot_csv(
             exclusions_csv, ("ticker", "exchange", "restriction"), exclusions_reported_count
         ):
             if restriction not in ("sell_only", "buy_suspended"):
                 raise ValueError("unknown Rakuten buy restriction")
-            exclusions[_rakuten_broker_key(ticker, exchange)] = restriction
+            exclusions[_rakuten_broker_key(ticker, exchange)] = RakutenRestrictionRow(
+                ticker, exchange, cast("RakutenRestriction", restriction)
+            )
     remaining = "buyable" if catalog_mode == "cash_ordinary_tradable" else "unknown"
-    rows = tuple(
-        RakutenOrdinaryRow(
-            ticker, exchange, exclusions.get(_rakuten_broker_key(ticker, exchange), remaining)
+    catalog_keys: set[tuple[str, str]] = set()
+    rows: list[RakutenOrdinaryRow] = []
+    for ticker, exchange in catalog:
+        key = _rakuten_broker_key(ticker, exchange)
+        catalog_keys.add(key)
+        exclusion = exclusions.get(key)
+        rows.append(
+            RakutenOrdinaryRow(ticker, exchange, exclusion.restriction if exclusion else remaining)
         )
-        for ticker, exchange in catalog
-    )
+    restriction_only = tuple(exclusions[key] for key in sorted(exclusions.keys() - catalog_keys))
     return RakutenOrdinarySnapshot(
-        catalog_mode, observed_at, reported_count, exclusions_reported_count, rows
+        catalog_mode,
+        effective_session,
+        catalog_received_at,
+        exclusions_received_at,
+        reported_count,
+        exclusions_reported_count,
+        tuple(rows),
+        restriction_only,
     )
 
 
@@ -125,15 +181,20 @@ def _read_rakuten_snapshot_csv(
     return rows
 
 
-def _rakuten_join_symbol(ticker: str, venue: PrimaryUSVenue | None) -> str:
+def rakuten_listing_key(ticker: str, exchange: str) -> tuple[PrimaryUSVenue, str] | None:
+    """Return the exact native listing lookup key, not proof of listing or eligibility."""
+    venue = _BUYABLE_VENUES.get(exchange)
+    if venue is None:
+        return None
     market_class = _NYSE_BROKER_CLASS.fullmatch(ticker) if venue == "XNYS" else None
-    return f"{market_class[1]}.{market_class[2]}" if market_class is not None else ticker
+    symbol = f"{market_class[1]}.{market_class[2]}" if market_class is not None else ticker
+    return venue, symbol
 
 
 def _rakuten_broker_key(ticker: str, exchange: str) -> tuple[str, str]:
-    # For exclusions only the same broker market and exact NYSE A/B class match;
-    # Alpaca eligibility still requires the native CQS directory lookup.
-    return exchange, _rakuten_join_symbol(ticker, _BUYABLE_VENUES.get(exchange))
+    # Keep broker-only venues as native facts, never as an exchange listing key.
+    listing_key = rakuten_listing_key(ticker, exchange)
+    return exchange, listing_key[1] if listing_key is not None else ticker
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,12 +226,45 @@ def cover_rakuten_us_ordinary_shares(
     scope = tuple(directories)
     if not scope or len({directory.file for directory in scope}) != len(scope):
         raise ValueError("missing or repeated Nasdaq Trader directory")
+    return _cover_rakuten_listings(rows, (row for directory in scope for row in directory.listings))
+
+
+def cover_current_rakuten_catalog_targets(
+    targets: Iterable[tuple[ListingKey, str]],
+    *,
+    listings: Iterable[ListingMasterRow],
+) -> tuple[RakutenUSCoverageRow, ...]:
+    """Use the shared symbol/issue rules with already-bound current broker targets."""
+    rows: list[RakutenOrdinaryRow] = []
+    for key, ticker in targets:
+        exchange = _BROKER_EXCHANGE_BY_MIC.get(key[0])
+        if exchange is None or rakuten_listing_key(ticker, exchange) != key:
+            raise ValueError("current Rakuten target must identify the exact exchange listing")
+        rows.append(RakutenOrdinaryRow(ticker, exchange, "buyable"))
+    supported_listings = (
+        USListing(
+            cast("PrimaryUSVenue", row.key[0]),
+            row.key[1],
+            row.security_name,
+            row.issue_type == "fund",
+        )
+        for row in listings
+        if row.listing_state == "listed"
+        and row.key[0] in _BROKER_EXCHANGE_BY_MIC
+        and row.issue_type in ("fund", "not_flagged_fund")
+        and row.security_name is not None
+    )
+    return _cover_rakuten_listings(rows, supported_listings)
+
+
+def _cover_rakuten_listings(
+    rows: Iterable[RakutenOrdinaryRow], native_listings: Iterable[USListing]
+) -> tuple[RakutenUSCoverageRow, ...]:
     listings: dict[str, dict[PrimaryUSVenue, USListing]] = {}
     covered_venues: set[PrimaryUSVenue] = set()
-    for directory in scope:
-        for native_listing in directory.listings:
-            covered_venues.add(native_listing.venue)
-            listings.setdefault(native_listing.ticker, {})[native_listing.venue] = native_listing
+    for listing_row in native_listings:
+        covered_venues.add(listing_row.venue)
+        listings.setdefault(listing_row.ticker, {})[listing_row.venue] = listing_row
     seen: set[tuple[str, str]] = set()
     results: list[RakutenUSCoverageRow] = []
     for row in rows:
@@ -179,8 +273,8 @@ def cover_rakuten_us_ordinary_shares(
             raise ValueError("incomplete Rakuten ordinary-share row")
         if row.buy_status not in ("buyable", "sell_only", "buy_suspended", "unknown"):
             raise ValueError("unknown Rakuten buyability label")
-        venue = _BUYABLE_VENUES.get(exchange)
-        symbol = _rakuten_join_symbol(ticker, venue)
+        listing_key = rakuten_listing_key(ticker, exchange)
+        venue, symbol = listing_key if listing_key is not None else (None, ticker)
         same_symbol = listings.get(symbol, {})
         listing = same_symbol.get(venue) if venue is not None else None
         # Two verified spellings of one share class are not two broker rows.

@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 from typing import Protocol
 
 from baibai_engine.portfolio.ledger.events import PortfolioSnapshot
@@ -22,4 +22,4 @@ class LedgerSource(Protocol):
 
 
 class MarketSource(Protocol):
-    def security_names(self, *, as_of: date, tickers: tuple[str, ...]) -> Mapping[str, str]: ...
+    def security_names(self, *, at: datetime, tickers: tuple[str, ...]) -> Mapping[str, str]: ...

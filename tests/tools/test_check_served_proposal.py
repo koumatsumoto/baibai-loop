@@ -39,7 +39,10 @@ def _capture(app, path):
 def fixed(tmp_path):
     case = backend_case(tmp_path)
     published = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(reviewed_proposal(case))
     case.operations.complete(
         case.operation.operation_id,
@@ -139,10 +142,16 @@ def test_migrated_case_and_corrected_latest_are_not_rebound_to_last_history(
 def test_generation_cannot_predate_later_corrected_publication_in_history(tmp_path, capsys):
     case = backend_case(tmp_path)
     first = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(reviewed_proposal(case))
     second = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(minutes=1)
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED + timedelta(minutes=1),
     ).publish(
         reviewed_proposal(
             case,
@@ -204,10 +213,16 @@ def test_generation_cannot_predate_later_corrected_publication_in_history(tmp_pa
 def test_history_keeps_the_app_publication_index_and_selectable_rows(tmp_path, capsys, damage):
     case = backend_case(tmp_path)
     first = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(reviewed_proposal(case))
     second = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(microseconds=1)
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED + timedelta(microseconds=1),
     ).publish(
         reviewed_proposal(
             case,
@@ -254,9 +269,12 @@ def test_history_keeps_the_app_publication_index_and_selectable_rows(tmp_path, c
 
 def test_same_two_reports_cannot_hide_a_different_loaded_case(tmp_path, capsys):
     case = backend_case(tmp_path)
-    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        reviewed_proposal(case)
-    )
+    TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    ).publish(reviewed_proposal(case))
     # 合成DBのactive Caseだけを変える。2表示が同じAppから再生成できても原選定の証明にはならない。
     with closing(sqlite3.connect(case.app)) as connection, connection:
         text = connection.execute("SELECT payload FROM operation_session").fetchone()[0]

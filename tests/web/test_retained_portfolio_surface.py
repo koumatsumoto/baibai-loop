@@ -4,7 +4,7 @@ import json
 import sqlite3
 from contextlib import closing
 from dataclasses import replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -20,6 +20,14 @@ from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
 from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import (
     store_jpx_earnings_calendar_snapshot,
 )
+from baibai_engine.machine_analysis.observations.stocks.listing_master import (
+    JapanListingAttributes,
+    ListingMasterRow,
+    ListingSlice,
+)
+from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
+    CurrentListingMarket,
+)
 from baibai_engine.portfolio.holdings.valuation import current_portfolio
 from baibai_engine.portfolio.ledger.drafts import apply_draft, build_sell_execution_draft
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
@@ -31,7 +39,7 @@ from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
 from baibai_web.materialize import export_read_models
 from baibai_web.readmodel.builders.dashboard import build_dashboard
 from baibai_web.sources import db_sources
-from baibai_web.sources.db_sources import DbLedgerSource, DbMarketSource
+from baibai_web.sources.db_sources import CurrentJpMarketSource, DbLedgerSource
 
 
 def test_export_reads_retained_sources_without_recreating_legacy_stores(tmp_path, mocker):
@@ -136,7 +144,7 @@ def test_uninitialized_ledger_is_not_damage_or_zero_capital(tmp_path, store):
     elif store == "unimported":
         initialize_database(app)
     before = app.read_bytes() if app.exists() else None
-    ledger, names = DbLedgerSource(app, market), DbMarketSource(market)
+    ledger, names = DbLedgerSource(app, market), CurrentJpMarketSource(market)
 
     dashboard = build_dashboard(ledger, names)
 
@@ -159,7 +167,7 @@ def test_corrupt_ledger_metadata_is_not_presented_as_empty(tmp_path):
     with closing(sqlite3.connect(app)) as connection, connection:
         connection.execute("UPDATE ledger_meta SET payload='{}' WHERE singleton=1")
     market = tmp_path / "absent-market"
-    dashboard = build_dashboard(DbLedgerSource(app, market), DbMarketSource(market))
+    dashboard = build_dashboard(DbLedgerSource(app, market), CurrentJpMarketSource(market))
     assert dashboard.ledger_exists is True
     assert dashboard.ledger_error
     assert dashboard.valuation_error is None
@@ -245,7 +253,6 @@ def test_invalid_saved_ledger_payload_does_not_escape_through_dashboard(tmp_path
     [
         "calendar",
         "names",
-        "names_date",
         "names_empty",
         "names_missing",
         "names_stat",
@@ -258,7 +265,6 @@ def test_optional_market_read_failure_does_not_block_independent_view_export(
     tmp_path, mocker, caplog, failed_source
 ):
     now = datetime.fromisoformat("2026-07-20T09:00:00+09:00")
-    private_master_date = "2026-07-0x/SYNTHETIC_VENDOR_FIELD"
     for module in (
         "baibai_web.sources.db_sources",
         "baibai_web.readmodel.builders.dashboard",
@@ -295,30 +301,10 @@ def test_optional_market_read_failure_does_not_block_independent_view_export(
             connection.execute(
                 "UPDATE source_coverage SET record_count=2 WHERE source='jpx_earnings_calendar'"
             )
-        elif failed_source == "names":
+        elif failed_source.startswith("names"):
             connection.execute(
-                "INSERT INTO jquants_master_snapshots VALUES ('2026-07-20', '23310', 'invalid')"
-            )
-        elif failed_source.startswith("names_"):
-            record = {
-                "Date": "2026-07-20",
-                "Code": "23310",
-                "CoName": "保有企業",
-                "MktNm": "Prime",
-                "S33Nm": "サービス業",
-                "ProdCat": "011",
-            }
-            if failed_source == "names_empty":
-                record["CoName"] = ""
-            elif failed_source == "names_missing":
-                del record["CoName"]
-            connection.execute(
-                "INSERT INTO jquants_master_snapshots VALUES (?, ?, ?)",
-                (
-                    private_master_date if failed_source == "names_date" else "2026-07-20",
-                    "23310",
-                    json.dumps(record),
-                ),
+                "INSERT INTO jquants_market_calendar(day, holiday_division) VALUES (?, '1')",
+                (now.date().isoformat(),),
             )
         elif failed_source == "valuation_schema":
             connection.execute("PRAGMA user_version=1")
@@ -345,8 +331,25 @@ def test_optional_market_read_failure_does_not_block_independent_view_export(
         with pytest.raises(error_type):
             current_portfolio(service.load(), sqlite_path=market, now=now)
 
+    listing = None
+    if failed_source.startswith("names"):
+        row = ListingMasterRow(
+            ("XTKS", "23310"),
+            {"names_empty": "", "names_missing": None}.get(failed_source, "保有企業"),
+            "common_stock",
+            "listed",
+            japan=None
+            if failed_source == "names"
+            else JapanListingAttributes("011", "プライム", "サービス業"),
+        )
+        listing = CurrentListingMarket(
+            ListingSlice("JP", now.date(), (row,)),
+            source="jquants-equities-master",
+            received_at=now - timedelta(minutes=1),
+            received_count=1,
+        )
     output = tmp_path / "export"
-    paths = export_read_models(tmp_path, output)
+    paths = export_read_models(tmp_path, output, current_jp_listing=listing)
 
     assert {path.name for path in paths} == {
         "portfolio-dashboard.json",
@@ -376,8 +379,6 @@ def test_optional_market_read_failure_does_not_block_independent_view_export(
     else:
         assert dashboard["valuation_error"] is None
     if failed_source.startswith("names"):
-        assert private_master_date not in caplog.text
-        assert private_master_date not in json.dumps(dashboard)
         diagnostic = "PermissionError" if failed_source == "names_stat" else "JQuantsProviderError"
         assert f"tickerで表示します ({diagnostic})" in caplog.text
     assert "SYNTHETIC_MARKET_PATH" not in caplog.text

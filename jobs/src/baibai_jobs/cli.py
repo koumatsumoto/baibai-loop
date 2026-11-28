@@ -16,6 +16,7 @@ _COMMANDS = {
     "snapshots": "baibai_jobs.publication.snapshot_cli",
     "model-integration": "baibai_jobs.integration.models",
     "external-assessment": "baibai_jobs.acquisition.external_assessments.cli",
+    "rakuten-universe-check": "baibai_jobs.acquisition.rakuten_universe_check",
     "tradingview-source": "baibai_jobs.acquisition.tradingview.cli",
     "edinet-list-native": "baibai_jobs.maintenance.edinet_list_native",
     "edinet-archives-native": "baibai_jobs.maintenance.edinet_archive_native",

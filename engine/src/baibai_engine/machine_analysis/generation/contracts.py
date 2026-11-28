@@ -29,26 +29,27 @@ class InputSnapshot(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    kind: Literal["lake_release", "sqlite_snapshot", "native_l1"]
+    kind: Literal["lake_release", "sqlite_snapshot", "native_l1", "current_listing_master"]
     reference: Identifier
     sha256: Digest
-    # Native inputs retain either a legacy inline selection or a compact exact
-    # selection locator and summary. Mutable heads are never reread on resume.
+    # Native inputs retain their fixed selection descriptor. A current listing
+    # descriptor describes the pinned input only; it promises no historical copy.
     descriptor: dict[str, JsonValue] | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
 
     @model_validator(mode="after")
-    def native_descriptor(self) -> Self:
-        if self.kind == "native_l1":
+    def fixed_descriptor(self) -> Self:
+        if self.kind in ("native_l1", "current_listing_master"):
             if (
                 self.descriptor is None
                 or hashlib.sha256(canonical_json(self.descriptor).encode()).hexdigest()
                 != self.sha256
             ):
-                raise ValueError("native L1 input requires its digest-matching fixed descriptor")
+                label = "native L1" if self.kind == "native_l1" else "current listing master"
+                raise ValueError(f"{label} input requires its digest-matching fixed descriptor")
         elif self.descriptor is not None:
-            raise ValueError("legacy input identities do not carry a native descriptor")
+            raise ValueError("snapshot and release identities do not carry a descriptor")
         return self
 
 
@@ -205,7 +206,7 @@ class ModelInputSlice(_ModelCollection):
 
 @dataclass(frozen=True, slots=True)
 class ModelGenerationStream:
-    """共有入力を読み終えた一回消費の生成列。保存形式ではない。"""
+    """One-shot models iterator; keep its fixed generation input in scope until consumed."""
 
     metadata: GenerationMetadata
     subjects: tuple[str, ...]

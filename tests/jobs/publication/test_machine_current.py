@@ -5,7 +5,7 @@ import json
 import sqlite3
 from contextlib import closing, contextmanager, nullcontext
 from dataclasses import replace
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -15,6 +15,14 @@ from tests.helpers.lake_release import market_store
 from tests.helpers.model_generation import publish_machine_generation
 from tests.helpers.r2_store import MemoryR2Store
 
+from baibai_engine.machine_analysis.observations.stocks.listing_master import (
+    JapanListingAttributes,
+    ObservedListing,
+    refresh_listing_slice,
+)
+from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
+    CurrentListingMarket,
+)
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
@@ -938,6 +946,22 @@ def test_committed_predecessor_is_recovered_before_any_further_publication(
     handle = tmp_path / "handle.json"
     _save_handle(handle, lease)
     writes = len(store.put_keys)
+    session = date(2026, 10, 24)
+    observation = ObservedListing(
+        ("XTKS", "13010"),
+        "sample",
+        "common_stock",
+        JapanListingAttributes("011", "プライム", "水産・農林業"),
+    )
+    section = CurrentListingMarket(
+        refresh_listing_slice(
+            None, market="JP", session=session, observations=(observation,), complete=True
+        ).slice,
+        "jquants-equities-master",
+        datetime(2026, 10, 24, tzinfo=UTC),
+        1,
+    )
+    current = models.PinnedGenerationMaster(section, "same-run-listing#JP")
 
     def still_denied(_key):
         raise R2OperationStopped("delete denied again")
@@ -954,10 +978,11 @@ def test_committed_predecessor_is_recovered_before_any_further_publication(
                     runs=pulled.runs,
                     economic=tmp_path / "economic.sqlite",
                     mirror=tmp_path / "new-mirror",
-                    as_of=date(2026, 10, 24),
+                    as_of=session,
                     lease_handle=handle,
                     growth_start=None,
                     base=pulled.current,
+                    current_master=current,
                 )
     assert len(store.put_keys) == writes
     assert machine.read_machine_current(store) == snapshot

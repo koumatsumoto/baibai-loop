@@ -34,13 +34,19 @@ from baibai_engine.machine_analysis.generation.economic_inputs import (
     EconomicInputSession,
 )
 from baibai_engine.machine_analysis.generation.full_day_inputs import share_full_day_input_reads
-from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
+from baibai_engine.machine_analysis.generation.inputs import (
+    PinnedGenerationMaster,
+    read_and_generate_models,
+)
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     DEFAULT_TTM_RULES,
 )
 from baibai_engine.machine_analysis.models.company_growth.models import (
     InputRelease as ModelInputRelease,
+)
+from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
+    read_local_listing_master,
 )
 from baibai_engine.machine_analysis.screening.discovery_contract import (
     DiscoveryRow,
@@ -53,7 +59,11 @@ from baibai_engine.machine_analysis.screening.policies.discovery import (
 )
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.storage.json import write_json_atomic
-from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError, R2OperationStopped
+from baibai_engine.storage.objects.r2 import (
+    Boto3R2Store,
+    LakePublishError,
+    R2OperationStopped,
+)
 from baibai_engine.storage.paths import MARKET_DB_PATH, RUNS_DB_PATH
 from baibai_engine.storage.snapshots.keys import release_manifest_key
 from baibai_engine.storage.snapshots.models import ReleasePolicyError
@@ -63,6 +73,7 @@ from baibai_engine.storage.snapshots.release import LakeReleasePointer
 from baibai_engine.storage.snapshots.retention import exclusive_lock
 from baibai_engine.storage.sqlite.snapshot import create_snapshot
 from baibai_jobs.integration.financial_native import model_input as native_financial_model_input
+from baibai_jobs.integration.listing_master_current import LISTING_MASTER_CURRENT_KEY
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.lease import _load_handle, verify_held
 from baibai_jobs.publication.machine_current import (
@@ -93,6 +104,14 @@ from baibai_jobs.publication.snapshot_write_cli import prepare_market_transfer
 
 class ModelIntegrationStore(FinancialObjectStore, MachineWriteStore, Protocol):
     """Lake/native preparation and the exact Machine operations needed by this job."""
+
+
+def pin_current_jp_generation_master(path: Path) -> PinnedGenerationMaster:
+    """Pin the JP section from one local artifact without rereading the remote head."""
+    section = read_local_listing_master(path).get("JP")
+    if section is None:
+        raise ValueError("current JP master is unavailable")
+    return PinnedGenerationMaster(section, f"{LISTING_MASTER_CURRENT_KEY}#JP")
 
 
 def _phase_progress(phase: str, started: float | None = None) -> float:
@@ -241,6 +260,7 @@ def integrate_models(
     lease_handle: Path,
     growth_start: date | None,
     edinet_input: InputSnapshot | None = None,
+    current_master: PinnedGenerationMaster,
     base: PointerSnapshot | None = None,
     machine_store: MachineWriteStore | None = None,
     bucket: str | None = None,
@@ -343,7 +363,7 @@ def integrate_models(
             if prepared.serving.pointer is not None
             else None,
             price_identity=prepared.price_identity,
-            master_identity=prepared.master_identity,
+            current_master=current_master,
             calendar_identity=prepared.calendar_identity,
             margin_alerts_identity=prepared.margin_alerts_identity,
             margin_interest_identity=prepared.margin_interest_identity,
@@ -450,12 +470,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="optional accounting-period start; omitted retains all available periods",
     )
     parser.add_argument("--integration-report", type=Path)
+    parser.add_argument(
+        "--current-listing-master",
+        type=Path,
+        required=True,
+        help="same-run pinned listing master",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        current_master = pin_current_jp_generation_master(args.current_listing_master)
         publication_run = current_daily_run() if args.daily_origin else None
         bucket = os.environ.get("R2_STORES_BUCKET") or "baibai-stores"
         external_readback_dir = None
@@ -497,6 +524,7 @@ def main(argv: list[str] | None = None) -> int:
                 lease_handle=args.lease_handle,
                 growth_start=args.growth_start,
                 edinet_input=edinet_input,
+                current_master=current_master,
                 external_readback_dir=external_readback_dir,
                 external_partitions=external_partitions,
             )

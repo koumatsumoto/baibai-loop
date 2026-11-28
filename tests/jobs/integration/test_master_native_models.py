@@ -3,13 +3,9 @@
 import json
 import sqlite3
 from datetime import UTC, date, datetime, timedelta
-from types import SimpleNamespace
 
 import pyarrow.parquet as pq
 import pytest
-from tests.helpers.edinet_native import empty_edinet_input
-from tests.helpers.financial_native import seed_empty_financial
-from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 from tests.helpers.master import insert_master_rows
 from tests.helpers.r2_store import MemoryR2Store
@@ -21,13 +17,13 @@ from baibai_engine.data_collection.providers.jquants.master_native import (
     MasterL1,
 )
 from baibai_engine.machine_analysis.generation.master_inputs import read_master_input
-from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_master_snapshot,
 )
-from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.storage.snapshots.reader import materialize_partitions
+from baibai_engine.machine_analysis.observations.stocks.storage_contracts import (
+    JQUANTS_MASTER_SNAPSHOTS_DDL,
+)
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
 from baibai_jobs.integration.master_native import (
     fixed_input,
@@ -36,8 +32,6 @@ from baibai_jobs.integration.master_native import (
     rebuild,
     rebuild_saved_input,
 )
-from baibai_jobs.publication.datasets import LAKE_DATASETS
-from baibai_jobs.publication.l1_master_export import export_master_from_native_input
 
 DAY = date(2026, 10, 1)
 NEXT = date(2026, 11, 1)
@@ -84,6 +78,7 @@ def setup_native(tmp_path, attempts):
     owner.commit(attempts)
     market = market_store(tmp_path / "market.sqlite", short_sale_reports=())
     with sqlite3.connect(market) as connection:
+        connection.executescript(JQUANTS_MASTER_SNAPSHOTS_DDL)
         insert_master_rows(
             connection, [(DAY.isoformat(), "9999", "stale999", "プライム", "情報・通信業", "011")]
         )
@@ -360,109 +355,6 @@ def test_cold_sparse_gap_has_no_manufactured_daily_status(tmp_path):
     )
     assert result["snapshot_days"] == result["rows"] == result["unavailable_days"] == 0
     assert len(pq.read_table(tmp_path / "gap/master_receipt_status.parquet")) == 0
-
-
-def test_publication_uses_same_immutable_seal_without_second_raw_decode(tmp_path):
-    store, owner, market = setup_native(tmp_path, [attempt("first")])
-    saved = model_input(store, owner.fixed(), as_of=DAY, evaluated_at=AT, market=market)
-    with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "seal") as snapshot:
-        del store.values[HEAD_KEY]
-        with sqlite3.connect(market) as connection:
-            connection.execute("DELETE FROM jquants_master_snapshots")
-        store.get_keys.clear()
-        result = export_master_from_native_input(
-            source_snapshot=snapshot,
-            saved=saved,
-            mirror_root=tmp_path / "export",
-            producer_git_commit="a" * 40,
-            created_at=AT,
-        )
-        assert not store.get_keys
-    source = result.manifest.partitions[0].sources[0]
-    assert source.kind == "native_l1"
-    assert source.namespace == "jquants-master"
-    assert source.sha256 == saved.descriptor["selection_sha256"]
-    assert source.key in store.values
-    paths = materialize_partitions(
-        LakeObjectCache(root=tmp_path / "export", source=LocalMirrorSource(tmp_path / "export")),
-        dataset=LAKE_DATASETS["jquants.master_snapshots"],
-        partitions=result.manifest.partitions,
-    )
-    assert sum(len(pq.read_table(path)) for path in paths) == 2503
-
-
-@pytest.mark.parametrize("historical_invalid", [False, True])
-def test_normal_models_and_publication_share_native_master_and_price(
-    tmp_path, monkeypatch, historical_invalid
-):
-    import baibai_jobs.integration.models as job
-    import baibai_jobs.publication.snapshot_publication as publication
-    from baibai_engine.data_collection.providers.jquants.price_native import PriceAttempt, PriceL1
-    from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-    from baibai_engine.storage.snapshots.reader import resolve_current_release
-    from baibai_jobs.publication.policy import release_policy_for_profile
-
-    names = ("jquants.daily_bars", "jquants.master_snapshots", "jquants.market_calendar")
-    narrow_release_policy(monkeypatch, datasets=names)
-    monkeypatch.setattr(publication, "LAKE_DATASETS", {name: LAKE_DATASETS[name] for name in names})
-    monkeypatch.setattr(publication, "lake_verified_git_commit", lambda: "a" * 40)
-    monkeypatch.setattr(job, "_load_handle", lambda _path: None)
-    monkeypatch.setattr(job, "verify_held", lambda *_args: None)
-    attempts = [attempt("native-master")]
-    if historical_invalid:
-        attempts.insert(0, attempt("old-empty", day=DAY - timedelta(days=1), rows=[]))
-    store, owner, market = setup_native(tmp_path, attempts)
-    price = PriceL1(store, tmp_path / "price")
-    price.initialize()
-    body = json.dumps({"data": [{"Code": "13010", "Date": DAY.isoformat(), "C": 100}]}).encode()
-    price.commit(
-        [
-            PriceAttempt(
-                "native-price",
-                DAY,
-                AT,
-                (JQuantsPage("daily_bars", {"date": DAY.isoformat()}, AT, body),),
-            )
-        ]
-    )
-    from tests.helpers.master_calendar_native import seed_calendar
-
-    seed_calendar(store, market, tmp_path / "calendar-native", as_of=DAY)
-    fixed = owner.fixed()
-    economic = tmp_path / "economic.sqlite"
-    initialize_database(economic).close()
-    store.get_keys.clear()
-    seed_empty_financial(store, tmp_path / "financial-native", DAY)
-    result = job.integrate_models(
-        store=store,
-        edinet_input=empty_edinet_input(store, tmp_path),
-        market=market,
-        economic=economic,
-        runs=tmp_path / "runs",
-        mirror=tmp_path / "mirror",
-        as_of=DAY,
-        lease_handle=tmp_path / "lease",
-        growth_start=None,
-    )
-    assert result["company_count"] == 1  # ETF/REIT/preferred and other markets not candidates.
-    assert store.get_keys.count(HEAD_KEY) == 1
-    packs = [key for key in store.get_keys if "/master/v1/packs/" in key]
-    assert len(packs) == len(set(packs)) == 1
-    saved = read_generation(result["generation_id"], path=tmp_path / "runs")
-    assert saved.inputs["master"].descriptor["head_sha256"] == fixed.content_id
-    assert "price" in saved.inputs
-    assert read_master_snapshot(market, as_of=DAY).as_of == DAY
-    release = resolve_current_release(
-        SimpleNamespace(read_bytes=store.get_bytes),
-        catalog=LAKE_DATASETS,
-        policy=release_policy_for_profile("production"),
-    )
-    master = release.dataset_manifest("jquants.master_snapshots")
-    assert master.partitions[0].sources[0].namespace == "jquants-master"
-    assert master.totals.rows == 2503
-    assert master.coverage_status == ("partial" if historical_invalid else "complete")
-    assert saved.inputs["master"].descriptor["summary"]["invalid_days"] == int(historical_invalid)
-    assert saved.inputs["master"].descriptor["summary"]["coverage_status"] == master.coverage_status
 
 
 def test_unavailable_requested_snapshot_does_not_reuse_old_projection(tmp_path):

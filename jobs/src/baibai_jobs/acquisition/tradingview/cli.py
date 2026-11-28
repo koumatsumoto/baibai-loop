@@ -6,7 +6,6 @@ import argparse
 import json
 import os
 import sys
-from datetime import date
 from functools import partial
 from pathlib import Path
 
@@ -21,10 +20,6 @@ from baibai_engine.data_collection.providers.tradingview.auth import (
     write_local_state,
 )
 from baibai_jobs.maintenance.tradingview_capture import retain_capture
-from baibai_jobs.maintenance.tradingview_rebuild import (
-    RebuildError,
-    rebuild_from_receipts,
-)
 from baibai_jobs.observability.tradingview import failure_line
 
 
@@ -64,24 +59,13 @@ def build_parser() -> argparse.ArgumentParser:
     receive = sub.add_parser("receive", help="retain one explicitly captured native MCP result")
     receive.add_argument("--sqlite", type=Path, required=True)
     receive.add_argument("--capture", type=Path, required=True)
-    rebuild = sub.add_parser("rebuild", help="rebuild one date from explicit saved MCP receipts")
-    rebuild.add_argument("--sqlite", type=Path, required=True)
-    rebuild.add_argument("--asof", type=date.fromisoformat, required=True)
-    rebuild.add_argument("--receipt-id", action="append", required=True)
     return parser
 
 
 def main(argv: list[str] | None = None, /) -> int:
     args = build_parser().parse_args(argv)
     try:
-        result = (
-            rebuild_from_receipts(args.sqlite, args.asof, args.receipt_id)
-            if args.command == "rebuild"
-            else retain_capture(args.sqlite, args.capture)
-        )
-    except RebuildError as exc:
-        print(json.dumps({"status": "failed", "rejected_receipts": exc.rejected}), file=sys.stderr)
-        return 1
+        result = retain_capture(args.sqlite, args.capture)
     except Exception as exc:
         # OAuth / HTTP exceptions may embed credential-bearing responses. Never
         # print their body, exception chain, environment, or serialized state.

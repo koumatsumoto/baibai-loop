@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime
 
 import pytest
 from tests.engine.storage.test_market_lake import _dataset_payload, _load_dataset
+from tests.helpers.master_calendar_native import pinned_jp_listing
 from tests.helpers.r2_store import MemoryR2Store, seed_machine_current
 
 from baibai_engine.storage.snapshots.keys import release_manifest_key
@@ -76,8 +77,13 @@ def run_failure(tmp_path, monkeypatch, error):
         ),
     )
 
+    as_of = date(2026, 11, 16)
+    listing_path = tmp_path / "current-listing-master.json"
+    current_master = pinned_jp_listing(as_of=as_of, output=listing_path)
+    calls = []
+
     def fail(**kwargs):
-        assert kwargs["base"].pointer == pointer
+        calls.append((kwargs["base"].pointer, kwargs["current_master"]))
         if callable(error):
             error()
         else:
@@ -90,7 +96,9 @@ def run_failure(tmp_path, monkeypatch, error):
         models.main(
             [
                 "--asof",
-                "2026-11-16",
+                as_of.isoformat(),
+                "--current-listing-master",
+                str(listing_path),
                 "--lease-handle",
                 str(tmp_path / "unused"),
                 "--notice-output",
@@ -99,6 +107,7 @@ def run_failure(tmp_path, monkeypatch, error):
         )
         == 1
     )
+    assert calls == [(pointer, current_master)]
     return json.loads(notice.read_bytes())
 
 

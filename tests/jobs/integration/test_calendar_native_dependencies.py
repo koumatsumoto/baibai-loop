@@ -7,9 +7,7 @@ from datetime import date, timedelta
 
 import pytest
 from tests.helpers.edinet_native import empty_edinet_input
-from tests.helpers.lake_release import market_store
-from tests.helpers.tradingview import _sdk, payload, retain_result
-from tests.jobs.integration.test_master_native_dependencies import AT, DAY, NOW, context
+from tests.jobs.integration.test_master_native_dependencies import AT, DAY, context
 from tests.jobs.integration.test_master_native_models import attempt, records
 
 from baibai_engine.data_collection.providers.jquants import calendar_native
@@ -27,11 +25,8 @@ from baibai_engine.storage.json import write_json_atomic
 from baibai_jobs.acquisition.calendar_dependencies import (
     CalendarDependencyUnavailable,
     fix_calendar_dependency,
-    prepare_tradingview_calendar,
     saved_calendar_context,
 )
-from baibai_jobs.acquisition.master_dependencies import prepare_tradingview_master
-from baibai_jobs.integration.source_handoff import _export, _replay
 
 
 def calendar_attempt(identity, days, *, minute=0, partial=False):
@@ -129,16 +124,14 @@ def test_unresolved_calendar_never_falls_back_to_saved_l2(tmp_path, monkeypatch,
         )
     with pytest.raises(CalendarDependencyUnavailable):
         fix_calendar_dependency(store, directory=directory / "fix", observation_date=observed)
-    assert not prepare_tradingview_calendar(
-        store, directory=directory, market=market, observation_date=observed
-    )
-    assert "calendar_native_input" not in json.loads((directory / "result.json").read_bytes())
     with sqlite3.connect(market) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM jquants_market_calendar").fetchone() == (0,)
+        assert conn.execute(
+            "SELECT day, holiday_division FROM jquants_market_calendar"
+        ).fetchall() == [(DAY.isoformat(), "1")]
 
 
 @pytest.mark.parametrize("problem", ["legacy-date", "different-division"])
-def test_new_tradingview_dependency_will_not_use_a_disputed_latest_day(
+def test_native_calendar_dependency_will_not_use_a_disputed_latest_day(
     tmp_path, monkeypatch, problem
 ):
     store, _, calendar, market, directory = native_context(tmp_path, monkeypatch)
@@ -162,90 +155,15 @@ def test_new_tradingview_dependency_will_not_use_a_disputed_latest_day(
         conn.execute("DELETE FROM jquants_market_calendar")
         conn.execute("INSERT INTO jquants_market_calendar VALUES (?, ?)", (str(observed), "0"))
     store.get_keys.clear()
-    assert not prepare_tradingview_calendar(
-        store, directory=directory, market=market, observation_date=observed
-    )
-    assert "calendar_native_input" not in json.loads((directory / "result.json").read_bytes())
+    with pytest.raises(CalendarDependencyUnavailable):
+        fix_calendar_dependency(store, directory=directory / "fix", observation_date=observed)
+    # Acquisition uses native evidence and does not clobber an unrelated working copy.
     with sqlite3.connect(market) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM jquants_market_calendar").fetchone() == (0,)
+        assert conn.execute("SELECT holiday_division FROM jquants_market_calendar").fetchone() == (
+            "0",
+        )
     packs = [key for key in store.get_keys if key.startswith(calendar_native.PREFIX + "packs/")]
     assert len(packs) == len(set(packs)) == 2  # One previous open and one disputed range.
-
-
-def test_native_master_hydrates_calendar_first_and_keeps_fixed_basis_during_recovery(
-    tmp_path, monkeypatch
-):
-    observed = DAY + timedelta(days=1)
-    store, master, calendar, market, directory = native_context(
-        tmp_path, monkeypatch, days=[(DAY, "1"), (observed, "0")]
-    )
-    # The scoped L2 is absent or wrong. It cannot select the dependency date.
-    with sqlite3.connect(market) as conn:
-        conn.execute("DELETE FROM jquants_market_calendar")
-        conn.execute("INSERT INTO jquants_market_calendar VALUES (?,1)", (observed.isoformat(),))
-    store.get_keys.clear()
-    assert prepare_tradingview_master(
-        store, directory=directory, market=market, observation_date=observed
-    )
-    assert (
-        len([key for key in store.get_keys if key.startswith(calendar_native.PREFIX + "packs/")])
-        == 1
-    )
-    before = json.loads((directory / "result.json").read_bytes())
-    assert before["master_native_input"]["descriptor"]["as_of"] == DAY.isoformat()
-    calendar.commit([calendar_attempt("changed", [(observed, "1")], minute=1)])
-    master.commit([attempt("changed-master", day=DAY, at=AT + timedelta(minutes=1))])
-    del store.values[CALENDAR_HEAD]
-    del store.values[MASTER_HEAD]
-    assert prepare_tradingview_master(
-        store, directory=directory, market=market, observation_date=observed
-    )
-    after = json.loads((directory / "result.json").read_bytes())
-    assert before["calendar_native_input"] == after["calendar_native_input"]
-    assert before["master_native_input"] == after["master_native_input"]
-
-
-def test_native_tradingview_packet_cold_replays_fixed_references_without_raw_calendar(
-    tmp_path, monkeypatch
-):
-    store, _master, _calendar, source, directory = native_context(tmp_path, monkeypatch)
-    assert prepare_tradingview_master(
-        store, directory=directory, market=source, observation_date=DAY
-    )
-    saved = json.loads((directory / "result.json").read_bytes())
-    master = InputSnapshot.model_validate(saved["master_native_input"])
-    calendar = InputSnapshot.model_validate(saved["calendar_native_input"])
-    retain_result(
-        source,
-        _sdk(payload(["TSE:1301"])),
-        day=DAY,
-        master=DAY,
-        received=NOW,
-        symbols=("TSE:1301",),
-    )
-    packet = tmp_path / "packet"
-    _export(
-        "tradingview",
-        DAY,
-        NOW - timedelta(seconds=1),
-        source,
-        packet,
-        master_input=master,
-        calendar_input=calendar,
-    )
-    assert not list(packet.glob("dependency-*.json"))
-    with sqlite3.connect(packet / "receipts.sqlite") as conn:
-        assert conn.execute("SELECT COUNT(*) FROM jquants_source_pages").fetchone() == (0,)
-        assert conn.execute("SELECT COUNT(*) FROM jquants_market_calendar").fetchone() == (0,)
-    del store.values[CALENDAR_HEAD]
-    del store.values[MASTER_HEAD]
-    json.loads((packet / "result.json").read_bytes())
-    target = market_store(tmp_path / "target.sqlite")
-    result = _replay("tradingview", target, packet, store=store)
-    assert result.complete
-    assert result.report["rows_added"] == 1
-    with sqlite3.connect(target) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM jquants_source_pages").fetchone() == (0,)
 
 
 def test_native_scoped_input_never_requires_legacy_calendar_or_copies_its_coverage(

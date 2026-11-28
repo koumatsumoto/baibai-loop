@@ -9,10 +9,10 @@ import sys
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.primitives.jquants_calendar import cash_equity_open
+from baibai_engine.primitives.time import JST
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
@@ -27,13 +27,6 @@ from baibai_jobs.acquisition.economic_staging import (
 from baibai_jobs.integration.jpx_handoff import export_handoff as export_jpx_handoff
 from baibai_jobs.integration.jpx_handoff import import_handoff as import_jpx_handoff
 from baibai_jobs.integration.replay_result import ReplayResult
-from baibai_jobs.integration.tradingview_handoff import TradingViewHandoff
-from baibai_jobs.integration.tradingview_handoff import export_handoff as export_tradingview_handoff
-from baibai_jobs.integration.tradingview_handoff import import_handoff as import_tradingview_handoff
-
-if TYPE_CHECKING:
-    from baibai_jobs.integration.calendar_native import CurrentCalendarHead
-
 
 FINANCIAL_HISTORY_DAYS = 2200
 # Re-read recent filings because a provider can publish a past disclosure late.
@@ -41,6 +34,7 @@ FINANCIAL_REVISION_OVERLAP_DAYS = 7
 
 SOURCES = (
     "tradingview",
+    "alpaca-us-daily",
     *NATIVE_JQUANTS_MARKET_SOURCES,
     "jpx-earnings",
     "jpx-regulations",
@@ -65,10 +59,8 @@ def _export(
     since: datetime,
     database: Path,
     directory: Path,
-    master_input: InputSnapshot | None = None,
-    calendar_input: InputSnapshot | None = None,
 ) -> None:
-    if source not in ("tradingview", *_JPX_COLLECTION):
+    if source not in _JPX_COLLECTION:
         raise ValueError("unsupported market handoff source")
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "receipts.sqlite"
@@ -77,22 +69,9 @@ def _export(
         "asof": asof.isoformat(),
         "started_at": since.isoformat(),
     }
-    if source == "tradingview":
-        if master_input is None or calendar_input is None:
-            raise ValueError("TradingView export requires its fixed master and calendar")
-        handoff = export_tradingview_handoff(
-            database,
-            path,
-            day=asof,
-            since=since,
-            master_input=master_input,
-            calendar_input=calendar_input,
-        )
-        report.update(handoff.to_json())
-    else:
-        report["bundle_ids"] = export_jpx_handoff(
-            database, path, since=since, collection=_JPX_COLLECTION[source]
-        )
+    report["bundle_ids"] = export_jpx_handoff(
+        database, path, since=since, collection=_JPX_COLLECTION[source]
+    )
 
     write_json_atomic(directory / "result.json", report)
 
@@ -104,58 +83,17 @@ def _jpx_bundle_ids(report: object) -> tuple[str, ...]:
     return tuple(values)
 
 
-def _replay(
-    source: str,
-    database: Path,
-    directory: Path,
-    *,
-    store: Boto3R2Store | None = None,
-    master_input: InputSnapshot | None = None,
-    calendar_input: InputSnapshot | None = None,
-    calendar_head: CurrentCalendarHead | None = None,
-) -> ReplayResult:
-    if source not in ("tradingview", *_JPX_COLLECTION):
+def _replay(source: str, database: Path, directory: Path) -> ReplayResult:
+    if source not in _JPX_COLLECTION:
         raise ValueError("unsupported market handoff source")
     report = json.loads((directory / "result.json").read_text(encoding="utf-8"))
     if not isinstance(report, dict) or report.get("source") != source:
         raise ValueError("handoff source differs from the publication plan")
-    path = directory / "receipts.sqlite"
-    if source == "tradingview":
-        handoff = TradingViewHandoff.from_json(report)
-
-        if store is None:
-            raise ValueError("native calendar replay requires its object store")
-        from baibai_engine.data_collection.providers.jquants.calendar_native import interval
-
-        days = interval(handoff.master_asof, handoff.snapshot_date)
-        if calendar_head is not None:
-            if calendar_input is not None:
-                raise ValueError("calendar replay must choose fixed or current source evidence")
-            calendar_head.materialize(store, market=database, days=days)
-        else:
-            from baibai_jobs.integration.calendar_native import (
-                materialize_saved_input as materialize_calendar,
-            )
-
-            materialize_calendar(
-                store,
-                calendar_input or handoff.calendar_native_input,
-                market=database,
-                days=days,
-                replace_all=False,
-            )
-        from baibai_jobs.integration.master_native import materialize_saved_input
-
-        materialize_saved_input(
-            store,
-            master_input or handoff.master_native_input,
-            market=database,
-            days=[handoff.master_asof],
-            require_resolved=True,
-        )
-        return import_tradingview_handoff(path, database, handoff, store=store)
     return import_jpx_handoff(
-        path, database, _jpx_bundle_ids(report), collection=_JPX_COLLECTION[source]
+        directory / "receipts.sqlite",
+        database,
+        _jpx_bundle_ids(report),
+        collection=_JPX_COLLECTION[source],
     )
 
 
@@ -310,8 +248,12 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
         write_json_atomic(directory / "price-native-result.json", native_result)
     from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
     from baibai_jobs.acquisition.jquants_master_native import acquire_master_native
+    from baibai_jobs.integration.jp_listing_refresh import refresh_current_jp_listings
 
+    listing_result = {"status": "not_current_session"}
+    listing_ok = True
     if provider_halted:
+        listing_result = {"status": "provider_halted"}
         master_result = {"halted": 1, "status": "provider_halted"}
         master_ok = False
     else:
@@ -327,18 +269,36 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
                     end=asof,
                     client=master_client,
                 )
-            master_result = dict(acquired_master)
-            provider_halted = bool(acquired_master.get("halted", 0))
-            master_ok = not bool(
-                acquired_master["failed"]
-                or acquired_master["held"]
-                or acquired_master["incomplete"]
-            )
+                master_result = dict(acquired_master.report)
+                provider_halted = bool(master_result.get("halted", 0))
+                master_ok = not bool(
+                    master_result["failed"] or master_result["held"] or master_result["incomplete"]
+                )
+                evaluated_at = datetime.now(UTC)
+                if provider_halted:
+                    listing_result = {"status": "provider_halted"}
+                elif asof == evaluated_at.astimezone(JST).date():
+                    try:
+                        listing_result = {
+                            "status": refresh_current_jp_listings(
+                                master_store,
+                                session=asof,
+                                evaluated_at=evaluated_at,
+                                calendar=calendar_fixed,
+                                master=acquired_master.exact_receipt if master_ok else None,
+                            ),
+                        }
+                    except (ValueError, JQuantsProviderError) as error:
+                        listing_ok = False
+                        listing_result = {"status": "unavailable", "error": type(error).__name__}
         except LakePublishError:
             raise
         except Exception as error:
             master_ok = False
             master_result = {"error": type(error).__name__}
+            if asof == datetime.now(JST).date():
+                listing_ok = False
+                listing_result = {"status": "unavailable", "error": type(error).__name__}
     directory.mkdir(parents=True, exist_ok=True)
     write_json_atomic(directory / "master-native-result.json", master_result)
     from baibai_engine.data_collection.providers.jquants.margin_alerts_native import (
@@ -460,6 +420,7 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
             "asof": asof.isoformat(),
             "native_l1": True,
             "acquisition": {"status": "skipped_non_business_day" if skipped else "native_l1"},
+            "listing_master_current": listing_result,
             "independent_l1": {
                 "daily_bars": native_result,
                 "master": master_result,
@@ -470,7 +431,15 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
             },
         },
     )
-    return price_ok and master_ok and calendar_ok and alerts_ok and shorts_ok and interest_ok
+    return (
+        price_ok
+        and master_ok
+        and calendar_ok
+        and alerts_ok
+        and shorts_ok
+        and interest_ok
+        and listing_ok
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -485,6 +454,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--since", type=datetime.fromisoformat)
     parser.add_argument("--asof", type=date.fromisoformat)
     parser.add_argument("--stage-id")
+    parser.add_argument("--current-listing-master", type=Path)
     return parser
 
 
@@ -492,24 +462,27 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     directory = args.directory
     try:
+        if args.source == "alpaca-us-daily":
+            from baibai_jobs.integration.us_daily_handoff import acquire_us_daily_from_env
+
+            if args.command != "acquire" or args.current_listing_master is None:
+                raise ValueError(
+                    "US price handoff requires acquire and a pinned current listing master"
+                )
+            us_report = acquire_us_daily_from_env(
+                listing_master=args.current_listing_master,
+                directory=directory,
+                expected_session=args.asof,
+            )
+            print(json.dumps(us_report, sort_keys=True))
+            return int(us_report["status"] != "complete")
         if args.source in NATIVE_JQUANTS_MARKET_SOURCES and args.command != "acquire":
             raise ValueError("J-Quants sources publish directly to native L1")
-        if args.source == "tradingview" and not (
-            args.command == "download"
-            or (args.command == "replay-copy" and args.database is not None)
-        ):
-            raise ValueError(
-                "individual TradingView is archived; use a fixed local copy for replay"
-            )
+        if args.source == "tradingview" and args.command != "download":
+            raise ValueError("individual TradingView is archived; only a fixed download remains")
         database = args.database or MARKET_DB_PATH
         if args.command == "replay-copy":
-            if args.source == "tradingview":
-                with closing(
-                    Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
-                ) as store:
-                    replay = _replay(args.source, database, directory, store=store)
-            else:
-                replay = _replay(args.source, database, directory)
+            replay = _replay(args.source, database, directory)
             print(json.dumps(replay.report, sort_keys=True))
             return int(not replay.complete)
         if args.command in {"stage", "download"}:

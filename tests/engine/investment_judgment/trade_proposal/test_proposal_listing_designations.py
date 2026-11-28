@@ -57,6 +57,7 @@ def _context(case, at=PREPARED):
         operation_id=case.operation.operation_id,
         proposal_id=PROPOSAL_ID,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=at,
     )

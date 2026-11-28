@@ -44,7 +44,9 @@ from baibai_engine.investment_judgment.trade_proposal.holding_policy import (
 from baibai_engine.investment_judgment.trade_proposal.inputs import (
     DEFAULT_BUDGET_MAX_YEN,
     DEFAULT_BUDGET_MIN_YEN,
+    ProposalListingReader,
     collect_proposal_inputs,
+    pin_proposal_listing,
     proposal_liquidity_context,
     proposal_market_snapshot,
 )
@@ -247,6 +249,7 @@ def _check_validated_proposal(
     *,
     sqlite_path: Path,
     now: datetime,
+    listing_reader: ProposalListingReader | None,
     require_review: bool = True,
 ) -> ProposalValidation:
     """構造を検証済みのdraftと、その時点の保存入力・発行条件を比較する。"""
@@ -258,6 +261,7 @@ def _check_validated_proposal(
             now=now,
             require_review=require_review,
             market_connection=market_connection,
+            listing_reader=listing_reader,
         )
 
 
@@ -269,6 +273,7 @@ def _check_proposal(
     now: datetime,
     require_review: bool,
     market_connection: sqlite3.Connection | None,
+    listing_reader: ProposalListingReader | None,
 ) -> ProposalValidation:
     validate_proposal_policy(proposal)
     if now.utcoffset() is None:
@@ -292,6 +297,20 @@ def _check_proposal(
         raise ProposalConflictError(
             "proposal Market Context Assessment differs from saved selection"
         )
+    if proposal.as_of != now.astimezone(JST).date():
+        # Listing receipts are current-only; a changed business date requires a new
+        # context, not a comparison of the old draft against different-session facts.
+        return ProposalValidation(
+            False,
+            proposal_draft_sha256(proposal),
+            (
+                GateReason(
+                    code="proposal_basis_requires_refresh",
+                    message="新規発行する提案の基準日は本日である必要があります。",
+                ),
+            ),
+            {},
+        )
     actual = collect_proposal_inputs(
         connection,
         tickers=tuple(target.ticker for target in proposal.research_scope.targets),
@@ -300,6 +319,7 @@ def _check_proposal(
         sqlite_path=sqlite_path,
         budget_min_yen=DEFAULT_BUDGET_MIN_YEN,
         budget_max_yen=DEFAULT_BUDGET_MAX_YEN,
+        current_listing=pin_proposal_listing(listing_reader, market_connection=market_connection),
         market_connection=market_connection,
     )
     if proposal_inputs_fingerprint(actual) != proposal_inputs_fingerprint(proposal.inputs):
@@ -323,13 +343,6 @@ def _check_proposal(
             GateReason(
                 code="proposal_content_review_stale",
                 message="内容Reviewは変更前の本文を指しています。",
-            )
-        )
-    if proposal.as_of != now.astimezone(JST).date():
-        blockers.append(
-            GateReason(
-                code="proposal_basis_requires_refresh",
-                message="新規発行する提案の基準日は本日である必要があります。",
             )
         )
     if (
@@ -440,10 +453,12 @@ class TradeProposalService:
         *,
         sqlite_path: Path = MARKET_DB_PATH,
         clock: Callable[[], datetime] | None = None,
+        listing_reader: ProposalListingReader | None = None,
     ) -> None:
         self._db_path = db_path
         self._sqlite_path = sqlite_path
         self._clock = clock or (lambda: datetime.now(JST))
+        self._listing_reader = listing_reader
 
     def check(
         self, proposal: TradeProposalDraft, *, require_review: bool = True
@@ -458,6 +473,7 @@ class TradeProposalService:
                 proposal,
                 sqlite_path=self._sqlite_path,
                 now=self._clock(),
+                listing_reader=self._listing_reader,
                 require_review=require_review,
             )
 
@@ -491,7 +507,11 @@ class TradeProposalService:
                 # Waiting for the writer can cross the JST date or order-session boundary.
                 now = self._clock()
                 validation = _check_validated_proposal(
-                    connection, proposal, sqlite_path=self._sqlite_path, now=now
+                    connection,
+                    proposal,
+                    sqlite_path=self._sqlite_path,
+                    now=now,
+                    listing_reader=self._listing_reader,
                 )
                 if not validation.valid:
                     raise ProposalError("; ".join(reason.message for reason in validation.blockers))

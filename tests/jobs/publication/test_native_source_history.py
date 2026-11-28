@@ -1,4 +1,4 @@
-"""Native cutover changes mixed-page membership without losing legacy history."""
+"""Native ownership removes migrated pages without dropping other source history."""
 
 import gzip
 import sqlite3
@@ -11,13 +11,11 @@ from tests.engine.data_collection.providers.jquants.test_calendar_native import 
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 from tests.helpers.r2_store import MemoryR2Store
-from tests.jobs.integration.test_master_native_models import attempt as master_attempt
 from tests.jobs.integration.test_price_native_models import DAY
 from tests.jobs.integration.test_price_native_models import attempt as price_attempt
 
 import baibai_jobs.publication.snapshot_publication as publication
 from baibai_engine.data_collection.providers.jquants.calendar_native import CalendarL1
-from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
 from baibai_engine.data_collection.providers.jquants.price_native import PriceL1
 from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_jobs.publication.datasets import LAKE_DATASETS
@@ -36,7 +34,6 @@ def mixed_release(tmp_path, monkeypatch):
         store = MemoryR2Store()
         for owner_type, label, received in (
             (PriceL1, "price", price_attempt("price", day=DAY)),
-            (MasterL1, "master", master_attempt("master", day=DAY)),
             (CalendarL1, "calendar", calendar_attempt("calendar", start=DAY)),
         ):
             owner = owner_type(store, tmp_path / label)
@@ -100,7 +97,7 @@ def mixed_release(tmp_path, monkeypatch):
     return create
 
 
-@pytest.mark.parametrize("source", ["daily_bars", "master", "market_calendar"])
+@pytest.mark.parametrize("source", ["daily_bars", "market_calendar"])
 def test_cutover_compares_the_remaining_sources_floor(mixed_release, monkeypatch, source):
     store, market, mirror, old_pages = mixed_release(
         [(source, "2026-01-01"), ("margin_alerts", "2026-02-01")]
@@ -114,6 +111,8 @@ def test_cutover_compares_the_remaining_sources_floor(mixed_release, monkeypatch
         assert old_pages.coverage_start == date(2026, 1, 1)
         publication.publish_prepared_market_lake(prepared, store=store)
     assert all(store.values[key].body == body for key, body in before.items())
+    # Normal Market publication needs neither a retired master head nor its packs.
+    assert not any(key.startswith("l1/jquants/master/") for key in store.get_keys)
     with sqlite3.connect(market) as connection:
         assert connection.execute("SELECT source FROM jquants_source_pages").fetchall() == [
             ("margin_alerts",)

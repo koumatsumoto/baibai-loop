@@ -373,7 +373,7 @@ def test_publication_uses_native_price_input_without_rollout_mode(tmp_path, monk
 def test_daily_hydrate_rebuilds_native_prices_but_explicit_hydrate_still_needs_old_objects(
     tmp_path, monkeypatch
 ):
-    names = (DATASET.name, "jquants.market_calendar", "jquants.master_snapshots")
+    names = (DATASET.name, "jquants.market_calendar")
     narrow_release_policy(monkeypatch, datasets=names)
     monkeypatch.setattr(publication, "LAKE_DATASETS", {name: LAKE_DATASETS[name] for name in names})
     monkeypatch.setattr(publication, "lake_verified_git_commit", lambda: "a" * 40)
@@ -413,8 +413,7 @@ def test_daily_hydrate_rebuilds_native_prices_but_explicit_hydrate_still_needs_o
     assert fill("hydrate-for-daily") == 0
     with closing(sqlite3.connect(transfer)) as conn:
         assert conn.execute("SELECT count(*) FROM jquants_daily_bars").fetchone() == (0,)
-        for table in ("jquants_market_calendar", "jquants_master_snapshots"):
-            assert conn.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone() == (1,)
+        assert conn.execute("SELECT 1 FROM jquants_market_calendar LIMIT 1").fetchone() == (1,)
 
     # A gap in the old Lake never substitutes a stale quote for a native correction or withdrawal.
     owner.commit(

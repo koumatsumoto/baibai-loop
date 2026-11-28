@@ -10,7 +10,7 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     write_lake_store_origin,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from tests.helpers.master import TSE_33_SECTORS, insert_master_rows, master_record
+from tests.helpers.master import TSE_33_SECTORS, master_record
 from tests.helpers.r2_store import MemoryR2Store
 
 ASOF = date(2026, 10, 11)
@@ -39,7 +39,9 @@ def seed_database(path, *, count=2500, snapshot=ASOF, origin=True):
     rows = _ordinary_rows(snapshot, count)
     connection = open_connection(path)
     try:
-        insert_master_rows(connection, rows)
+        connection.execute(
+            "INSERT INTO jquants_market_calendar VALUES (?, 1)", (snapshot.isoformat(),)
+        )
         if origin:
             write_lake_store_origin(connection, ORIGIN)
         connection.execute(

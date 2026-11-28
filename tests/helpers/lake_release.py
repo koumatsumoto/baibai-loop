@@ -189,7 +189,6 @@ def publish_market_fixture(path: Path, release: str, *, created_at: datetime) ->
     mirror = path.parent / "mirror"
     dataset_tables = {
         "jquants.fin_summaries": "jquants_fin_summaries",
-        "jquants.master_snapshots": "jquants_master_snapshots",
         "jquants.daily_bars": "jquants_daily_bars",
         "edinet.documents": "edinet_documents",
         "edinet.document_lists": "edinet_document_lists",

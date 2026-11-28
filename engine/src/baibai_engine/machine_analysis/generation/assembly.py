@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 
@@ -69,6 +69,7 @@ class CompanyModelInputs:
     pdf_statements: Sequence[PdfStatement] = ()
     capital_actions: Sequence[CapitalAction] = ()
     provider_capital: dict[str, object] | None = None
+    market_context: dict[str, object] | None = None
 
 
 def generate_models(
@@ -78,14 +79,14 @@ def generate_models(
     evaluation_time: datetime,
     inputs: dict[str, InputSnapshot],
     financial_release: InputRelease,
-    companies: Sequence[CompanyModelInputs],
+    subjects: Sequence[str],
+    companies: Iterable[CompanyModelInputs],
     trading_dates: Sequence[date],
     expected_price_date: date | None,
     ttm_rules: TTMRules,
     external_observations: Mapping[str, ObservationHistory],
     monex_fiscal_eps: Mapping[str, MonexEPSReceipt] | None = None,
     market_context: dict[str, object] | None,
-    securities_context: Mapping[str, dict[str, object]],
     market_context_revision: str,
     shared_market_context_revision: str | None = None,
     growth_start: date | None = None,
@@ -96,7 +97,7 @@ def generate_models(
     市場/業種の参照母集団と価格basisは読取ownerが確定する。ここで個社queryを
     反復しない。外部/市場の入力が渡されない場合は未生成であり、0や正常値で埋めない。
     """
-    tickers = [normalize_ticker(company.ticker) for company in companies]
+    tickers = tuple(normalize_ticker(ticker) for ticker in subjects)
     if len(tickers) != len(set(tickers)):
         raise ValueError("model generation requires unique companies")
     if not any(
@@ -183,6 +184,8 @@ def generate_models(
 
     def models() -> Iterator[GeneratedModel]:
         for ticker, company in zip(tickers, companies, strict=True):
+            if normalize_ticker(company.ticker) != ticker:
+                raise ValueError("company model stream differs from planned ticker order")
             yield from generate_financial_and_price_models(
                 ticker=ticker,
                 documents=company.financial_documents,
@@ -217,8 +220,8 @@ def generate_models(
                     calculation_revision=external.method_version,
                     payload=external.model_dump(mode="json"),
                 )
-            if ticker in securities_context:
-                yield _market_model(ticker, securities_context[ticker], market_context_revision)
+            if company.market_context is not None:
+                yield _market_model(ticker, company.market_context, market_context_revision)
         if market_context is not None:
             yield _market_model(
                 "market",
@@ -244,7 +247,7 @@ def generate_models(
                 ),
             )
 
-    return ModelGenerationStream(metadata, tuple(tickers), models())
+    return ModelGenerationStream(metadata, tickers, models())
 
 
 def _market_model(subject: str, payload: dict[str, object], revision: str) -> GeneratedModel:

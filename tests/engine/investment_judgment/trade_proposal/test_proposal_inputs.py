@@ -16,6 +16,7 @@ from tests.helpers.proposal import (
     bind_review,
     read_saved_proposal,
     reviewed_proposal,
+    write_jp_proposal_listing,
 )
 
 from baibai_engine.investment_judgment.trade_proposal.contracts import ProposalError
@@ -42,6 +43,7 @@ def _collect(case, *, now=PREPARED, proposal_id=PROPOSAL_ID, tickers=("1234",)):
             tickers=tickers,
             proposal_id=proposal_id,
             now=now,
+            current_listing=case.listing_reader(),
             sqlite_path=case.market,
             budget_min_yen=200000,
             budget_max_yen=300000,
@@ -62,6 +64,7 @@ def test_collect_preserves_meta_cutoff_and_stable_daily_label(tmp_path):
         proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PREPARED,
     )
@@ -113,6 +116,7 @@ def test_proposal_quote_requires_coherence_with_observed_raw_daily_range(tmp_pat
         proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PREPARED,
     )
@@ -160,6 +164,7 @@ def test_collect_uses_one_quote_read_for_holdings_and_candidates(tmp_path):
             tickers=("4567", "3456", "2345", "1234", "2345"),
             proposal_id=PROPOSAL_ID,
             now=PREPARED,
+            current_listing=case.listing_reader(),
             sqlite_path=case.market,
             budget_min_yen=200000,
             budget_max_yen=300000,
@@ -197,7 +202,12 @@ def test_null_sell_reference_all_active_and_no_unexecuted_sell_proceeds(tmp_path
     assert "現在評価では補完しない" in inputs.positions[0].original_reason_unavailable_reason
     proposal = reviewed_proposal(case, action="hold")
     assert (
-        TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+        TradeProposalService(
+            case.app,
+            listing_reader=case.listing_reader,
+            sqlite_path=case.market,
+            clock=lambda: PUBLISHED,
+        )
         .publish(proposal)
         .items[0]
         .action
@@ -218,7 +228,12 @@ def test_missing_quote_keeps_quantity_cost_and_unknown_nav(tmp_path):
     proposal = reviewed_proposal(case, action="sell")
     assert proposal.items[0].terms is None
     assert (
-        TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+        TradeProposalService(
+            case.app,
+            listing_reader=case.listing_reader,
+            sqlite_path=case.market,
+            clock=lambda: PUBLISHED,
+        )
         .publish(proposal)
         .items[0]
         .action
@@ -234,7 +249,12 @@ def test_hold_case_intact_can_use_old_valuation_without_same_day_return_claim(tm
     )
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     assert (
-        TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+        TradeProposalService(
+            case.app,
+            listing_reader=case.listing_reader,
+            sqlite_path=case.market,
+            clock=lambda: PUBLISHED,
+        )
         .publish(proposal)
         .items[0]
         .holding_basis
@@ -264,7 +284,12 @@ def test_intact_hold_with_sufficient_reward_still_requires_current_resolved_arit
         "reason": "合成の残存見返りは十分と判断した。",
     }
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     validation = service.check(proposal)
     assert not validation.valid
     assert blocker_code in {reason.code for reason in validation.blockers}
@@ -284,7 +309,12 @@ def test_same_day_sufficient_reward_is_verified_for_each_hold_basis(tmp_path, ho
         "reason": "同日起点の価値と現在quoteから残存見返りを確認した。",
     }
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     assert service.check(proposal).valid
     assert service.publish(proposal).items[0].holding_basis == holding_basis
 
@@ -310,6 +340,7 @@ def test_scaffold_keeps_signal_integration_as_authoring_not_a_price_gate(tmp_pat
         operation_id=case.operation.operation_id,
         proposal_id=PROPOSAL_ID,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PREPARED,
     )
@@ -335,7 +366,10 @@ def test_repeated_new_target_keeps_prior_evidence_out_of_the_unsigned_work_file(
 ):
     case = backend_case(tmp_path)
     saved = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(reviewed_proposal(case))
     reported = PUBLISHED + timedelta(seconds=1)
     if with_report:
@@ -354,6 +388,7 @@ def test_repeated_new_target_keeps_prior_evidence_out_of_the_unsigned_work_file(
         operation_id=case.operation.operation_id,
         proposal_id="investment-proposal-00000000-0000-4000-8000-000000000004",
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(minutes=1),
     )
@@ -369,12 +404,12 @@ def test_repeated_new_target_keeps_prior_evidence_out_of_the_unsigned_work_file(
 
 def test_partial_buy_uses_saved_hope_ceiling_cash_and_never_creates_binding(tmp_path):
     case = backend_case(tmp_path, cash_yen=95000)
-    with closing(sqlite3.connect(case.market)) as connection, connection:
-        connection.execute("DELETE FROM jquants_master_snapshots")
+    case.listing_path.unlink()
     raw = authored_defer_fixture(
         operation_id=case.operation.operation_id,
         proposal_id=PROPOSAL_ID,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PREPARED,
     )
@@ -394,7 +429,12 @@ def test_partial_buy_uses_saved_hope_ceiling_cash_and_never_creates_binding(tmp_
         ],
     )
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     assert service.check(proposal).valid
     assert service.publish(proposal).items[0].proposed_limit_yen == Decimal(900)
     with closing(sqlite3.connect(case.app)) as connection, connection:
@@ -432,7 +472,10 @@ def test_original_reason_respects_reported_buy_time_precision(
     case = backend_case(tmp_path, opening_at="2026-10-13T09:00:00+09:00")
     proposal = reviewed_proposal(case)
     proposal = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(proposal)
     from baibai_engine.portfolio.ledger.events import ExecutionEvent, ReservationEvent
     from baibai_engine.portfolio.ledger.store import LedgerStoreService
@@ -500,6 +543,7 @@ def test_original_reason_respects_reported_buy_time_precision(
         operation_id=case.operation.operation_id,
         proposal_id=proposal.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(days=1),
     )
@@ -541,16 +585,11 @@ def test_holding_quantity_uses_share_units_not_the_price_adjustment(tmp_path, ki
 @pytest.mark.parametrize(("product_category", "expected_common"), [("011", True), ("014", False)])
 def test_classification_uses_native_product_not_sector(tmp_path, product_category, expected_common):
     case = backend_case(tmp_path)
-    with closing(sqlite3.connect(case.market)) as connection, connection:
-        connection.execute(
-            "UPDATE jquants_master_snapshots SET record_json = "
-            "json_set(record_json, '$.ProdCat', ?, '$.S33Nm', '新業種') "
-            "WHERE security_code = '12340'",
-            (product_category,),
-        )
-        connection.execute(
-            "INSERT INTO jquants_master_snapshots VALUES ('2026-10-14','99990','{broken')"
-        )
+    write_jp_proposal_listing(case.listing_path, product_category=product_category, sector="新業種")
+    with closing(sqlite3.connect(case.market)) as connection:
+        assert not connection.execute(
+            "SELECT 1 FROM sqlite_schema WHERE name='jquants_master_snapshots'"
+        ).fetchone()
     classification = next(
         row for row in _collect(case).security_classification if row.ticker == "1234"
     )
@@ -564,6 +603,7 @@ def test_classification_uses_native_product_not_sector(tmp_path, product_categor
         proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PREPARED,
     )
@@ -596,6 +636,7 @@ def test_unknown_order_session_keeps_per_share_arithmetic_in_authoring(tmp_path)
         proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PREPARED,
     )
@@ -634,6 +675,7 @@ def test_current_valuation_keeps_quotes_and_share_basis_in_one_snapshot(
                 "UPDATE jquants_daily_bars SET close = 9999.0, "
                 "adjustment_factor = 0.5, ex_right_type = '1' WHERE traded_at = '2026-10-15'"
             )
+        write_jp_proposal_listing(case.listing_path, product_category="014")
         commits += 1
         return quotes
 
@@ -690,7 +732,12 @@ def test_assessment_basis_uses_quote_snapshot_across_wal_correction(
             "reason": "同日起点の現在算術による残存見返りを主張する。",
         }
         proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     if consumer == "preview":
         proposal = service.publish(proposal)
     with closing(sqlite3.connect(case.market)) as writer, writer:
@@ -717,6 +764,7 @@ def test_assessment_basis_uses_quote_snapshot_across_wal_correction(
             proposal_id=PROPOSAL_ID,
             operation_id=case.operation.operation_id,
             db_path=case.app,
+            listing_reader=case.listing_reader,
             sqlite_path=case.market,
             now=PUBLISHED,
         )
@@ -735,6 +783,7 @@ def test_assessment_basis_uses_quote_snapshot_across_wal_correction(
         preview = preview_current_terms(
             proposal_id=proposal.proposal_id,
             db_path=case.app,
+            listing_reader=case.listing_reader,
             sqlite_path=case.market,
             now=PUBLISHED,
         )
@@ -769,6 +818,7 @@ def test_assessment_basis_uses_quote_snapshot_across_wal_correction(
         proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED,
     )
@@ -789,6 +839,7 @@ def test_known_intraday_action_without_new_fill_reaches_sell_quantity_gate(
     case = backend_case(tmp_path, holding=True, broken=True)
     proposal = reviewed_proposal(case, action="sell")
     now = (PUBLISHED + timedelta(days=1)).replace(hour=10)
+    write_jp_proposal_listing(case.listing_path, received_at=now)
     with closing(sqlite3.connect(case.market)) as connection, connection:
         connection.execute(
             "INSERT INTO jquants_daily_bars "
@@ -820,7 +871,12 @@ def test_classification_and_order_session_share_the_quote_snapshot(tmp_path, mon
 
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     if consumer == "preview":
         proposal = service.publish(proposal)
     with closing(sqlite3.connect(case.market)) as setup:
@@ -834,12 +890,9 @@ def test_classification_and_order_session_share_the_quote_snapshot(tmp_path, mon
         with closing(sqlite3.connect(case.market)) as writer, writer:
             writer.execute("UPDATE jquants_daily_bars SET close = 2200")
             writer.execute(
-                "UPDATE jquants_master_snapshots "
-                "SET record_json = json_set(record_json, '$.ProdCat', '014')"
-            )
-            writer.execute(
                 "UPDATE jquants_market_calendar SET holiday_division = '0' WHERE day = '2026-10-15'"
             )
+        write_jp_proposal_listing(case.listing_path, product_category="014")
         commits += 1
         return quotes
 
@@ -849,6 +902,7 @@ def test_classification_and_order_session_share_the_quote_snapshot(tmp_path, mon
             proposal_id=PROPOSAL_ID,
             operation_id=case.operation.operation_id,
             db_path=case.app,
+            listing_reader=case.listing_reader,
             sqlite_path=case.market,
             now=PUBLISHED,
         )
@@ -862,6 +916,7 @@ def test_classification_and_order_session_share_the_quote_snapshot(tmp_path, mon
         preview = preview_current_terms(
             proposal_id=proposal.proposal_id,
             db_path=case.app,
+            listing_reader=case.listing_reader,
             sqlite_path=case.market,
             now=PUBLISHED,
         )
@@ -876,6 +931,7 @@ def test_classification_and_order_session_share_the_quote_snapshot(tmp_path, mon
         proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED,
     )
@@ -891,7 +947,12 @@ def test_arriving_market_waits_for_the_next_proposal_phase(tmp_path, monkeypatch
     from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
 
     case = backend_case(tmp_path)
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     draft = reviewed_proposal(case, action="defer" if phase == "publish" else "buy")
     if phase == "preview":
         service.publish(draft)
@@ -903,12 +964,17 @@ def test_arriving_market_waits_for_the_next_proposal_phase(tmp_path, monkeypatch
                 operation_id=case.operation.operation_id,
                 proposal_id=PROPOSAL_ID,
                 db_path=case.app,
+                listing_reader=case.listing_reader,
                 sqlite_path=case.market,
                 now=PUBLISHED,
             ).payload()
         if phase == "preview":
             return preview_current_terms(
-                proposal_id=PROPOSAL_ID, db_path=case.app, sqlite_path=case.market, now=PUBLISHED
+                proposal_id=PROPOSAL_ID,
+                db_path=case.app,
+                listing_reader=case.listing_reader,
+                sqlite_path=case.market,
+                now=PUBLISHED,
             ).payload()
         with pytest.raises(ProposalConflictError, match="input facts changed"):
             (service.check if phase == "check" else service.publish)(draft)

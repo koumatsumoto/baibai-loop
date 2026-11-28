@@ -139,7 +139,12 @@ def test_sell_warning_follows_normal_check_save_exact_retry_and_preview(tmp_path
     case = _case_with_liquidity(tmp_path)
     proposal = _sell(case, limit=500)
     assert proposal.items[0].terms.warnings == ("adv_participation_exceeds_warning",)
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     store = LedgerStoreService(case.app)
     ledger_before = store.load_with_head()
     assert service.check(proposal).valid  # 流動性注意は売却停止gateではない。
@@ -148,7 +153,11 @@ def test_sell_warning_follows_normal_check_save_exact_retry_and_preview(tmp_path
     assert read_saved_proposal(proposal_id=saved.proposal_id, db_path=case.app) == saved
     assert service.publish(proposal) == saved
     preview = preview_current_terms(
-        proposal_id=saved.proposal_id, db_path=case.app, sqlite_path=case.market, now=PUBLISHED
+        proposal_id=saved.proposal_id,
+        db_path=case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        now=PUBLISHED,
     )
     assert preview.items[0]["current_terms_warnings"] == ["adv_participation_exceeds_warning"]
     assert preview.items[0]["blockers"] == []
@@ -167,7 +176,12 @@ def test_legacy_saved_sell_without_warning_remains_exact_but_preview_adds_curren
         result = build_proposal_warnings(*args, **kwargs)
         return replace(result, terms_warnings={})
 
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     with monkeypatch.context() as old:
         old.setattr(fixtures, "build_proposal_warnings", legacy)
         old.setattr(service_owner, "build_proposal_warnings", legacy)
@@ -180,7 +194,11 @@ def test_legacy_saved_sell_without_warning_remains_exact_but_preview_adds_curren
     assert read_saved_proposal(proposal_id=saved.proposal_id, db_path=case.app) == saved
     assert service.publish(proposal) == saved
     preview = preview_current_terms(
-        proposal_id=saved.proposal_id, db_path=case.app, sqlite_path=case.market, now=PUBLISHED
+        proposal_id=saved.proposal_id,
+        db_path=case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        now=PUBLISHED,
     )
     assert preview.items[0]["saved_terms"]["warnings"] == []
     assert preview.items[0]["current_terms_warnings"] == ["adv_participation_exceeds_warning"]
@@ -194,7 +212,10 @@ def test_sell_preview_does_not_mix_saved_full_quantity_with_current_share_units(
     case = _case_with_liquidity(tmp_path)
     proposal = _sell(case)
     saved = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(proposal)
     now = datetime.fromisoformat("2026-10-15T16:20:00+09:00")
     split = share_basis != "unchanged"
@@ -225,7 +246,11 @@ def test_sell_preview_does_not_mix_saved_full_quantity_with_current_share_units(
         apply_draft(store, draft, human_confirmed=True, now=now)
     before = case.app.read_bytes()
     preview = preview_current_terms(
-        proposal_id=saved.proposal_id, db_path=case.app, sqlite_path=case.market, now=now
+        proposal_id=saved.proposal_id,
+        db_path=case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        now=now,
     )
     current = preview.current_inputs
     assert current.positions[0].quantity_basis_confirmed is (share_basis != "unconfirmed_split")
