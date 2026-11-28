@@ -28,10 +28,24 @@ def generate_technical_analysis(
     price_path: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """同一調整基準の時系列を受け取り、個別読取と全社生成で同じ算術を使う。"""
-    ticker = normalize_ticker(ticker)
+    return {
+        "ticker": normalize_ticker(ticker),
+        **generate_technical_observations(
+            bars, as_of=as_of, trading_dates=trading_dates, price_path=price_path
+        ),
+    }
+
+
+def generate_technical_observations(
+    bars: Sequence[PriceBar],
+    *,
+    as_of: date,
+    trading_dates: Sequence[date],
+    price_path: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Compute from an already admitted adjusted price series, without a market symbol."""
     bars = sorted((bar for bar in bars if bar.traded_at <= as_of), key=lambda bar: bar.traded_at)
     return {
-        "ticker": ticker,
         "as_of": as_of.isoformat(),
         "calculation_revision": TECHNICAL_CALCULATION_REVISION,
         "price_basis": "price_adjusted_close",

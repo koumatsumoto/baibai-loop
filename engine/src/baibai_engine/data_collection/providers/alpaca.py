@@ -55,6 +55,7 @@ class DailyBarsQuery:
     symbol_asof: date | Literal["-"]
     adjustment: Literal["raw", "split"]
     feed: AlpacaBarsFeed = "iex"
+    page_limit: int = PAGE_LIMIT
 
     def __post_init__(self) -> None:
         if (
@@ -72,6 +73,8 @@ class DailyBarsQuery:
             raise ValueError("daily bars require explicit raw or split adjustment")
         if self.feed not in ("iex", "sip"):
             raise ValueError("daily bars require IEX or SIP feed")
+        if type(self.page_limit) is not int or not 1 <= self.page_limit <= PAGE_LIMIT:
+            raise ValueError("daily bars require a bounded page row count")
 
     def url(self, *, page_token: str | None = None) -> str:
         # A cursor is opaque query data. It never supplies a host, path or another parameter.
@@ -80,7 +83,7 @@ class DailyBarsQuery:
             "timeframe": "1Day",
             "start": self.start.isoformat(),
             "end": self.end.isoformat(),
-            "limit": str(PAGE_LIMIT),
+            "limit": str(self.page_limit),
             "adjustment": self.adjustment,
             "asof": self.symbol_asof if self.symbol_asof == "-" else self.symbol_asof.isoformat(),
             "feed": self.feed,
@@ -176,7 +179,7 @@ def decode_alpaca_json(body: bytes) -> object:
     )
 
 
-def _page_envelope(body: bytes) -> tuple[NativeBarGroups, object]:
+def _page_envelope(body: bytes, *, row_limit: int) -> tuple[NativeBarGroups, object]:
     value = decode_alpaca_json(body)
     if not isinstance(value, dict) or not isinstance(bars := value.get("bars"), dict):
         raise ValueError("Alpaca bars are not grouped by returned symbol")
@@ -190,7 +193,7 @@ def _page_envelope(body: bytes) -> tuple[NativeBarGroups, object]:
         for key, rows in bars.items()
     ):
         raise ValueError("invalid Alpaca bar group")
-    if sum(map(len, bars.values())) > PAGE_LIMIT:
+    if sum(map(len, bars.values())) > row_limit:
         raise ValueError("Alpaca page exceeds its requested row limit")
     # Distinguish explicit null from an omitted field. No name-mapping or row projection here.
     token: object = value.get("next_page_token", _OMITTED)
@@ -240,7 +243,7 @@ class _DailyBarsChain:
             self.failure = "http_status"
         else:
             try:
-                groups, next_cursor = _page_envelope(response.body)
+                groups, next_cursor = _page_envelope(response.body, row_limit=self.query.page_limit)
             except (ValueError, ArithmeticError, RecursionError):
                 self.failure = "invalid_envelope"
         symbols = None if groups is None else tuple(groups)

@@ -78,12 +78,12 @@ def collect_current_us_daily_prices(
     cutoff = clock()
     if cutoff.utcoffset() is None:
         raise ValueError("US price acquisition requires a timezone-aware clock")
-    listing_session = cutoff.astimezone(_NY).date()
+    today_open = calendar.is_open(cutoff.astimezone(_NY).date())
     if (
         calendar.problem is not None
         or calendar.received_at is None
         or calendar.received_at > cutoff
-        or calendar.is_open(listing_session) is not True
+        or today_open is None
     ):
         return None
     session = max(
@@ -97,7 +97,7 @@ def collect_current_us_daily_prices(
         return None
     plan = plan_current_us_daily_prices(
         current,
-        listing_session=listing_session,
+        today_open=today_open,
         price_session=session.trading_date,
         cutoff=cutoff,
         adjustment="raw",

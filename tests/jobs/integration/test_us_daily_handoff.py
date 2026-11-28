@@ -3,7 +3,7 @@ from __future__ import annotations
 import gzip
 import json
 from dataclasses import replace
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from urllib.parse import parse_qs, urlsplit
 
@@ -34,6 +34,7 @@ _ENV = {
     "APCA_API_SECRET_KEY": _PAPER_AUTH[1],
 }
 _PRIVATE_HEADER = "test-only-unshareable-header"
+_SATURDAY_SLOT = datetime(2026, 11, 28, 7, 43, tzinfo=UTC)  # 16:43 JST, 02:43 NY
 
 
 def _whole(request, value, *, status=200, fields=None, reported_request=None):
@@ -61,7 +62,9 @@ def invoke(tmp_path, monkeypatch, capsys):
     directory = tmp_path / "acquire-output"
     monkeypatch.setattr(us_daily_handoff, "_now", lambda: _CUTOFF)
 
-    def run(handler, *, expected=_FRI, command="acquire"):
+    def run(handler, *, expected=_FRI, command="acquire", current=None):
+        if current is not None:
+            pinned.write_bytes(encode_current_listing_master({"US": current}))
         calls = []
 
         def checked(request):
@@ -348,6 +351,55 @@ def _app_roundtrip(tmp_path, capsys, pinned, manifest, calendar, fixed):
     assert saved["analysis"]["draft"]["daily_close"] == raw["daily_close"]
     assert "next_page_token" not in output.out
     assert all(token not in output.out for token in (*_ENV.values(), _PRIVATE_HEADER))
+
+
+@pytest.mark.parametrize(
+    ("clock", "master_day", "admitted"),
+    [
+        (_SATURDAY_SLOT, _FRI, True),  # Saturday after a shortened Friday.
+        (_SATURDAY_SLOT, _FRI - timedelta(days=2), False),
+        (_CUTOFF, _FRI, False),  # Open Monday before the close needs Monday's universe.
+    ],
+)
+def test_raw_daily_uses_the_calendar_to_select_the_listing_session(
+    invoke, monkeypatch, clock, master_day, admitted
+):
+    monkeypatch.setattr(us_daily_handoff, "_now", lambda: clock)
+    current = make_current_us(
+        venue="XNYS", ticker="BRK.B", day=master_day, identity_since=master_day
+    )
+
+    def receive(request):
+        parts = urlsplit(str(request.url))
+        query = parse_qs(parts.query)
+        if parts.path == "/v2/calendar":
+            return _whole(
+                request, [row for row in _CALENDAR_ROWS if row["date"] <= query["end"][0]]
+            )
+        assert admitted
+        assert (query["start"], query["end"], query["adjustment"], query["symbols"]) == (
+            [_FRI.isoformat()],
+            [_FRI.isoformat()],
+            ["raw"],
+            ["BRK.B"],
+        )
+        return _whole(request, _payload(["BRK.B"]))
+
+    code, output, calls, directory, _ = invoke(receive, current=current)
+    assert len(calls) == 1 + int(admitted)  # The calendar, then (only for an exact scope) SIP.
+    if not admitted:
+        assert code == 1
+        assert not directory.exists()
+        return
+    assert code == 0
+    result = json.loads(output.out)
+    assert (result["asof"], result["listing_session"]) == (_FRI.isoformat(), _FRI.isoformat())
+    assert result["status"] == "complete"
+    assert result["received"] == result["expected"] == 1
+    calendar = _calendar_proof(directory / "calendar.json")
+    assert calendar.is_open(_FRI + timedelta(days=1)) is False
+    assert calendar.session(_FRI).shortened is True
+    assert (directory / "batch-001" / "capture.json").is_file()
 
 
 def test_explicit_nonlatest_date_fails_before_sip_call_and_no_packet(invoke):

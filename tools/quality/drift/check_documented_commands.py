@@ -189,7 +189,9 @@ def _tool_parser(
 
 def _entry_point(tokens: Sequence[str]) -> tuple[argparse.ArgumentParser, str, list[str]]:
     rest = list(tokens[2:])  # drop `uv run`
-    if rest[:1] == ["--offline"]:
+    uv_flags = {"--offline", "--no-sync"}
+    while rest and rest[0] in uv_flags:
+        uv_flags.remove(rest[0])
         rest = rest[1:]
     if rest[:1] == ["baibai-engine"]:
         from baibai_engine.cli.app import DOMAINS

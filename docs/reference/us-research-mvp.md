@@ -234,7 +234,7 @@ SECが `text/html` で返す索引では、[HTMLで省略可能な外側の終�
 
 ### 現行対象の日足を作業用に取得する
 
-同じAlpaca Paper口座の鍵を `APCA_API_KEY_ID` / `APCA_API_SECRET_KEY` として渡す。この一組でPaperの取引暦と、利用が許可されたSIP Market Dataの日足を読み取る。SIPが使えるかは別に確認し、拒否されたら別の鍵やIEXに切り替えない。Live鍵・発注APIは使わない。新たに照会するのは固定した現行銘柄マスターの対象だけ。 `--asof` を指定する場合は暦で確認した最新の引け済みNY立会日を指定し、異なれば取得しない。
+同じAlpaca Paper口座の鍵を `APCA_API_KEY_ID` / `APCA_API_SECRET_KEY` として渡す。この一組でPaperの取引暦と、利用が許可されたSIP Market Dataの日足を読み取る。SIPが使えるかは別に確認し、拒否されたら別の鍵やIEXに切り替えない。Live鍵・発注APIは使わない。NY開場日は当日の銘柄マスターで絞り、確認済みの休場日は直近の完了立会と同日のマスターを使う。 `--asof` を指定する場合は暦で確認した最新の引け済みNY立会日を指定し、異なれば取得しない。
 
 ```bash
 uv run python -m baibai_jobs.integration.source_handoff acquire \
@@ -243,6 +243,20 @@ uv run python -m baibai_jobs.integration.source_handoff acquire \
 ```
 
 同じ run の私有作業ディレクトリに、`result.json`、`calendar.json` と必要な応答原本・`batch-*/capture.json` を出す。欠測・未確認を区別し、全対象に適格な足が揃わなければ終了コードは非0。受領が完了した一部の原本は対応する既存の `--daily-close-proof` で使える。この引渡しから初回原稿を作成・保存するときは、同じ `result.json`・元の価格原本・取得に使った銘柄マスターを組で渡す。この入口はSQL staging・外部への配信・定期起動・L2や提案の発行をしない。
+
+### 米国株テクニカルを隔離して計算する
+
+比較価格の無調整日足とは別に、SIPの分割調整済みUSD日足を使う。認可した同じPaper鍵の一組で、取引暦で確かめた最新完了NY立会日まで最大253立会を対象に、固定した現行の銘柄マスターと楽天取扱範囲に含まれる銘柄だけを取得する。ティッカーが同じという理由で、同一証券だと確認できない古い系列は足さない。
+
+```bash
+uv run --offline --no-sync python -m baibai_jobs.integration.source_handoff acquire \
+  --source alpaca-us-technical --current-listing-master "$CURRENT_LISTING_MASTER" \
+  --directory "$RUNNER_TEMP/us-technical"
+uv run --offline --no-sync python -m tools.experiments.us_technical_check \
+  --packet "$RUNNER_TEMP/us-technical" --current-listing-master "$CURRENT_LISTING_MASTER"
+```
+
+依存準備済みのリポジトリ直下で実行する。`uv --offline` は依存取得だけを止める。最初のコマンドは許可済みの取引暦とSIPを読み、未使用の私有ディレクトリへ原本を渡す。二つ目は通信せず、同じ銘柄マスターで原本を照合して計算件数だけを表示する。最新足が欠ける、ページが未完了、または取得中に最新立会日が変わった場合は原本パケットを確定しない。完了した受領で過去足が欠けていれば、履歴の足りない指標を未算出とする。RSI14はこの範囲の最初の14騰落から始める。成功してもDB・R2・定期実行・L2公開は変わらず、楽天全件や本番の受入を証明しない。
 
 ## Nasdaqの公式終値を固定受領から読む
 

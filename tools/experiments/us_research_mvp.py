@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 from httpx2 import ByteStream, Headers, MockTransport, Request, Response
 
 from baibai_engine.data_collection.providers.alpaca import (
+    PAGE_LIMIT,
     AlpacaBarsFeed,
     BarsCapture,
     BarsResponse,
@@ -191,6 +192,7 @@ def _fixed_alpaca_capture(
     *,
     adjustment: Literal["raw", "split"] = "split",
     feed: AlpacaBarsFeed = "iex",
+    page_limit: int = PAGE_LIMIT,
 ) -> BarsCapture | str:
     try:
         pages = spec["pages"]
@@ -200,7 +202,13 @@ def _fixed_alpaca_capture(
         if any(_clock(page["received_at"]) > cutoff for page in pages):
             return "alpaca_chain_not_yet_received"
         query = DailyBarsQuery(
-            symbols, _day(spec["start"]), _day(spec["end"]), "-", adjustment, feed=feed
+            symbols,
+            _day(spec["start"]),
+            _day(spec["end"]),
+            "-",
+            adjustment,
+            feed=feed,
+            page_limit=page_limit,
         )
         receipts = iter(pages)
 
