@@ -153,8 +153,7 @@ def acquire_us_daily(
     directory: Path,
     expected_session: date | None,
     transport: BaseTransport,
-    data_credentials: AlpacaCredentials,
-    calendar_credentials: AlpacaCredentials,
+    credentials: AlpacaCredentials,
     clock: Callable[[], datetime],
 ) -> dict[str, object]:
     if directory.exists(follow_symlinks=False):
@@ -178,7 +177,7 @@ def acquire_us_daily(
         calendar_wire = receive_alpaca(
             url,
             endpoint="calendar",
-            credentials=calendar_credentials,
+            credentials=credentials,
             transport=transport,
             clock=clock,
         )
@@ -205,7 +204,7 @@ def acquire_us_daily(
 
     def read_bar_page(url: str) -> BarsResponse:
         page = receive_alpaca(
-            url, endpoint="bars", credentials=data_credentials, transport=transport, clock=clock
+            url, endpoint="bars", credentials=credentials, transport=transport, clock=clock
         )
         pages[url] = page
         return page.response
@@ -234,11 +233,8 @@ def acquire_us_daily(
 def acquire_us_daily_from_env(
     *, listing_master: Path, directory: Path, expected_session: date | None
 ) -> dict[str, object]:
-    data = AlpacaCredentials(
+    credentials = AlpacaCredentials(
         os.environ.get("APCA_API_KEY_ID", ""), os.environ.get("APCA_API_SECRET_KEY", "")
-    )
-    paper = AlpacaCredentials(
-        os.environ.get("APCA_PAPER_API_KEY_ID", ""), os.environ.get("APCA_PAPER_API_SECRET_KEY", "")
     )
     with HTTPTransport(trust_env=False, retries=0) as transport:
         return acquire_us_daily(
@@ -246,7 +242,6 @@ def acquire_us_daily_from_env(
             directory=directory,
             expected_session=expected_session,
             transport=transport,
-            data_credentials=data,
-            calendar_credentials=paper,
+            credentials=credentials,
             clock=_now,
         )

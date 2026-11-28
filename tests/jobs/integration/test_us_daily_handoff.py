@@ -28,13 +28,10 @@ from baibai_engine.machine_analysis.observations.stocks.listing_master_file impo
 from baibai_engine.storage.sqlite.application.write import initialize_database
 from baibai_jobs.integration import source_handoff, us_daily_handoff
 
-_DATA_AUTH = ("fixture-data-id", "fixture-data-secret")
 _PAPER_AUTH = ("fixture-paper-id", "fixture-paper-secret")
 _ENV = {
-    "APCA_API_KEY_ID": _DATA_AUTH[0],
-    "APCA_API_SECRET_KEY": _DATA_AUTH[1],
-    "APCA_PAPER_API_KEY_ID": _PAPER_AUTH[0],
-    "APCA_PAPER_API_SECRET_KEY": _PAPER_AUTH[1],
+    "APCA_API_KEY_ID": _PAPER_AUTH[0],
+    "APCA_API_SECRET_KEY": _PAPER_AUTH[1],
 }
 _PRIVATE_HEADER = "test-only-unshareable-header"
 
@@ -55,6 +52,8 @@ def _whole(request, value, *, status=200, fields=None, reported_request=None):
 def invoke(tmp_path, monkeypatch, capsys):
     for name, value in _ENV.items():
         monkeypatch.setenv(name, value)
+    for name in ("APCA_PAPER_API_KEY_ID", "APCA_PAPER_API_SECRET_KEY"):
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("APCA_API_BASE_URL", "https://not-the-owner.invalid")
     monkeypatch.setenv("HTTPS_PROXY", "https://untrusted-proxy.invalid")
     pinned = tmp_path / "current.json"
@@ -73,11 +72,10 @@ def invoke(tmp_path, monkeypatch, capsys):
                 ("https", "paper-api.alpaca.markets", "/v2/calendar"),
                 ("https", "data.alpaca.markets", "/v2/stocks/bars"),
             )
-            calendar = parts.path == "/v2/calendar"
             assert (
                 request.headers["APCA-API-KEY-ID"],
                 request.headers["APCA-API-SECRET-KEY"],
-            ) == (_PAPER_AUTH if calendar else _DATA_AUTH)
+            ) == _PAPER_AUTH
             calls.append(request)
             return handler(request)
 
@@ -360,7 +358,7 @@ def test_explicit_nonlatest_date_fails_before_sip_call_and_no_packet(invoke):
     assert not directory.exists()
 
 
-def test_paper_denial_never_reuses_sip_credentials_or_publishes_packet(invoke):
+def test_paper_calendar_denial_stops_before_sip_and_no_packet(invoke):
     code, output, calls, directory, _ = invoke(
         lambda request: _whole(request, {"denial": _PRIVATE_HEADER}, status=403)
     )
@@ -371,12 +369,26 @@ def test_paper_denial_never_reuses_sip_credentials_or_publishes_packet(invoke):
     assert not directory.exists()
 
 
-def test_data_only_secret_without_paper_is_refused_before_any_network(invoke, monkeypatch):
-    monkeypatch.delenv("APCA_PAPER_API_SECRET_KEY")
+@pytest.mark.parametrize(
+    "missing",
+    [
+        ("APCA_API_KEY_ID",),
+        ("APCA_API_SECRET_KEY",),
+        ("APCA_API_KEY_ID", "APCA_API_SECRET_KEY"),
+    ],
+)
+def test_missing_or_partial_pair_is_refused_before_network_without_alias_fallback(
+    invoke, monkeypatch, missing
+):
+    monkeypatch.setenv("APCA_PAPER_API_KEY_ID", "unused-fixture-id")
+    monkeypatch.setenv("APCA_PAPER_API_SECRET_KEY", "unused-fixture-secret")
+    for name in missing:
+        monkeypatch.delenv(name)
     code, output, calls, directory, _ = invoke(lambda _: pytest.fail("unexpected GET"))
     assert code == 1
     assert calls == []
-    assert "ValueError" in output.err
+    assert output.out == ""
+    assert output.err == "source handoff failed: ValueError\n"
     assert not directory.exists()
 
 

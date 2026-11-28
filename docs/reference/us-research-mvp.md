@@ -232,7 +232,7 @@ SECが `text/html` で返す索引では、[HTMLで省略可能な外側の終�
 
 ### 現行対象の日足を作業用に取得する
 
-既に許可されたSIP Market Dataの `APCA_API_KEY_ID` / `APCA_API_SECRET_KEY` と、別に確認したPaper Calendarの `APCA_PAPER_API_KEY_ID` / `APCA_PAPER_API_SECRET_KEY` を実行環境へ渡す。新たに照会するのは固定した現行銘柄マスターの対象だけ。 `--asof` を指定する場合は暦で確認した最新の引け済みNY立会日を指定し、異なれば取得しない。
+同じAlpaca Paper口座の鍵を `APCA_API_KEY_ID` / `APCA_API_SECRET_KEY` として渡す。この一組でPaperの取引暦と、利用が許可されたSIP Market Dataの日足を読み取る。SIPが使えるかは別に確認し、拒否されたら別の鍵やIEXに切り替えない。Live鍵・発注APIは使わない。新たに照会するのは固定した現行銘柄マスターの対象だけ。 `--asof` を指定する場合は暦で確認した最新の引け済みNY立会日を指定し、異なれば取得しない。
 
 ```bash
 uv run python -m baibai_jobs.integration.source_handoff acquire \
