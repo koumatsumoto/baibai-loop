@@ -248,6 +248,33 @@ def _read_attempt_jobs(repository: str, run_id: int, attempt: int) -> object:
         raise WatchdogInputError("cannot read daily attempt results") from exc
 
 
+def _result_jobs(
+    run: WorkflowRun, *, repository: str, read_jobs: JobsReader, result_job: str | None
+) -> list[Mapping[str, object]]:
+    for attempt in range(run.run_attempt, 0, -1):
+        payload = read_jobs(repository, run.run_id, attempt)
+        if not isinstance(payload, Mapping) or not isinstance(jobs := payload.get("jobs"), list):
+            raise WatchdogInputError("attempt results must carry a jobs array")
+        if not all(isinstance(job, Mapping) for job in jobs):
+            raise WatchdogInputError("attempt job must be an object")
+        if result_job is None:
+            return jobs
+        matches = [job for job in jobs if job.get("name") == result_job]
+        if len(matches) > 1:
+            raise WatchdogInputError("attempt contains more than one matching result job")
+        if matches:
+            return matches
+        # Re-run failed jobs may run only US. An active attempt with no jobs yet
+        # or its JP prerequisite present might still start a new JP daily.
+        if (
+            run.in_flight
+            and attempt == run.run_attempt
+            and (not jobs or any(job.get("name") != "us-market" for job in jobs))
+        ):
+            break
+    return []
+
+
 def resolve_run_results(
     runs: Sequence[WorkflowRun],
     *,
@@ -257,24 +284,45 @@ def resolve_run_results(
     read_jobs: JobsReader,
     result_prefix: str = RESULT_STEP_PREFIX,
     repeated_source_results: bool = False,
+    result_job: str | None = None,
 ) -> tuple[WorkflowRun, ...]:
-    """Use the batch's reported target from recent successful attempt results."""
+    """Use the named job's own result, or the aggregate for acquisition workflows."""
     resolved: list[WorkflowRun] = []
     for run in runs:
-        if (
-            not run.succeeded
-            or not window_end - timedelta(hours=window_hours) <= run.updated_at <= window_end
-        ):
+        if (result_job is None and not run.succeeded) or not window_end - timedelta(
+            hours=window_hours
+        ) <= run.updated_at <= window_end:
             resolved.append(run)
             continue
-        payload = read_jobs(repository, run.run_id, run.run_attempt)
-        if not isinstance(payload, Mapping) or not isinstance(payload.get("jobs"), list):
-            raise WatchdogInputError("attempt results must carry a jobs array")
+        jobs = _result_jobs(run, repository=repository, read_jobs=read_jobs, result_job=result_job)
+        if result_job is not None:
+            job = jobs[0] if jobs else {}
+            status = str(job.get("status") or run.status)
+            finished = job.get("completed_at")
+            if status != "completed" or (run.in_flight and finished is None):
+                status = run.status if status == "completed" else status
+                resolved.append(replace(run, status=status, conclusion=""))
+                continue
+            updated = (
+                run.updated_at
+                if finished is None
+                else _parse_instant(finished, field="finished at")
+            )
+            # Looking at a past check must not borrow a JP result completed afterwards.
+            if updated > window_end:
+                resolved.append(replace(run, conclusion=""))
+                continue
+            run = replace(
+                run, status=status, conclusion=str(job.get("conclusion") or ""), updated_at=updated
+            )
+            if not run.succeeded:
+                resolved.append(run)
+                continue
         targets: list[date] = []
-        for job in payload["jobs"]:
-            if not isinstance(job, Mapping) or not isinstance(job.get("steps"), list):
+        for job in jobs:
+            if not isinstance(steps := job.get("steps"), list):
                 raise WatchdogInputError("attempt job must carry a steps array")
-            for step in job["steps"]:
+            for step in steps:
                 if not isinstance(step, Mapping):
                     raise WatchdogInputError("attempt step must be an object")
                 name = str(step.get("name") or "")
@@ -491,6 +539,7 @@ def main(
                 if args.market
                 else RESULT_STEP_PREFIX,
                 repeated_source_results=args.economic or args.market,
+                result_job=None if args.economic or args.market else "daily",
             )
         verdict = evaluate(
             runs,
