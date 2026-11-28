@@ -4,20 +4,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from zoneinfo import ZoneInfo
 
 from baibai_engine.data_collection.providers.alpaca_calendar import (
     AlpacaCalendarReading,
     USRegularSession,
 )
+from baibai_engine.machine_analysis.observations.stocks.alpaca_listing_input import (
+    alpaca_research_ids_for_close,
+)
 from baibai_engine.machine_analysis.observations.stocks.listing_master import ListingKey
 from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
-    RAKUTEN_SCOPE_ZONE,
     CurrentListingMarket,
-    read_bound_rakuten_scope,
 )
-from baibai_engine.machine_analysis.observations.stocks.us_universe import (
-    cover_current_rakuten_catalog_targets,
-)
+
+_NY = ZoneInfo("America/New_York")
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,7 +36,7 @@ class USResearchListingBasis:
 def _sessions_at(
     calendar: AlpacaCalendarReading, instant: datetime
 ) -> tuple[date, USRegularSession]:
-    day = instant.astimezone(RAKUTEN_SCOPE_ZONE).date()
+    day = instant.astimezone(_NY).date()
     if not calendar.start <= day <= calendar.end:
         raise ValueError("US Research requires verified cash calendar through its cutoff")
     dates = [item for item in calendar.sessions if item.trading_date <= day]
@@ -78,25 +79,16 @@ def require_us_research_listing(
         or completed.close_at.astimezone(UTC) != session_close_at.astimezone(UTC)
     ):
         raise ValueError("US Research price session is not the latest verified completed session")
-    scope = read_bound_rakuten_scope(current, session=listing_session, cutoff=cutoff)
-    if scope is None or current is None:
-        raise ValueError("US Research requires the current verified Rakuten ordinary scope")
-    target = next(
-        (row for row in scope.rows if row.listing_key == key and row.state == "catalog_target"),
-        None,
+    identities = alpaca_research_ids_for_close(
+        current,
+        today_open=listing_session == cutoff.astimezone(_NY).date(),
+        price_session=price_session,
+        price_close_at=completed.close_at,
+        cutoff=cutoff,
     )
-    listing = next((row for row in current.slice.rows if row.key == key), None)
-    if target is None or listing is None:
-        raise ValueError("US Research requires the exact eligible current US listing")
-    (covered,) = cover_current_rakuten_catalog_targets(
-        ((key, target.broker_symbol),), listings=current.slice.rows
-    )
-    if (
-        covered.state != "eligible"
-        or (covered.venue, covered.alpaca_symbol) != key
-        or listing.identity_since is None
-        or listing.identity_since > price_session
-        or (listing.effective_session is not None and listing.effective_session > price_session)
-    ):
-        raise ValueError("US Research price is not bound to this eligible listing instance")
-    return USResearchListingBasis(listing_session, target.instrument_id)
+    instrument_id = next((identity for candidate, identity in identities if candidate == key), None)
+    if instrument_id is None:
+        raise ValueError(
+            "US Research requires the exact current Alpaca identity at the price close"
+        )
+    return USResearchListingBasis(listing_session, instrument_id)

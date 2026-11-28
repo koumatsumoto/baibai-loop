@@ -6,18 +6,23 @@ import json
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
-from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from threading import Event
 
 import pytest
 from tests.helpers.us_research_admission import (
     current_flags,
-    make_current_us,
     write_calendar_capture,
 )
-from tests.tools.test_us_research_admission import _NEXT, _SHORT, _inputs, _write
+from tests.tools.test_us_research_admission import (
+    _NEXT,
+    _SHORT,
+    _SHORT_CLOSE,
+    _alpaca_listing,
+    _inputs,
+    _write,
+)
 from tools.experiments import us_research_report as cli
 
 from baibai_engine.investment_judgment import us_proposal as owner
@@ -35,20 +40,11 @@ _SAVE_AT = datetime(2025, 11, 28, 21, 10, tzinfo=UTC)
 _LATE = datetime(2025, 12, 1, 22, tzinfo=UTC)
 
 
-def _refresh(listing, calendar, *, state="catalog_target", identity=None, at=_REFRESH_AT):
-    value = make_current_us(
-        venue="XNYS",
-        ticker="BRK.B",
-        day=_SHORT,
-        identity_since=_SHORT,
-        state=state,
-        **({"instrument_id": identity} if identity is not None else {}),
+def _refresh(listing, calendar, *, ticker="BRK.B", number=1, at=_REFRESH_AT):
+    value = _alpaca_listing(
+        ticker=ticker, number=number, observed=_SHORT_CLOSE - timedelta(minutes=1), received=at
     )
-    assert value.rakuten is not None
-    scope = replace(value.rakuten, catalog_received_at=at, exclusions_received_at=at)
-    listing.write_bytes(
-        encode_current_listing_master({"US": replace(value, received_at=at, rakuten=scope)})
-    )
+    listing.write_bytes(encode_current_listing_master({"US": value}))
     write_calendar_capture(
         calendar,
         start=_SHORT,
@@ -194,8 +190,7 @@ def test_refreshed_same_session_identity_preserves_the_review_and_saved_read(
 @pytest.mark.parametrize(
     "fault",
     [
-        "sell_only",
-        "buy_suspended",
+        "listing_removed",
         "remap",
         "next_before_close",
         "next_completed",
@@ -216,23 +211,17 @@ def test_review_from_an_earlier_input_cannot_authorize_new_decision(tmp_path, ca
         unbound=legacy,
     )
     at = _SAVE_AT
-    if fault in {"sell_only", "buy_suspended", "ineligible_defer"}:
-        _refresh(listing, calendar, state="sell_only" if fault == "ineligible_defer" else fault)
+    if fault in {"listing_removed", "ineligible_defer"}:
+        _refresh(listing, calendar, ticker="BRK.A")
     elif fault == "remap":
-        # Broker attachment and active-ID digest are both valid, but for a replacement.
-        _refresh(listing, calendar, identity="different-verified-instrument")
+        # An eligible current quote for the same label now identifies a different UUID.
+        _refresh(listing, calendar, number=2)
     elif fault == "next_before_close":
         at = datetime(2025, 12, 1, 17, tzinfo=UTC)
         # Same instrument freshly confirmed on Monday; old Friday basis still cannot be used
         # to authorize a *new* decision even though Friday's close is still the latest close.
         listing.write_bytes(
-            encode_current_listing_master(
-                {
-                    "US": make_current_us(
-                        venue="XNYS", ticker="BRK.B", day=_NEXT, identity_since=_SHORT
-                    )
-                }
-            )
+            encode_current_listing_master({"US": _alpaca_listing(_NEXT, observed=_SHORT_CLOSE)})
         )
     elif fault == "next_completed":
         at = _LATE
@@ -303,7 +292,7 @@ def test_save_checks_after_a_real_app_write_lock_wait(tmp_path, capsys, monkeypa
             if during_wait == "clock":
                 active_clock[0] = _LATE  # Actual NY close moved while waiting.
             else:
-                _refresh(listing, calendar, state="buy_suspended")
+                _refresh(listing, calendar, ticker="BRK.A")
         finally:
             blocker.execute("ROLLBACK")
         assert pending.result(timeout=5) == 2

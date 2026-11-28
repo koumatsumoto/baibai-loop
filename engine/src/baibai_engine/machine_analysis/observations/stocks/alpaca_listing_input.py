@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 from baibai_engine.data_collection.providers.alpaca import is_alpaca_symbol
 from baibai_engine.data_collection.providers.alpaca_assets import AlpacaAssetsReceipt
 from baibai_engine.data_collection.providers.nasdaq_symbols import PrimaryUSVenue
 from baibai_engine.machine_analysis.observations.stocks.listing_master import (
+    ListingKey,
     ListingMasterRow,
     ListingSlice,
 )
@@ -96,4 +98,39 @@ def prepare_alpaca_research_inventory(
         ),
         observed_by_exchange=dict(by_exchange),
         excluded=dict(excluded),
+    )
+
+
+def alpaca_research_ids_for_close(
+    current: CurrentListingMarket | None,
+    *,
+    today_open: bool,
+    price_session: date,
+    price_close_at: datetime | None,
+    cutoff: datetime,
+) -> tuple[tuple[ListingKey, str], ...]:
+    """Select exact current Alpaca identities proven by the verified close."""
+    if cutoff.utcoffset() is None:
+        raise ValueError("US price scope requires a timezone")
+    today = cutoff.astimezone(_NY).date()
+    if type(price_session) is not date or price_session > today:
+        raise ValueError("price session cannot follow the current NY date")
+    if (
+        current is None
+        or current.source != ALPACA_ASSETS_SOURCE
+        or current.received_at > cutoff
+        or current.slice.session not in ((today,) if today_open else (today, price_session))
+        or price_close_at is None
+        or price_close_at.utcoffset() is None
+        or price_close_at > cutoff
+        or price_close_at.astimezone(_NY).date() != price_session
+    ):
+        return ()
+    return tuple(
+        (row.key, row.instrument_id)
+        for row in current.slice.rows
+        if row.listing_state == "listed"
+        and row.instrument_id is not None
+        and row.identity_observed_at is not None
+        and row.identity_observed_at <= price_close_at
     )
