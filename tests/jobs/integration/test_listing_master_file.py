@@ -36,6 +36,7 @@ def _mixed() -> _Store:
         refresh_current_us_rakuten_scope(
             store,
             snapshot=snapshot,
+            catalog_venue_counts={"NASDAQ": 1, "NYSE": 1},
             bindings=_bindings(store, snapshot),
             expected_session=_DAY,
             cutoff=_CUTOFF,

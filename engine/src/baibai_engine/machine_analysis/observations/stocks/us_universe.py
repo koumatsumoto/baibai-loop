@@ -5,7 +5,8 @@ from __future__ import annotations
 import csv
 import io
 import re
-from collections.abc import Iterable
+from collections import Counter
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Literal, cast
@@ -75,6 +76,18 @@ class RakutenOrdinarySnapshot:
     exclusions_reported_count: int | None
     rows: tuple[RakutenOrdinaryRow, ...]
     restriction_only: tuple[RakutenRestrictionRow, ...]
+
+
+def reconcile_rakuten_catalog_venues(
+    snapshot: RakutenOrdinarySnapshot, reported: Mapping[str, int]
+) -> frozenset[str]:
+    """Match independent broker totals and return supported venues not yet confirmed."""
+    observed = Counter(row.exchange for row in snapshot.rows)
+    if observed.keys() - reported.keys() or any(
+        type(count) is not int or observed[venue] != count for venue, count in reported.items()
+    ):
+        raise ValueError("catalog rows do not match the independently reported venue totals")
+    return RAKUTEN_LISTING_EXCHANGES.difference(reported)
 
 
 def _received_on_session(stamp: object, effective_session: date) -> datetime:
