@@ -7,6 +7,7 @@ import pytest
 
 from baibai_engine.cli.app import main
 from baibai_engine.cli.investment_judgment import build_parser as build_research_parser
+from baibai_jobs.cli import _COMMANDS
 from baibai_jobs.cli import main as collection_main
 from baibai_jobs.maintenance.market.cli import build_parser as build_source_parser
 
@@ -69,6 +70,18 @@ def test_source_maintenance_is_owned_by_collection():
     with pytest.raises(SystemExit) as help_result:
         collection_main(["maintain-market", "--help"])
     assert help_result.value.code == 0
+
+
+@pytest.mark.parametrize("command", _COMMANDS)
+def test_jobs_help_names_the_invoked_command(command: str, capsys) -> None:
+    try:
+        status = collection_main([command, "--help"])
+    except SystemExit as exc:
+        status = exc.code
+    assert status == 0
+    capture = capsys.readouterr()
+    assert capture.err == ""
+    assert capture.out.split()[:3] == ["usage:", "baibai-jobs", command]
 
 
 def test_master_acquisition_help_exposes_the_canonical_exact_date_option(capsys):

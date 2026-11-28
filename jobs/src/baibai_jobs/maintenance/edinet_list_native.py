@@ -68,7 +68,7 @@ def commit_stage(owner: EdinetListL1, store: ReceiptStore, stage_id: str) -> dic
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(prog="baibai-jobs edinet-list-native", description=__doc__)
     parser.add_argument("command", choices=("initialize", "acquire", "commit-work", "commit-stage"))
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--stage-id")

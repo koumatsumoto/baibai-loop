@@ -95,7 +95,7 @@ def receive(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(prog="baibai-jobs financial-pdf-source", description=__doc__)
     parser.add_argument("--receipts", required=True, type=Path)
     parser.add_argument("--directory", required=True, type=Path)
     parser.add_argument(

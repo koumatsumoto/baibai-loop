@@ -105,7 +105,7 @@ def export_evidence(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(prog="baibai-jobs article-evidence", description=__doc__)
     parser.add_argument("--source", choices=ARTICLE_SOURCES, required=True)
     parser.add_argument("--stage-id", required=True)
     parser.add_argument("--manifest-sha256", required=True)

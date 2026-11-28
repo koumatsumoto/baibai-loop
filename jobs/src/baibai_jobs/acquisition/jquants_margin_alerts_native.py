@@ -48,7 +48,9 @@ def acquire_margin_alerts_native(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        prog="baibai-jobs jquants-margin-alerts-native", description=__doc__
+    )
     parser.add_argument(
         "command", choices=("initialize", "plan", "acquire", "resume", "commit-work")
     )

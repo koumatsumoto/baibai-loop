@@ -572,7 +572,9 @@ def model_input(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        prog="baibai-jobs rebuild-margin-interest-native", description=__doc__
+    )
     parser.add_argument("--saved-input", type=Path)
     parser.add_argument("--calendar-head", type=Path, help="保存したcalendar-fixed.jsonを使う")
     parser.add_argument("--work-directory", type=Path, required=True)

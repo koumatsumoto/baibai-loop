@@ -91,8 +91,10 @@ def acquire_full_day_native(
     return totals
 
 
-def build_parser(description: str, *, directory_required: bool = True) -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=description)
+def build_parser(
+    description: str, *, prog: str, directory_required: bool = True
+) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog=prog, description=description)
     parser.add_argument(
         "command", choices=("initialize", "plan", "acquire", "resume", "commit-work")
     )

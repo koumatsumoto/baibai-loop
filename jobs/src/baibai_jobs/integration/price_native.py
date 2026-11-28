@@ -441,7 +441,7 @@ def rebuild(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(prog="baibai-jobs rebuild-price-native", description=__doc__)
     parser.add_argument(
         "--saved-input",
         type=Path,

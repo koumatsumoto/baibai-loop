@@ -100,7 +100,9 @@ def acquire_margin_interest_native(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        prog="baibai-jobs jquants-margin-interest-native", description=__doc__
+    )
     parser.add_argument(
         "command", choices=("initialize", "plan", "acquire", "resume", "commit-work")
     )
