@@ -92,7 +92,10 @@ class SecRevenueAmbiguity:
 
 
 type _UnavailableReceipt = Literal[
-    "not_yet_received", "publication_unverified", "filing_period_mismatch"
+    "not_yet_received",
+    "publication_unverified",
+    "filing_period_mismatch",
+    "filing_period_unverified",
 ]
 type _MissingAmount = Literal["unmapped_concept_or_unit", "no_fact_for_scope"]
 type SecUsdResult = (
@@ -130,7 +133,8 @@ class SecReportedDuration:
 
 
 type _Metric = Literal["revenue", "operating_income", "operating_cash_flow", "ppe_cash_paid"]
-type _Basis = Literal["quarter", "year_to_date"]
+type _Basis = Literal["quarter", "year_to_date", "annual"]
+type _Columns = tuple[_Basis, SecReportedDuration, SecReportedDuration]
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,28 +240,80 @@ def observe_sec_comparatives(
     if not all(364 <= (current - prior).days <= 371 for current, prior in corresponding_dates):
         raise ValueError("SEC comparison requires the preceding fiscal year")
 
+    return _read_comparative_columns(
+        capture,
+        filing,
+        expected_cik=expected_cik,
+        cutoff=cutoff,
+        publicly_observed_by=publicly_observed_by,
+        income=("quarter", current_quarter, prior_quarter),
+        cash=("year_to_date", current_ytd, prior_ytd),
+    )
+
+
+def observe_sec_annual_comparatives(
+    capture: SecCompanyFactsCapture,
+    filing: SecFilingWitness,
+    *,
+    expected_cik: str,
+    current_year: SecReportedDuration,
+    prior_year: SecReportedDuration,
+    cutoff: datetime,
+    publicly_observed_by: SecPublicFilingObservation | None = None,
+) -> SecComparativeResult:
+    """Read two adjacent reported fiscal years of a single original 10-K, not Q4 or TTM."""
+    if filing.form != "10-K":
+        raise ValueError("SEC annual comparisons require a pinned original 10-K")
+    if not (
+        current_year.fits_regular_fiscal_year
+        and prior_year.fits_regular_fiscal_year
+        and (current_year.start - prior_year.end).days == 1
+    ):
+        raise ValueError("SEC comparisons require consecutive complete regular fiscal years")
+    columns: _Columns = ("annual", current_year, prior_year)
+    return _read_comparative_columns(
+        capture,
+        filing,
+        expected_cik=expected_cik,
+        cutoff=cutoff,
+        publicly_observed_by=publicly_observed_by,
+        income=columns,
+        cash=columns,
+    )
+
+
+def _read_comparative_columns(
+    capture: SecCompanyFactsCapture,
+    filing: SecFilingWitness,
+    *,
+    expected_cik: str,
+    cutoff: datetime,
+    publicly_observed_by: SecPublicFilingObservation | None,
+    income: _Columns,
+    cash: _Columns,
+) -> SecComparativeResult:
     source = _pin_companyfacts(
         capture,
         filing,
         issuer=_cik(expected_cik),
         cutoff=cutoff,
         publicly_observed_by=publicly_observed_by,
-        current_period_end=current_quarter.end,
+        current_period_end=income[1].end,
     )
     if isinstance(source, str):
         return source
     if not source.known_public:
         return "publication_unverified"
+    if income[0] == "annual" and source.publicly_observed_by is None:
+        # A 10-K can report three full years under one accession; a publication clock
+        # by itself cannot distinguish its report year from two comparative columns.
+        return "filing_period_unverified"
 
-    slots: tuple[tuple[_Metric, _Basis, tuple[SecReportedConcept, ...]], ...] = (
-        ("revenue", "quarter", _REVENUE_CONCEPTS),
-        ("operating_income", "quarter", ("us-gaap:OperatingIncomeLoss",)),
-        (
-            "operating_cash_flow",
-            "year_to_date",
-            ("us-gaap:NetCashProvidedByUsedInOperatingActivities",),
-        ),
-        ("ppe_cash_paid", "year_to_date", ("us-gaap:PaymentsToAcquirePropertyPlantAndEquipment",)),
+    slots: tuple[tuple[_Metric, _Columns, tuple[SecReportedConcept, ...]], ...] = (
+        ("revenue", income, _REVENUE_CONCEPTS),
+        ("operating_income", income, ("us-gaap:OperatingIncomeLoss",)),
+        ("operating_cash_flow", cash, ("us-gaap:NetCashProvidedByUsedInOperatingActivities",)),
+        ("ppe_cash_paid", cash, ("us-gaap:PaymentsToAcquirePropertyPlantAndEquipment",)),
     )
 
     def amount(
@@ -269,10 +325,7 @@ def observe_sec_comparatives(
             return "invalid_fact"
 
     rows = []
-    for metric, basis, concepts in slots:
-        current, prior = (
-            (current_quarter, prior_quarter) if basis == "quarter" else (current_ytd, prior_ytd)
-        )
+    for metric, (basis, current, prior), concepts in slots:
         rows.append(
             SecStatementComparison(
                 metric, basis, current, prior, amount(current, concepts), amount(prior, concepts)

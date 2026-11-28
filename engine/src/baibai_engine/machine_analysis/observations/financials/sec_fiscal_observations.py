@@ -12,6 +12,7 @@ from baibai_engine.machine_analysis.observations.financials.sec_companyfacts imp
     SecFilingWitness,
     SecPublicFilingObservation,
     SecReportedDuration,
+    observe_sec_annual_comparatives,
     observe_sec_comparatives,
 )
 
@@ -29,6 +30,10 @@ class SecFiscalQuarterInput:
     prior_fiscal_start: date
     publicly_observed_by: SecPublicFilingObservation | None = None
 
+    @property
+    def report_end(self) -> date:
+        return self.current_quarter.end
+
     def observe(self, *, issuer_cik: str, cutoff: datetime) -> SecComparativeResult:
         return observe_sec_comparatives(
             self.capture,
@@ -45,6 +50,30 @@ class SecFiscalQuarterInput:
 
 
 @dataclass(frozen=True, slots=True)
+class SecFiscalYearInput:
+    capture: SecCompanyFactsCapture
+    filing: SecFilingWitness
+    current_year: SecReportedDuration
+    prior_year: SecReportedDuration
+    publicly_observed_by: SecPublicFilingObservation | None = None
+
+    @property
+    def report_end(self) -> date:
+        return self.current_year.end
+
+    def observe(self, *, issuer_cik: str, cutoff: datetime) -> SecComparativeResult:
+        return observe_sec_annual_comparatives(
+            self.capture,
+            self.filing,
+            expected_cik=issuer_cik,
+            current_year=self.current_year,
+            prior_year=self.prior_year,
+            cutoff=cutoff,
+            publicly_observed_by=self.publicly_observed_by,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class SecIssuerFinancialObservations:
     issuer_cik: str
     symbols: tuple[str, ...]
@@ -55,21 +84,21 @@ class SecIssuerFinancialObservations:
 
 def observe_sec_issuer_financials(
     subjects: Sequence[SecReportedTicker],
-    quarters: Mapping[str, SecFiscalQuarterInput],
+    filings: Mapping[str, SecFiscalQuarterInput | SecFiscalYearInput],
     *,
     cutoff: datetime,
 ) -> tuple[SecIssuerFinancialObservations, ...]:
     """Read selected issuer filings once. Unassociated tickers cannot inherit issuer facts.
 
-    A canonical CIK key with a selected quarter also supports issuer-only analysis;
+    A canonical CIK key with a selected filing also supports issuer-only analysis;
     it does not establish any association with a stock class.
     """
     if cutoff.utcoffset() is None:
         raise ValueError("SEC financial comparison requires a timezone")
     cutoff = cutoff.astimezone(UTC)
-    if any(SecEdgarQuery("companyfacts", issuer).cik != issuer for issuer in quarters):
-        raise ValueError("selected SEC quarters must use canonical CIK keys")
-    groups: dict[str, set[str]] = {issuer: set() for issuer in quarters}
+    if any(SecEdgarQuery("companyfacts", issuer).cik != issuer for issuer in filings):
+        raise ValueError("selected SEC filings must use canonical CIK keys")
+    groups: dict[str, set[str]] = {issuer: set() for issuer in filings}
     symbol_issuers: dict[str, str] = {}
     for subject in subjects:
         if subject.received_at.utcoffset() is None or subject.received_at > cutoff:
@@ -81,7 +110,7 @@ def observe_sec_issuer_financials(
 
     result = []
     for issuer, symbols in sorted(groups.items()):
-        source = quarters.get(issuer)
+        source = filings.get(issuer)
         observation: (
             SecComparativeResult | Literal["periodic_source_missing", "invalid_periodic_evidence"]
         ) = "periodic_source_missing"
@@ -93,7 +122,7 @@ def observe_sec_issuer_financials(
             except (ValueError, ArithmeticError):
                 observation = "invalid_periodic_evidence"
             if isinstance(observation, tuple):
-                period_end = source.current_quarter.end
+                period_end = source.report_end
                 accession = source.filing.accession
         result.append(
             SecIssuerFinancialObservations(
