@@ -14,6 +14,7 @@ from baibai_engine.machine_analysis.observations.stocks.us_universe import (
     RAKUTEN_LISTING_EXCHANGES,
     RakutenOrdinarySnapshot,
     parse_rakuten_ordinary_snapshot,
+    reconcile_rakuten_catalog_venues,
 )
 
 # Broker cash product scope, not a claim of ordinary shares or matching support for each venue.
@@ -33,9 +34,6 @@ class VenueCounts(TypedDict):
 def _venue_report(
     snapshot: RakutenOrdinarySnapshot, totals: dict[str, int]
 ) -> dict[str, VenueCounts]:
-    observed = Counter(row.exchange for row in snapshot.rows)
-    if observed.keys() - totals.keys() or any(observed[venue] != n for venue, n in totals.items()):
-        raise ValueError("catalog rows do not match the independently reported venue totals")
     catalog_status = Counter((row.exchange, row.buy_status) for row in snapshot.rows)
     restriction_only = Counter((row.exchange, row.restriction) for row in snapshot.restriction_only)
     venues = _REQUESTED_EXCHANGES | totals.keys() | {venue for venue, _ in restriction_only}
@@ -126,6 +124,7 @@ def main(argv: list[str] | None = None) -> int:
             exclusions_received_at=args.restrictions_received_at,
             exclusions_reported_count=args.restrictions_count,
         )
+        missing_supported = reconcile_rakuten_catalog_venues(snapshot, totals)
         venues = _venue_report(snapshot, totals)
     except (OSError, UnicodeError):
         print("error: cannot read the normalized UTF-8 CSV files", file=sys.stderr)
@@ -138,7 +137,7 @@ def main(argv: list[str] | None = None) -> int:
     unsupported = sum(
         value["catalog_targets"] or 0 for value in venues.values() if not value["listing_supported"]
     )
-    if RAKUTEN_LISTING_EXCHANGES - totals.keys():
+    if missing_supported:
         status = "incomplete_supported_intake"
     elif not any(venues[venue]["catalog_targets"] for venue in RAKUTEN_LISTING_EXCHANGES):
         status = "no_supported_catalog_targets"

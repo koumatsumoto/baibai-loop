@@ -65,13 +65,15 @@ def _store():
     return store
 
 
-def _attach(store, *, catalog=None, restrictions=None, clock=_MON_CLOCK):
+def _attach(store, *, catalog=None, venue_counts=None, restrictions=None, clock=_MON_CLOCK):
     catalog = catalog or (
         "ticker,exchange\nBRK B,NYSE\n"
         + "".join(f"{symbol},NASDAQ\n" for symbol in _ESTABLISHED[1:])
         + "IPO,NASDAQ\nREUSE,NASDAQ\nWMT,NASDAQ\nSTOP,NASDAQ\nFUND,NASDAQ\n"
         "BAD P,NYSE\nMISSING,NASDAQ\nBOTH,NASDAQ\nBRK A,NYSE American\n"
     )
+    if venue_counts is None:
+        venue_counts = {"NASDAQ": 2 * MAX_SYMBOLS + 8, "NYSE": 2, "NYSE American": 1}
     restrictions = restrictions or (
         "ticker,exchange,restriction\nSELL,NASDAQ,sell_only\nSTOP,NASDAQ,buy_suspended\n"
     )
@@ -98,7 +100,12 @@ def _attach(store, *, catalog=None, restrictions=None, clock=_MON_CLOCK):
     )
     assert (
         refresh_current_us_rakuten_scope(
-            store, snapshot=snapshot, bindings=bindings, expected_session=_MON, cutoff=_CUTOFF
+            store,
+            snapshot=snapshot,
+            catalog_venue_counts=venue_counts,
+            bindings=bindings,
+            expected_session=_MON,
+            cutoff=_CUTOFF,
         )
         == "updated"
     )
@@ -160,6 +167,7 @@ def test_absent_stale_wrong_identity_or_only_restricted_scope_is_not_an_empty_su
     current = _attach(
         store,
         catalog="ticker,exchange\nSELL,NASDAQ\n",
+        venue_counts={"NASDAQ": 1, "NYSE": 0},
         restrictions="ticker,exchange,restriction\nSELL,NASDAQ,sell_only\n",
     )
     assert _plan(current) is None

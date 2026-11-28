@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import closing
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
@@ -40,6 +40,7 @@ from baibai_engine.machine_analysis.observations.stocks.us_universe import (
     RakutenOrdinarySnapshot,
     RakutenRestrictionRow,
     rakuten_listing_key,
+    reconcile_rakuten_catalog_venues,
 )
 from baibai_engine.storage.filesystem import fsync_directory, write_bytes_atomic
 from baibai_engine.storage.objects.json import put_private
@@ -299,6 +300,7 @@ def refresh_current_us_rakuten_scope(
     store: ListingMasterStore,
     *,
     snapshot: RakutenOrdinarySnapshot | None,
+    catalog_venue_counts: Mapping[str, int],
     bindings: Iterable[RakutenListingBinding],
     expected_session: date,
     cutoff: datetime,
@@ -315,6 +317,8 @@ def refresh_current_us_rakuten_scope(
         raise ValueError("a complete Rakuten catalog and restrictions capture are required")
     if snapshot.effective_session != expected_session:
         raise ValueError("Rakuten capture has a different NY session")
+    if missing := reconcile_rakuten_catalog_venues(snapshot, catalog_venue_counts):
+        raise ValueError(f"missing Rakuten catalog venue totals: {', '.join(sorted(missing))}")
     catalog_at, exclusions_at = snapshot.catalog_received_at, snapshot.exclusions_received_at
     catalog_count, exclusions_count = snapshot.reported_count, snapshot.exclusions_reported_count
     if any(clock.utcoffset() is None or clock > cutoff for clock in (catalog_at, exclusions_at)):

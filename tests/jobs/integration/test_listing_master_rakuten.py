@@ -28,6 +28,7 @@ _BW = ObservedListing(("XNYS", "BW"), "Synthetic BW", "not_flagged_fund")
 _CLASS = ObservedListing(("XNYS", "BRK.B"), "Synthetic separate Class B", "not_flagged_fund")
 _CATALOG = "ticker,exchange\nAAA,NASDAQ\nBRK B,NYSE\n"
 _RESTRICTIONS = "ticker,exchange,restriction\n"
+_CATALOG_VENUE_COUNTS = {"NASDAQ": 1, "NYSE": 1}
 _EXCLUDED = _RESTRICTIONS + "AAA,NASDAQ,buy_suspended\nBW,NYSE,sell_only\n"
 _CATALOG_AT = _AT + timedelta(minutes=5)
 _EXCLUSIONS_AT = _AT + timedelta(minutes=10)
@@ -74,12 +75,13 @@ def _bindings(store: _Store, capture: RakutenOrdinarySnapshot):
     )
 
 
-def _attach(store, capture, bindings=None, *, cutoff=_CUTOFF):
+def _attach(store, capture, bindings=None, *, cutoff=_CUTOFF, venue_counts=_CATALOG_VENUE_COUNTS):
     if bindings is None:
         bindings = _bindings(store, capture) if capture is not None else ()
     return refresh_current_us_rakuten_scope(
         store,
         snapshot=capture,
+        catalog_venue_counts=venue_counts,
         bindings=bindings,
         expected_session=_DAY,
         cutoff=cutoff,
@@ -173,6 +175,51 @@ def test_authoritative_new_empty_exclusions_can_clear_known_restrictions():
     assert scope.exclusions_count == 0
     assert {row.listing_key for row in scope.rows} == {_CLASS.key, _US.key}
     assert all(row.state == "catalog_target" for row in scope.rows)
+
+
+@pytest.mark.parametrize(
+    ("venue_counts", "reason"),
+    [
+        ({"NASDAQ": 1}, "missing Rakuten catalog venue totals: NYSE"),
+        (_CATALOG_VENUE_COUNTS, "independently reported venue totals"),
+    ],
+)
+def test_partial_positive_catalog_cannot_replace_the_current_scope(venue_counts, reason):
+    store = _store()
+    assert _attach(store, _snapshot()) == "updated"
+    before = store.values[LISTING_MASTER_CURRENT_KEY]
+    truncated = parse_rakuten_ordinary_snapshot(
+        "ticker,exchange\nAAA,NASDAQ\n",
+        catalog_mode="cash_ordinary_tradable",
+        effective_session=_DAY,
+        catalog_received_at=_CATALOG_AT + timedelta(minutes=1),
+        reported_count=1,
+        exclusions_csv=_RESTRICTIONS,
+        exclusions_received_at=_EXCLUSIONS_AT + timedelta(minutes=1),
+        exclusions_reported_count=0,
+    )
+    with pytest.raises(ValueError, match=reason):
+        _attach(store, truncated, venue_counts=venue_counts)
+    assert store.values[LISTING_MASTER_CURRENT_KEY] == before
+    assert store.put_keys == [LISTING_MASTER_CURRENT_KEY] * 3
+
+
+def test_verified_zero_is_distinct_from_missing_catalog_venue():
+    store = _store()
+    capture = parse_rakuten_ordinary_snapshot(
+        "ticker,exchange\nAAA,NASDAQ\n",
+        catalog_mode="cash_ordinary_tradable",
+        effective_session=_DAY,
+        catalog_received_at=_CATALOG_AT,
+        reported_count=1,
+        exclusions_csv=_RESTRICTIONS,
+        exclusions_received_at=_EXCLUSIONS_AT,
+        exclusions_reported_count=0,
+    )
+    assert _attach(store, capture, venue_counts={"NASDAQ": 1, "NYSE": 0}) == "updated"
+    scope = _read(store)
+    assert scope is not None
+    assert [row.listing_key for row in scope.rows if row.state == "catalog_target"] == [_US.key]
 
 
 def test_stale_receipt_session_or_cutoff_is_not_eligible_and_stays_in_storage():
@@ -299,7 +346,15 @@ def test_an_unsupported_source_row_has_no_expectation_to_be_attached():
         exclusions_received_at=_EXCLUSIONS_AT,
         exclusions_reported_count=2,
     )
-    assert _attach(store, captured, _bindings(store, fixture)) == "updated"
+    assert (
+        _attach(
+            store,
+            captured,
+            _bindings(store, fixture),
+            venue_counts={**_CATALOG_VENUE_COUNTS, "OTC": 1},
+        )
+        == "updated"
+    )
     scope = _read(store)
     assert scope.catalog_count == 3
     assert {row.broker_symbol for row in scope.rows} == {"AAA", "BW", "BRK B"}
@@ -320,7 +375,7 @@ def test_existing_broker_scope_does_not_authorize_a_newly_active_same_day_listin
         exclusions_reported_count=2,
     )
     bound = _bindings(store, initial)
-    assert _attach(store, capture, bound) == "updated"
+    assert _attach(store, capture, bound, venue_counts={"NASDAQ": 2, "NYSE": 1}) == "updated"
     previous = _read(store)
     assert previous is not None
     assert previous.catalog_count == 3
@@ -336,7 +391,10 @@ def test_existing_broker_scope_does_not_authorize_a_newly_active_same_day_listin
     assert current_id is not None
     new_pair = replace(capture, catalog_received_at=_AT + timedelta(minutes=21))
     newly_bound = RakutenListingBinding(announced.key, current_id, capture.rows[-1])
-    assert _attach(store, new_pair, (*bound, newly_bound)) == "updated"
+    assert (
+        _attach(store, new_pair, (*bound, newly_bound), venue_counts={"NASDAQ": 2, "NYSE": 1})
+        == "updated"
+    )
     current = _read(store)
     assert current is not None
     assert current.active_listing_sha256 != previous.active_listing_sha256
