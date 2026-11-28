@@ -184,8 +184,6 @@ def acquire_us_daily(
     if first_clock.utcoffset() is None:
         raise ValueError("US handoff clock requires a timezone")
     end = first_clock.astimezone(_NY).date()
-    if current.slice.session != end:
-        return {"source": _SOURCE, "status": "scope_unavailable"}
     start = end - timedelta(days=7)
     calendar, calendar_wire = receive_paper_calendar(
         start, end, credentials=credentials, transport=transport, clock=clock

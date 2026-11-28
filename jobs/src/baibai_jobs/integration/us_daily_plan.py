@@ -25,13 +25,11 @@ from baibai_engine.machine_analysis.observations.prices.us_sip_coverage import (
 from baibai_engine.machine_analysis.observations.stocks.listing_master import ListingKey
 from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
     CurrentListingMarket,
-    CurrentRakutenScope,
     read_bound_rakuten_scope,
 )
 from baibai_engine.machine_analysis.observations.stocks.us_universe import (
     cover_current_rakuten_catalog_targets,
 )
-from baibai_jobs.integration.listing_master_current import read_current_rakuten_scope
 
 TECHNICAL_WINDOW_SESSIONS = 253
 TECHNICAL_CALENDAR_CHUNKS = 16
@@ -56,46 +54,24 @@ class USDailyPricePlan:
 def plan_current_us_daily_prices(
     current: CurrentListingMarket | None,
     *,
-    listing_session: date,
+    today_open: bool,
     price_session: date,
     cutoff: datetime,
     adjustment: Literal["raw", "split"],
 ) -> USDailyPricePlan | None:
-    """Plan one completed price session confirmed by the caller's US calendar.
+    """Use today's scope on an open NY day, even before its close.
 
-    The broker scope is current at the selection cutoff, not a historical
-    screening universe for the earlier price date. Do not attach an old price
-    to a newly identified or moved security on the current native key.
+    Only a verified market closure permits the latest completed session's scope.
+    A weekend does not create a new listing, eligibility decision or price.
     """
-    if (
-        type(listing_session) is not date
-        or type(price_session) is not date
-        or price_session > listing_session
-    ):
-        raise ValueError("price session cannot follow the current US listing session")
-    scope = read_current_rakuten_scope(current, expected_session=listing_session, cutoff=cutoff)
-    return _plan_prices(current, scope, price_session=price_session, adjustment=adjustment)
-
-
-def plan_confirmed_closed_us_daily_prices(
-    current: CurrentListingMarket | None,
-    *,
-    price_session: date,
-    cutoff: datetime,
-    adjustment: Literal["raw", "split"],
-) -> USDailyPricePlan | None:
-    """Pick the prior session's exact broker scope, when today's NY closure is proved."""
-    scope = read_bound_rakuten_scope(current, session=price_session, cutoff=cutoff)
-    return _plan_prices(current, scope, price_session=price_session, adjustment=adjustment)
-
-
-def _plan_prices(
-    current: CurrentListingMarket | None,
-    scope: CurrentRakutenScope | None,
-    *,
-    price_session: date,
-    adjustment: Literal["raw", "split"],
-) -> USDailyPricePlan | None:
+    if cutoff.utcoffset() is None:
+        raise ValueError("US daily price plan requires a timezone")
+    today = cutoff.astimezone(_NY).date()
+    if type(price_session) is not date or price_session > today:
+        raise ValueError("price session cannot follow the current NY date")
+    scope = read_bound_rakuten_scope(
+        current, session=today if today_open else price_session, cutoff=cutoff
+    )
     if scope is None or current is None:
         return None
 
@@ -176,7 +152,7 @@ def _verified_window(
         {day: row is not None for day, row in known.items() if start <= day <= latest.trading_date},
         as_of=latest.trading_date,
     )
-    return calendar, max(confirmed_at, latest.close_at), known[today] is None
+    return calendar, max(confirmed_at, latest.close_at), known[today] is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,21 +176,11 @@ def plan_us_technical_scope(
     window = _verified_window(calendars, cutoff=cutoff)
     if current is None or window is None:
         return None
-    calendar, start_clock, closed_today = window
+    calendar, start_clock, today_open = window
     days = calendar.trading_dates
     session = calendar.as_of
-    plan = (
-        plan_confirmed_closed_us_daily_prices(
-            current, price_session=session, cutoff=cutoff, adjustment="split"
-        )
-        if closed_today
-        else plan_current_us_daily_prices(
-            current,
-            listing_session=cutoff.astimezone(_NY).date(),
-            price_session=session,
-            cutoff=cutoff,
-            adjustment="split",
-        )
+    plan = plan_current_us_daily_prices(
+        current, today_open=today_open, price_session=session, cutoff=cutoff, adjustment="split"
     )
     if plan is None or current.rakuten is None:
         return None

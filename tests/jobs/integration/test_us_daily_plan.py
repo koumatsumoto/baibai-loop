@@ -108,7 +108,7 @@ def _attach(store, *, catalog=None, restrictions=None, clock=_MON_CLOCK):
 def _plan(current, *, price_session=_FRI, cutoff=_CUTOFF, adjustment="raw"):
     return plan_current_us_daily_prices(
         current,
-        listing_session=_MON,
+        today_open=True,
         price_session=price_session,
         cutoff=cutoff,
         adjustment=adjustment,
@@ -180,7 +180,7 @@ def test_session_arguments_do_not_relabel_future_price_or_stale_scope():
         _plan(current, price_session=_MON + timedelta(days=1))
     assert (
         plan_current_us_daily_prices(
-            current, listing_session=_FRI, price_session=_FRI, cutoff=_CUTOFF, adjustment="raw"
+            current, today_open=False, price_session=_FRI, cutoff=_CUTOFF, adjustment="raw"
         )
         is None
     )
