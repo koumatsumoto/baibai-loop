@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { ApiError, fetchJson } from '../src/api/client'
-import type { LatestUSProposalView } from '../src/api/types'
+import type { LatestUSProposalView, USProposalPerspectiveView } from '../src/api/types'
 import { USProposal, USProposalPage } from '../src/pages/USProposalPage'
 import { usProposalFixture as fixture } from './fixtures/us-proposal'
 
@@ -58,6 +58,7 @@ it('renders the same saved ID and SHA, keeps USD price evidence distinct, and ha
   expect(html).toContain('無利息のUSD現金')
   expect(html).toContain('税・費用・為替')
   expect(html).toContain('USD 105.75')
+  expect(html).toContain('分配（権利を得ると仮定）')
   expect(html).toContain('USD 1.25')
   expect(html).toContain('USD +6.50')
   expect(html).toContain('USD -20.50')
@@ -127,6 +128,37 @@ it.each(['XNAS', 'XNYS'] as const)('uses the raw SIP daily close for %s without 
   expect(html).not.toContain('Nasdaqの無調整公式終値')
   expect(html).not.toContain('Alpaca IEXの分割調整済み観測')
   expect(html).not.toContain('比較未確定')
+})
+
+it('distinguishes a published citation from an authored row without one, not from an unrecorded judgment', () => {
+  const proposal = fixture.proposal
+  if (proposal === null) throw new Error('test fixture requires a proposal')
+  const render = (rows: USProposalPerspectiveView[] | null) =>
+    renderToStaticMarkup(createElement(USProposal, {
+      state: { kind: 'loaded', data: { ...fixture, proposal: { ...proposal, model_perspectives: rows as USProposalPerspectiveView[] } } },
+    }))
+  const observed_at = '2026-11-28T12:00:00Z'
+  const html = render([
+    { model: 'technical_analysis', assessment: 'insufficient', summary: '単日の観測からは傾向を判断できない。', sources: [{ label: '合成資料・日足の確認', observed_at }] },
+    { model: 'external_assessment', assessment: 'insufficient', summary: '第三者評価の確認は足りない。', sources: [] },
+    { model: 'social_trends', assessment: 'not_applicable', summary: '今回の問いの対象外。', sources: [] },
+  ])
+  expect(html).toContain('情報不足')
+  expect(html).toContain('対象外')
+  expect(html).toContain('合成資料・日足の確認')
+  expect(html).toContain(`dateTime="${observed_at}"`)
+  expect(html).toContain('反証の全文は掲載していません。')
+  expect(html.match(/この観点に掲載された出典はありません。/g)).toHaveLength(2)
+  expect(html).not.toContain('観点別の評価が保存されていません')
+
+  const unrecorded = render([])
+  expect(unrecorded).toContain('観点別の評価が保存されていません')
+  expect(unrecorded).not.toContain('この観点に掲載された出典はありません。')
+  expect(unrecorded).toContain('Alpaca IEXの分割調整済み観測')
+
+  const unreadable = render(null)
+  expect(unreadable).toContain('この配信データからは観点別の評価を読み取れません')
+  expect(unreadable).not.toContain('この観点に掲載された出典はありません。')
 })
 
 it('does not copy the IEX price into the official-close slot for a deferred decision', () => {
