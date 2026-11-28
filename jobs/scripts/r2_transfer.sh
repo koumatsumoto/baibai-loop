@@ -240,7 +240,7 @@ push_key_if_version() {
   snapshot_sqlite "$(store_path "${key}")" "${body}"
   snapshot_seconds="$((SECONDS - started))"
   if [[ -n "${proposal_id}" ]]; then
-    (cd "${repo_root}" && uv run python -m baibai_jobs.publication.app_preflight "${body}" "${proposal_id}")
+    (cd "${repo_root}" && uv run python -m baibai_engine.cli.app_publish_preflight "${body}" "${proposal_id}")
   fi
   if [[ "${check_only}" == true ]]; then
     printf 'App check passed: s3://%s/%s; proposal=%s; no upload or dispatch\n' \

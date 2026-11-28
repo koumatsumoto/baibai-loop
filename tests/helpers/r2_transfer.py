@@ -212,12 +212,12 @@ for argument in "$@"; do
     baibai_jobs.integration.native_source_merge) script=merge ;;
     baibai_jobs.observability.repository_layout) script=layout ;;
     baibai_jobs.publication.lease) script=lease ;;
-    baibai_jobs.publication.app_preflight) script=app_preflight ;;
+    baibai_engine.cli.app_publish_preflight) script=app_preflight ;;
   esac
 done
 case "${script}" in
   app_preflight)
-    [[ "$4" == baibai_jobs.publication.app_preflight && -f "$5" && "$5" == */.r2-transfer.*/baibai.sqlite ]] || exit 97
+    [[ "$4" == baibai_engine.cli.app_publish_preflight && -f "$5" && "$5" == */.r2-transfer.*/baibai.sqlite ]] || exit 97
     printf '%s\\n' "$6" > "$AWS_FAKE_STATE/proposal-id-checked"
     [[ "${FAKE_PROPOSAL_REJECT:-0}" != "1" ]]
     ;;
