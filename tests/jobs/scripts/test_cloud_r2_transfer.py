@@ -1039,7 +1039,9 @@ def test_explicit_fred_recovery_is_bound_to_the_fresh_download_and_conditional_p
     assert '--if-match "etag-stable"' in commands[upload]
 
 
-@pytest.mark.parametrize("failure", ["no", "dotenv", "inherited", "id", "stale", "raced-put"])
+@pytest.mark.parametrize(
+    "failure", ["no", "dotenv", "inherited", "misassigned", "id", "stale", "raced-put"]
+)
 def test_guarded_app_push_checks_effective_bucket_and_sealed_body(
     tmp_path: Path, failure: str
 ) -> None:
@@ -1056,6 +1058,8 @@ def test_guarded_app_push_checks_effective_bucket_and_sealed_body(
         (root / ".env").write_text("R2_SECRET_ACCESS_KEY=fake\nR2_STORES_BUCKET=baibai-serving\n")
     if failure == "inherited":
         env["R2_STORES_BUCKET"] = "baibai-serving"
+    if failure == "misassigned":
+        env["R2_STORES_BUCKET"] = "sensitive-test-value"
     if failure == "id":
         env["FAKE_PROPOSAL_REJECT"] = "1"
     if failure == "stale":
@@ -1084,9 +1088,11 @@ def test_guarded_app_push_checks_effective_bucket_and_sealed_body(
         assert checked.read_text().strip() == "us-proposal-known"
     else:
         assert result.returncode != 0
-    if failure in {"dotenv", "inherited"}:
+    if failure in {"dotenv", "inherited", "misassigned"}:
         assert calls == []
-        assert "configured bucket is baibai-serving" in result.stderr
+        assert "expected bucket baibai-stores" in result.stderr
+        assert "baibai-serving" not in result.stderr
+        assert "sensitive-test-value" not in result.stderr
     else:
         assert all("--bucket baibai-stores" in line for line in calls)
     if failure == "raced-put":

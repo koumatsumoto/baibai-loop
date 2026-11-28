@@ -463,8 +463,8 @@ case "${1:-}" in
     proposal_id="" check_only=false
     if [[ $# -gt 0 ]]; then
       if [[ "${stores_bucket}" != "$2" ]]; then
-        printf 'refusing App publish: expected bucket %s; configured bucket is %s\n' \
-          "$2" "${stores_bucket}" >&2
+        printf 'refusing App publish: expected bucket %s; check your R2_STORES_BUCKET setting\n' \
+          "$2" >&2
         exit 2
       fi
       shift 2

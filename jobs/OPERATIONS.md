@@ -219,7 +219,7 @@ FRED確認state自体の欠落は[通常recheck-source](#経済原本)へ。他s
 日米とも、提案の作成・査読とWebへの反映は別です。
 
 1. **取得**: `jobs/scripts/r2_transfer.sh pull-app`。この段階は読み取り鍵で足りる。
-2. **作成・査読・App保存**: 日本株は[提案手順](../.agents/skills/investment-judgment/SKILL.md#trade-proposal)の `trade-proposal-context` → `trade-proposal-check` → 査読 → `trade-proposal-publish`。米国株は[米国株CLI](../docs/reference/us-research-mvp.md#隔離appに米国株の見送り判断保留を保存する)の `draft-digest` → `save` → `proposal-digest` → 査読 → `proposal-save` → `proposal-show`。保存先は取得した `stores/application/baibai.sqlite`。保存コマンドはAppを更新するだけで、R2や発注は行わない。
+2. **作成・査読・App保存**: 日本株は[提案手順](../.agents/skills/investment-judgment/SKILL.md#trade-proposal)の `trade-proposal-context` → `trade-proposal-check` → 査読 → `trade-proposal-publish`。米国株は[米国株CLI](../docs/reference/us-research-mvp.md#隔離appに米国株の見送り判断保留を保存する)の `draft-digest` → `save` → `proposal-digest` → 査読 → `proposal-save` → `proposal-show`。保存先は取得した `stores/application/baibai.sqlite`（例: `APP_COPY=stores/application/baibai.sqlite`）。保存コマンドはAppを更新するだけで、R2や発注は行わない。
 3. **反映**: 今保存した提案のIDを `PROPOSAL_ID` に設定する。任意の `--check` は読み取り鍵でも使える。対象バケット、確認時点のR2の版、一時Appスナップショット中の提案IDを確認し、PUTもActions起動もしない。実反映では版を改めて照合する。
 
 ```bash
