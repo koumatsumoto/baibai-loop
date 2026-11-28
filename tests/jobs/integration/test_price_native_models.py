@@ -388,15 +388,15 @@ def test_ordinary_integration_fixes_head_once_and_models_use_native_prices(tmp_p
     initialize_database(economic).close()
     import baibai_engine.machine_analysis.generation.inputs as generation
 
-    original_reader = generation.read_price_bars
+    original_reader = generation.iter_price_bar_batches
     consumed_prices = []
 
     def read_prices(*args, **kwargs):
-        prices = original_reader(*args, **kwargs)
-        consumed_prices.extend(bar.price for bar in prices["1301"])
-        return prices
+        for subjects, prices in original_reader(*args, **kwargs):
+            consumed_prices.append((kwargs.get("tickers"), [bar.price for bar in prices["1301"]]))
+            yield subjects, prices
 
-    monkeypatch.setattr(generation, "read_price_bars", read_prices)
+    monkeypatch.setattr(generation, "iter_price_bar_batches", read_prices)
     store.get_keys.clear()
     seed_empty_financial(store, tmp_path / "financial-native", DAY)
     result = job.integrate_models(
@@ -411,7 +411,7 @@ def test_ordinary_integration_fixes_head_once_and_models_use_native_prices(tmp_p
         lease_handle=tmp_path / "lease",
         growth_start=None,
     )
-    assert consumed_prices == [100]
+    assert consumed_prices == [(None, [100]), (("1301",), [100])]
     assert store.get_keys.count(HEAD_KEY) == 1
     pack_reads = [key for key in store.get_keys if "/daily-bars/v1/packs/" in key]
     assert len(pack_reads) == len(set(pack_reads)) == 1

@@ -341,7 +341,7 @@ def test_input_read_boundaries_preserve_failure(tmp_path, monkeypatch, progress,
     phases = {
         "edinet_comparisons": "read_comparison_population",
         "pdf_financials": "read_pdf_statements",
-        "price_series": "read_price_bars",
+        "price_series": "prepare_market_context_from_bars",
     }
     error = ValueError(CANARY)
     for phase, name in phases.items():

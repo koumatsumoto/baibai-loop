@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -56,29 +56,39 @@ def prepare_market_context_from_bars(
     sqlite_path: Path,
     asof_date: date,
     master: MasterSnapshot | None,
-    bars_by_ticker: Mapping[str, Sequence[PriceBar]],
+    bars_by_ticker: Iterable[tuple[str, Sequence[PriceBar]]],
     subjects: Sequence[str],
     history_weeks: int = DEFAULT_HISTORY_WEEKS,
     benchmark_ticker: str = NIKKEI225_ETF_PROXY,
 ) -> PreparedMarketContext:
-    """生成の共通長期価格を再利用する。疎な個社の比較端点も同じ束から読む。"""
+    """Build shared context without retaining complete per-security histories."""
     start = asof_date - timedelta(days=7 * (history_weeks - 1) + _POINT_LOOKBACK_CALENDAR_DAYS)
     lookback_start = asof_date - timedelta(days=SECURITY_LOOKBACK_CALENDAR_DAYS)
-    for ticker in subjects:
-        rows = [
-            bar
-            for bar in bars_by_ticker.get(ticker, ())
-            if lookback_start <= bar.traded_at <= asof_date
-        ]
-        if rows:
-            start = min(start, rows[-min(len(rows), LONG_TREND_WINDOW_BARS + 1)].traded_at)
-    series = {}
-    for ticker, bars in bars_by_ticker.items():
-        selected = [bar for bar in bars if start <= bar.traded_at <= asof_date]
+    initial_floor = min(start, lookback_start)
+    selected_subjects = frozenset(subjects)
+    series: dict[str, _Series] = {}
+    benchmark_rows: list[tuple[date, float]] = []
+    for ticker, bars in bars_by_ticker:
+        if ticker in selected_subjects:
+            rows = [bar for bar in bars if lookback_start <= bar.traded_at <= asof_date]
+            if rows:
+                start = min(start, rows[-min(len(rows), LONG_TREND_WINDOW_BARS + 1)].traded_at)
+        selected = [bar for bar in bars if initial_floor <= bar.traded_at <= asof_date]
         if selected:
             series[ticker] = _Series(
                 dates=[bar.traded_at for bar in selected], prices=[bar.price for bar in selected]
             )
+        if ticker == benchmark_ticker:
+            benchmark_rows = [
+                (bar.traded_at, bar.price) for bar in bars if bar.traded_at <= asof_date
+            ]
+    # An illiquid subject can determine the final floor late in the stream. Only
+    # this finite context tail, never complete histories, waits for that decision.
+    for ticker in tuple(series):
+        if series[ticker].dates[-1] < start:
+            del series[ticker]
+        else:
+            series[ticker] = series[ticker].since(start)
     sectors: dict[str, list[str]] = {}
     if master is not None:
         for ticker, security in master.securities.items():
@@ -87,11 +97,6 @@ def prepare_market_context_from_bars(
                 and (sector := sector_33_peer_key(security.sector_33)) is not None
             ):
                 sectors.setdefault(sector, []).append(ticker)
-    benchmark_rows = [
-        (bar.traded_at, bar.price)
-        for bar in bars_by_ticker.get(benchmark_ticker, ())
-        if bar.traded_at <= asof_date
-    ]
     trend_start = asof_date - timedelta(days=_BENCHMARK_LOOKBACK_CALENDAR_DAYS)
     return PreparedMarketContext(
         sqlite_path=sqlite_path.resolve(),

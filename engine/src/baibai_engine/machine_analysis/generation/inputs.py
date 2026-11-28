@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 import time
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import ExitStack, closing
 from dataclasses import asdict, dataclass
@@ -64,7 +64,9 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
 from baibai_engine.machine_analysis.observations.financials.pdf_statement_reader import (
     read_pdf_statements,
 )
-from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
+from baibai_engine.machine_analysis.observations.prices.adjusted_prices import (
+    iter_price_bar_batches,
+)
 from baibai_engine.machine_analysis.observations.prices.calendar_context import (
     read_price_calendar,
 )
@@ -78,6 +80,8 @@ from baibai_engine.machine_analysis.observations.prices.price_observation import
     price_calendar,
 )
 from baibai_engine.machine_analysis.observations.prices.price_observation_reader import (
+    PriceDayStates,
+    TurnoverValues,
     read_price_day_inputs,
 )
 from baibai_engine.machine_analysis.observations.prices.price_reader import (
@@ -135,12 +139,21 @@ class PinnedGenerationMaster:
 @dataclass(frozen=True, slots=True)
 class _MarketPriceInputs:
     calendar: PriceCalendar
-    bars: dict[str, list[PriceBar]]
     adjustment_events: dict[str, list[JQuantsAdjustmentFactorEvent]]
     provider_capital: dict[str, dict[str, object]]
-    paths: dict[str, dict[str, object]]
+    day_states: PriceDayStates
+    turnover_values: TurnoverValues
     prepared: PreparedMarketContext
-    contexts: dict[str, dict[str, object]]
+    benchmark_prices: dict[date, float]
+    activity_benchmarks: dict[str, dict[date, float]]
+
+
+@dataclass(frozen=True, slots=True)
+class _IssuerPrices:
+    ticker: str
+    bars: Sequence[PriceBar]
+    price_path: dict[str, object]
+    context: dict[str, object]
 
 
 def _read_market_price_inputs(
@@ -195,80 +208,97 @@ def _read_market_price_inputs(
         for event in _adjustment_events_from_rows(action_rows):
             events[event.ticker].append(event)
     phase_started = _phase_progress("price_series")
-    prices = read_price_bars(path, start=date.min, end=as_of)
-    _phase_progress("price_series", phase_started)
+    benchmarks: dict[str, list[PriceBar]] = {}
+
+    def market_bars() -> Iterator[tuple[str, list[PriceBar]]]:
+        # Every ticker's complete history is decoded before a model can be
+        # published, including excluded securities and their adjustment evidence.
+        for _, batch in iter_price_bar_batches(path, start=date.min, end=as_of):
+            for ticker, bars in batch.items():
+                if ticker in ETF_PRICE_BENCHMARKS:
+                    benchmarks[ticker] = bars
+                yield ticker, bars
+
     prepared = prepare_market_context_from_bars(
         sqlite_path=path,
         asof_date=as_of,
         master=master,
-        bars_by_ticker=prices,
+        bars_by_ticker=market_bars(),
         subjects=subjects,
     )
-    contexts = build_security_market_contexts(
-        sqlite_path=path,
-        tickers=subjects,
-        asof_date=as_of,
-        prepared=prepared,
-        price_bars_by_ticker=prices,
-        calendar=path_calendar,
-    )
-    # The legacy prepared benchmark is intentionally shorter. Reuse the already
-    # read full adjusted series for long-path endpoints without changing old MC.
+    _phase_progress("price_series", phase_started)
+    # Shared ETF observations keep the same full-history basis. Long-path
+    # endpoints require independently priced Nikkei rows; market-conditioned
+    # returns use accepted closes and never substitute one ETF for the other.
     benchmark_prices = {
         bar.traded_at: bar.price
-        for bar in prices.get(prepared.benchmark_ticker, ())
+        for bar in benchmarks.get(prepared.benchmark_ticker, [])
         if day_states.get(prepared.benchmark_ticker, {}).get(bar.traded_at) == "priced"
     }
-    # These observations need valid closes, not complete OHLCV rows. Each ETF remains
-    # independent; a missing TOPIX proxy must not silently become the Nikkei proxy.
     activity_benchmarks = {
-        ticker: {bar.traded_at: bar.price for bar in prices.get(ticker, ())}
+        ticker: {bar.traded_at: bar.price for bar in benchmarks.get(ticker, [])}
         for ticker in ETF_PRICE_BENCHMARKS
     }
-    price_paths = {}
-    for ticker in subjects:
-        path_observation = observe_price_path(
-            prices.get(ticker, ()),
-            calendar=path_calendar,
-            day_states=day_states.get(ticker, {}),
-        )
-        price_paths[ticker] = path_observation.payload
-        contexts[ticker]["price_path_relative"] = compare_price_path(
-            path_observation.comparison_pairs,
-            benchmark_prices=benchmark_prices,
-            as_of=as_of,
-            benchmark_ticker=prepared.benchmark_ticker,
-        )
-        turnover = turnover_values.get(ticker, {})
-        relative = contexts[ticker].get("relative")
-        # No own close is needed for market-direction or yen-value observations.
-        # An observation-only block must not invent a close, price date or return.
-        if relative is None and turnover:
-            relative = contexts[ticker]["relative"] = {}
-        if isinstance(relative, dict):
-            relative["market_conditioned_60d"] = market_conditioned_returns(
-                prices={bar.traded_at: bar.price for bar in prices.get(ticker, ())},
-                turnover=turnover,
-                benchmark_prices=activity_benchmarks,
-                calendar=path_calendar,
-            )
-        price = contexts[ticker].get("price")
-        if price is None and turnover:
-            price = contexts[ticker]["price"] = {}
-        if isinstance(price, dict):
-            price["turnover_activity_20d"] = turnover_activity(
-                turnover=turnover,
-                calendar=path_calendar,
-            )
     return _MarketPriceInputs(
         calendar=path_calendar,
-        bars=prices,
         adjustment_events=events,
         provider_capital=provider_capital,
-        paths=price_paths,
+        day_states=day_states,
+        turnover_values=turnover_values,
         prepared=prepared,
-        contexts=contexts,
+        benchmark_prices=benchmark_prices,
+        activity_benchmarks=activity_benchmarks,
     )
+
+
+def _issuer_prices(
+    path: Path, *, subjects: Sequence[str], shared: _MarketPriceInputs
+) -> Iterator[_IssuerPrices]:
+    as_of = shared.calendar.as_of
+    for batch, prices in iter_price_bar_batches(path, start=date.min, end=as_of, tickers=subjects):
+        contexts = build_security_market_contexts(
+            sqlite_path=path,
+            tickers=batch,
+            asof_date=as_of,
+            prepared=shared.prepared,
+            price_bars_by_ticker=prices,
+            calendar=shared.calendar,
+        )
+        for ticker in batch:
+            bars: Sequence[PriceBar] = prices.get(ticker, [])
+            context = contexts[ticker]
+            observation = observe_price_path(
+                bars,
+                calendar=shared.calendar,
+                day_states=shared.day_states.get(ticker, {}),
+            )
+            context["price_path_relative"] = compare_price_path(
+                observation.comparison_pairs,
+                benchmark_prices=shared.benchmark_prices,
+                as_of=as_of,
+                benchmark_ticker=shared.prepared.benchmark_ticker,
+            )
+            turnover = shared.turnover_values.get(ticker, {})
+            relative = context.get("relative")
+            # An observation-only block must not invent a close, price date or return.
+            if relative is None and turnover:
+                relative = context["relative"] = {}
+            if isinstance(relative, dict):
+                relative["market_conditioned_60d"] = market_conditioned_returns(
+                    prices={bar.traded_at: bar.price for bar in bars},
+                    turnover=turnover,
+                    benchmark_prices=shared.activity_benchmarks,
+                    calendar=shared.calendar,
+                )
+            price = context.get("price")
+            if price is None and turnover:
+                price = context["price"] = {}
+            if isinstance(price, dict):
+                price["turnover_activity_20d"] = turnover_activity(
+                    turnover=turnover,
+                    calendar=shared.calendar,
+                )
+            yield _IssuerPrices(ticker, bars, observation.payload, context)
 
 
 def _schedule_price_read(
@@ -307,6 +337,7 @@ def read_and_generate_models(
 
     seal内に残る旧originでなく、今回exportしたreleaseを入力identityとする。
     ここでは原本取得・候補選択・公開をせず、業種参照は全masterを維持する。
+    Consume the returned one-shot stream before releasing the Market seal.
     記事に基づく業種・社会の調査はL3で行い、日次モデルには含めない。
     """
     if economic_input is not None and (
@@ -407,22 +438,25 @@ def read_and_generate_models(
             cutoff=monex_window.received_through,
             as_of=monex_window.as_of,
         )
-    companies = [
-        CompanyModelInputs(
-            ticker=ticker,
-            financial_documents=documents.get(ticker, ()),
-            adjusted_bars=price_inputs.bars.get(ticker, ()),
-            adjustment_events=price_inputs.adjustment_events.get(ticker, ()),
-            sector=master.securities[ticker].sector_33 if ticker in master.securities else None,
-            edinet=edinet.get(ticker),
-            comparisons=comparisons.get(ticker, ()),
-            pdf_statements=pdf_statements.get(ticker, ()),
-            capital_actions=capital_actions.get(ticker, ()),
-            provider_capital=price_inputs.provider_capital.get(ticker),
-            price_path=price_inputs.paths[ticker],
-        )
-        for ticker in subjects
-    ]
+
+    def companies() -> Iterator[CompanyModelInputs]:
+        for prices in _issuer_prices(path, subjects=subjects, shared=price_inputs):
+            ticker = prices.ticker
+            yield CompanyModelInputs(
+                ticker=ticker,
+                financial_documents=documents.get(ticker, ()),
+                adjusted_bars=prices.bars,
+                adjustment_events=price_inputs.adjustment_events.get(ticker, ()),
+                sector=master.securities[ticker].sector_33 if ticker in master.securities else None,
+                edinet=edinet.get(ticker),
+                comparisons=comparisons.get(ticker, ()),
+                pdf_statements=pdf_statements.get(ticker, ()),
+                capital_actions=capital_actions.get(ticker, ()),
+                provider_capital=price_inputs.provider_capital.get(ticker),
+                price_path=prices.price_path,
+                market_context=prices.context,
+            )
+
     return generate_models(
         generation_id=generation_id,
         as_of=as_of,
@@ -465,7 +499,8 @@ def read_and_generate_models(
             manifest_sha256=financial_input.identity.sha256,
             collection_boundary="fixed_source_head",
         ),
-        companies=companies,
+        subjects=subjects,
+        companies=companies(),
         trading_dates=price_inputs.calendar.trading_dates,
         expected_price_date=price_inputs.calendar.expected_price_date,
         ttm_rules=ttm_rules,
@@ -486,7 +521,6 @@ def read_and_generate_models(
                 else economic_input.context
             ),
         },
-        securities_context=price_inputs.contexts,
         market_context_revision="shared-market-context-v20-classified-sector-peers",
         shared_market_context_revision="shared-market-context-v23-current-listing-breadth",
         growth_start=growth_start,

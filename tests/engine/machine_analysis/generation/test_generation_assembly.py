@@ -24,7 +24,7 @@ RULES = TTMRules(
 )
 
 
-def generate(tickers=("1001", "1002"), *, stream=False, **updates):
+def generate(tickers=("1001", "1002"), *, stream=False, with_company_context=True, **updates):
     values = {
         "generation_id": "synthetic",
         "as_of": AS_OF,
@@ -33,13 +33,23 @@ def generate(tickers=("1001", "1002"), *, stream=False, **updates):
             "market": InputSnapshot(kind="lake_release", reference="synthetic", sha256="a" * 64)
         },
         "financial_release": RELEASE,
-        "companies": tuple(CompanyModelInputs(t, (), (), (), None) for t in tickers),
+        "subjects": tickers,
+        "companies": tuple(
+            CompanyModelInputs(
+                t,
+                (),
+                (),
+                (),
+                None,
+                market_context={"peer_count": 12} if with_company_context else None,
+            )
+            for t in tickers
+        ),
         "trading_dates": (),
         "expected_price_date": AS_OF,
         "ttm_rules": RULES,
         "external_observations": {t: ObservationHistory(ticker=t, cutoff=NOW) for t in tickers},
         "market_context": {"reading": None, "market": {"reference_population": "all-stocks"}},
-        "securities_context": {t: {"peer_count": 12} for t in tickers},
         "market_context_revision": "synthetic-v1",
     }
     generated = generate_models(**(values | updates))
@@ -61,7 +71,7 @@ def test_five_models_are_generated_once_per_subject_and_common_market_once():
 
 def test_omitted_optional_input_does_not_remove_other_models():
     normal = generate()
-    missing = generate(external_observations={}, securities_context={}, market_context=None)
+    missing = generate(external_observations={}, with_company_context=False, market_context=None)
     assert len(missing.models) == 6
     assert all(normal.result(m.model_id, m.subject) == m for m in missing.models)
     assert missing.result("external_assessment", "1001") is None

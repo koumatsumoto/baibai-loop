@@ -530,7 +530,7 @@ def test_breadth_never_uses_a_master_snapshot_later_than_its_benchmark_close(
                 sqlite_path=path,
                 asof_date=asof,
                 master=master,
-                bars_by_ticker=read_price_bars(path, start=date.min, end=asof),
+                bars_by_ticker=read_price_bars(path, start=date.min, end=asof).items(),
                 subjects=("1234", "5678"),
                 history_weeks=1,
             )

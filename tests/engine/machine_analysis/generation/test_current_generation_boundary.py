@@ -142,7 +142,7 @@ def test_raw_and_prepared_market_context_only_classify_exact_observed_price_day(
         sqlite_path=market,
         asof_date=_SUN,
         master=current,
-        bars_by_ticker=read_price_bars(market, start=date.min, end=_SUN),
+        bars_by_ticker=read_price_bars(market, start=date.min, end=_SUN).items(),
         subjects=("1234",),
         history_weeks=2,
     )

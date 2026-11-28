@@ -205,7 +205,7 @@ def test_current_sector_breadth_requires_same_price_day_even_on_weekend(
         sqlite_path=source,
         asof_date=sunday,
         master=master,
-        bars_by_ticker=prices,
+        bars_by_ticker=prices.items(),
         subjects=("1001", "1002"),
         history_weeks=2,
     )

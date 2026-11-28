@@ -126,7 +126,7 @@ def test_exact_peer_window_is_shared_but_never_reused_for_a_different_end(tmp_pa
     prepared = prepare_market_context_from_bars(
         **args,
         master=current,
-        bars_by_ticker=prices,
+        bars_by_ticker=prices.items(),
         subjects=tickers,
     )
     calls = 0
@@ -227,7 +227,7 @@ def test_null_close_split_factor_adjusts_past_prices_without_future_events(tmp_p
         sqlite_path=path,
         asof_date=ASOF,
         master=None,
-        bars_by_ticker=read_price_bars(path, start=date.min, end=ASOF),
+        bars_by_ticker=read_price_bars(path, start=date.min, end=ASOF).items(),
         subjects=("1321",),
     ).benchmark_trend.to_dict()
     assert benchmark["benchmark_return_20d"] is None  # null close isn't a bar

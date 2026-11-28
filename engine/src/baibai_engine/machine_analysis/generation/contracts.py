@@ -206,7 +206,7 @@ class ModelInputSlice(_ModelCollection):
 
 @dataclass(frozen=True, slots=True)
 class ModelGenerationStream:
-    """共有入力を読み終えた一回消費の生成列。保存形式ではない。"""
+    """One-shot models iterator; keep its fixed generation input in scope until consumed."""
 
     metadata: GenerationMetadata
     subjects: tuple[str, ...]

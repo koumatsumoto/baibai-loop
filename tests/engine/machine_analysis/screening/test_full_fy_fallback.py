@@ -82,6 +82,7 @@ def generation(rows, *, as_of=AS_OF, growth_start=None):
             )
         },
         financial_release=release,
+        subjects=("1001",),
         companies=(
             CompanyModelInputs(
                 ticker="1001",
@@ -90,6 +91,7 @@ def generation(rows, *, as_of=AS_OF, growth_start=None):
                 adjusted_bars=(PriceBar(as_of, 10.0, None),),
                 adjustment_events=(),
                 sector="情報・通信業",
+                market_context={"master": {"sector_33": "情報・通信業"}},
             ),
         ),
         trading_dates=(as_of,),
@@ -97,7 +99,6 @@ def generation(rows, *, as_of=AS_OF, growth_start=None):
         ttm_rules=DEFAULT_TTM_RULES,
         external_observations={},
         market_context=None,
-        securities_context={"1001": {"master": {"sector_33": "情報・通信業"}}},
         market_context_revision="fy-fixture-v1",
         growth_start=growth_start,
     )

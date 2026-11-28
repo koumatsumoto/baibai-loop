@@ -47,7 +47,7 @@ def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(
     spies = [
         mocker.spy(generation_reader, name)
         for name in (
-            "read_price_bars",
+            "iter_price_bar_batches",
             "read_observation_population",
             "read_price_day_inputs",
         )
@@ -81,8 +81,8 @@ def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(
             ),
             tickers=("1234", "5678"),
         )
-    assert result.subjects == ("1234", "5678")
-    result = materialize_generation(result)
+        assert result.subjects == ("1234", "5678")
+        result = materialize_generation(result)
     assert result.inputs.get("margin_interest") == margin_identity
     restored = ModelGeneration.model_validate_json(result.model_dump_json())
     assert restored.inputs == result.inputs
@@ -129,7 +129,7 @@ def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(
         "receipt_cutoff": None,
     }
     assert result.result("market_context", "market").payload["reading"] is None
-    assert [spy.call_count for spy in spies] == [1, 1, 1]
+    assert [spy.call_count for spy in spies] == [2, 1, 1]
     assert spies[1].call_args.kwargs["include_retired"] is False
     external = result.result("external_assessment", "1234")
     assert (
@@ -320,7 +320,7 @@ def test_edinet_uses_one_fixed_shared_read_and_preserves_delayed_source_contract
         stream = generation_reader.read_and_generate_models(**arguments)
         with closing(sqlite3.connect(path)) as connection, connection:
             connection.execute("UPDATE edinet_metrics SET cash=999")
-    result = materialize_generation(stream)
+        result = materialize_generation(stream)
     # Holder uses its own filing and receipt scope; only the two full reads are interchangeable.
     filing_reads = [sql for sql in statements if "FROM edinet_documents d WHERE" in sql]
     assert len([sql for sql in filing_reads if "d.doc_type_code IN" not in sql]) == 1

@@ -70,7 +70,7 @@ def _shared_inputs(path: Path, tickers: tuple[str, ...], *, master: MasterSnapsh
         sqlite_path=path,
         asof_date=ASOF,
         master=master,
-        bars_by_ticker=bars,
+        bars_by_ticker=bars.items(),
         subjects=tickers,
     )
     return bars, prepared
@@ -206,7 +206,7 @@ def test_shared_bar_input_never_requeries_sparse_benchmark_or_peers(context_stor
         sqlite_path=context_store,
         asof_date=ASOF,
         master=master,
-        bars_by_ticker=bars,
+        bars_by_ticker=bars.items(),
         subjects=tickers,
     )
     contexts = build_security_market_contexts(
@@ -236,7 +236,7 @@ def test_common_market_window_does_not_expand_with_sparse_selected_subjects(cont
             sqlite_path=context_store,
             asof_date=ASOF,
             master=master,
-            bars_by_ticker=bars,
+            bars_by_ticker=bars.items(),
             subjects=subjects,
         )
         snapshots.append(
@@ -268,7 +268,7 @@ def test_preparation_resolves_store_scope_once(context_store, monkeypatch):
         sqlite_path=Path(context_store.name),
         asof_date=ASOF,
         master=master,
-        bars_by_ticker=bars,
+        bars_by_ticker=bars.items(),
         subjects=("AAAA",),
     )
     assert prepared.sqlite_path == context_store.resolve()

@@ -45,7 +45,7 @@ def security_context_from_store(
         sqlite_path=path,
         asof_date=as_of,
         master=master,
-        bars_by_ticker=prices,
+        bars_by_ticker=prices.items(),
         subjects=(ticker,),
     )
     return build_security_market_contexts(
