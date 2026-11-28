@@ -809,6 +809,10 @@ def test_formal_us_perspectives_are_independently_bound_before_web_materializati
     tmp_path, capsys
 ):
     analysis, decision = _decision_inputs(tmp_path, capsys, comparable=False)
+    decision["reason"] = (
+        "設備向け受注の増加は買付に有利な材料（合成10-Q、2025年11月25日提出、Item 2）。"
+        "ただし基準価格が未確認で、同期間のUSD現金と比較できないため判断を保留する。"
+    )
     decision["model_perspectives"] = [
         _finance_perspective(),
         {
@@ -840,6 +844,12 @@ def test_formal_us_perspectives_are_independently_bound_before_web_materializati
     review_path = _write(tmp_path / "decision-review.json", binding)
     db = tmp_path / APPLICATION_DB_PATH
     initialize_database(db)
+    # Even a citation-only edit to the public reason needs a new decision review.
+    _write(
+        Path(decision_path), {**decision, "reason": decision["reason"].replace("Item 2", "Item 3")}
+    )
+    assert main(["proposal-save", analysis, decision_path, review_path, "--db", str(db)]) == 2
+    assert capsys.readouterr().err == "FAIL US proposal save\n"
     # The peer signed the published decision, not just the private analysis or old wording.
     for replacement in (
         {**_finance_perspective(), "summary": "根拠の強さを訂正。"},
@@ -872,6 +882,8 @@ def test_formal_us_perspectives_are_independently_bound_before_web_materializati
     export_read_models(tmp_path, out)
     payload = (out / "views/latest-us-proposal.json").read_text(encoding="utf-8")
     served = json.loads(payload)["proposal"]
+    assert served["proposal_id"] == binding["proposal_id"]
+    assert served["reason"] == stored["decision"]["reason"] == decision["reason"]
     assert served["draft_sha256"] == binding["draft_sha256"]
     assert served["action"] == "defer"
     assert served["comparison_price"] is None
@@ -879,7 +891,13 @@ def test_formal_us_perspectives_are_independently_bound_before_web_materializati
     assert served["model_perspectives"] == expected
     assert "market_context" not in {row["model"] for row in served["model_perspectives"]}
     assert "estimated_model_chart" not in served
-    for private in ("https://", "合成の収益継続仮説", "synthetic decision peer"):
+    for private in (
+        "https://",
+        stored["analysis"]["draft"]["thesis"],
+        stored["analysis"]["draft"]["strongest_countercase"],
+        "synthetic decision peer",
+        stored["review"]["notes"],
+    ):
         assert private not in payload
 
 
