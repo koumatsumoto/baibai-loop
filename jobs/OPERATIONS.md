@@ -216,13 +216,20 @@ FRED確認state自体の欠落は[通常recheck-source](#経済原本)へ。他s
 
 空の作業領域へpullし、DBとstores/.r2-generations/baibai.sqlite.etagを同じ組で使う。版は取得した本文と同じ応答から取り、配置前に現正本と異なれば中止する。同じ作業領域に対する `pull-app` が重なった場合、後から来た取得はDB・取得世代を変えずに停止する。別の作業領域やR2側のwriterを止めるロックではない。更新済みの組があれば再pullしない。
 
+日米とも、提案の作成・査読とWebへの反映は別です。
+
+1. **取得**: `jobs/scripts/r2_transfer.sh pull-app`。この段階は読み取り鍵で足りる。
+2. **作成・査読・App保存**: 日本株は[提案手順](../.agents/skills/investment-judgment/SKILL.md#trade-proposal)の `trade-proposal-context` → `trade-proposal-check` → 査読 → `trade-proposal-publish`。米国株は[米国株CLI](../docs/reference/us-research-mvp.md#隔離appに米国株の見送り判断保留を保存する)の `draft-digest` → `save` → `proposal-digest` → 査読 → `proposal-save` → `proposal-show`。保存先は取得した `stores/application/baibai.sqlite`。保存コマンドはAppを更新するだけで、R2や発注は行わない。
+3. **反映**: 今保存した提案のIDを `PROPOSAL_ID` に設定する。任意の `--check` は読み取り鍵でも使える。対象バケット、確認時点のR2の版、一時Appスナップショット中の提案IDを確認し、PUTもActions起動もしない。実反映では版を改めて照合する。
+
 ```bash
-jobs/scripts/r2_transfer.sh pull-app
-# 正規CLIでこのDBを更新した後
-jobs/scripts/publish.sh
+jobs/scripts/publish.sh --bucket baibai-stores --proposal-id "$PROPOSAL_ID" --check
+jobs/scripts/publish.sh --bucket baibai-stores --proposal-id "$PROPOSAL_ID"
 ```
 
-[`publish.sh`](scripts/publish.sh)は引数なしで、台帳preflight → 取得ETagを条件とする本体PUT → PUT応答のETagを記録 → Web生成の依頼、の順に進む。時価不足と台帳破損は別。DBとETagは組で扱い、未確認世代を現HEADから補わない。通常のApp反映ではR2に日付別backupを作成せず、過去の退避物の整理もしない。
+取引記録など、提案以外のApp反映は `jobs/scripts/publish.sh --bucket baibai-stores --app-only` と明示する。引数なしでは反映しない。 `--bucket` は実行時の対象との照合であり、設定を上書きする指定ではない。設定から導いた実際のバケットが違えば停止する。本番Webを起動するこの入口は `baibai-stores` 専用。書き込み鍵が `baibai-serving` を含んでいても、そこへ直接書かず、既存のGitHub Actionsが配信を更新する。
+
+[`publish.sh`](scripts/publish.sh)は、台帳事前確認 → 取得ETagとR2の比較 → Appのスナップショット作成・指定ID確認 → 取得ETagで条件付きPUT → PUT応答のETagを記録 → Web生成依頼の順。ID確認はアップロードするDBに指定した提案があることだけを確かめる。他の行が変わっていないことや、IDが新規・最新であることまでは判定しない。DBとETagは、取得時と同じ作業領域・R2アカウント・バケットで使う。ETag自体はアカウントやバケットを照合しないため、別環境の取得物や版を持ち込まない。未確認世代を現HEADから補わない。通常のApp反映ではR2に日付別バックアップは作らない。
 
 成功は正本から対象Proposal/評価等のIDで読戻す。競合したら未公開差分を保ち、fresh正本へ正規serviceで再適用する。非0・応答不明では元世代と対象IDを確認し、盲再送しない。PUT済みで表示runがない時だけ`cloud-materialize`を再依頼する。旧schemaや未公開の事実のあるDBは原copyを保ち、正本へ丸ごと戻さない。
 

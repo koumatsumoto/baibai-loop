@@ -9,6 +9,9 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
 PUBLISH_SCRIPT = ROOT / "jobs" / "scripts" / "publish.sh"
+_APP = ("--bucket", "baibai-stores", "--app-only")
+_PROPOSAL = ("--bucket", "baibai-stores", "--proposal-id", "us-proposal-review-id")
+_DISPATCH = "gh:workflow run cloud-materialize.yml --repo koumatsumoto/baibai-loop --ref main"
 
 
 def _isolated_publish_script(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
@@ -66,12 +69,23 @@ def test_help_has_no_publish_side_effects(tmp_path: Path, help_flag: str) -> Non
     )
 
     assert result.returncode == 0
-    assert result.stdout.startswith("Usage: jobs/scripts/publish.sh\n")
+    assert result.stdout.startswith("Usage: jobs/scripts/publish.sh --bucket baibai-stores")
     assert result.stderr == ""
     assert not call_log.exists()
 
 
-@pytest.mark.parametrize("arguments", [("unexpected",), ("--help", "unexpected")])
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        (),
+        ("unexpected",),
+        ("--help", "unexpected"),
+        ("--bucket", "baibai-stores"),
+        ("--bucket", "baibai-serving", "--app-only"),
+        ("--bucket", "baibai-stores", "--proposal-id", "--check"),
+        (*_PROPOSAL, "--app-only"),
+    ],
+)
 def test_invalid_arguments_are_rejected_before_publish(
     tmp_path: Path, arguments: tuple[str, ...]
 ) -> None:
@@ -87,15 +101,15 @@ def test_invalid_arguments_are_rejected_before_publish(
 
     assert result.returncode == 2
     assert result.stdout == ""
-    assert result.stderr.startswith("Usage: jobs/scripts/publish.sh\n")
+    assert result.stderr.startswith("Usage: jobs/scripts/publish.sh --bucket baibai-stores")
     assert not call_log.exists()
 
 
-def test_no_argument_validates_ledger_before_upload(tmp_path: Path) -> None:
+def test_explicit_app_only_validates_ledger_before_upload(tmp_path: Path) -> None:
     publish, call_log, env = _isolated_publish_script(tmp_path)
 
     result = subprocess.run(
-        (publish,),
+        (publish, *_APP),
         check=False,
         capture_output=True,
         text=True,
@@ -108,8 +122,8 @@ def test_no_argument_validates_ledger_before_upload(tmp_path: Path) -> None:
             "uv:run baibai-engine portfolio ledger "
             f"--db {publish.parents[2]}/stores/application/baibai.sqlite"
         ),
-        "r2:push-app",
-        "gh:workflow run cloud-materialize.yml --ref main",
+        "r2:push-app --expect-bucket baibai-stores",
+        _DISPATCH,
     ]
     assert result.stdout == "application DB uploaded\ncloud-materialize dispatch requested\n"
     assert result.stderr == ""
@@ -120,7 +134,7 @@ def test_failed_ledger_preflight_stops_before_publish(tmp_path: Path) -> None:
     env["PUBLISH_LEDGER_FAIL"] = "1"
 
     result = subprocess.run(
-        (publish,),
+        (publish, *_APP),
         check=False,
         capture_output=True,
         text=True,
@@ -143,7 +157,7 @@ def test_failed_application_transfer_does_not_report_success(tmp_path: Path) -> 
     with transfer.open("a") as stream:
         stream.write("exit 1\n")
     result = subprocess.run(
-        (publish,),
+        (publish, *_APP),
         env=env,
         check=False,
         capture_output=True,
@@ -151,7 +165,7 @@ def test_failed_application_transfer_does_not_report_success(tmp_path: Path) -> 
     )
     assert result.returncode == 1
     calls = call_log.read_text().splitlines()
-    assert "r2:push-app" in calls
+    assert "r2:push-app --expect-bucket baibai-stores" in calls
     assert not any(call.startswith("gh:") for call in calls)
 
 
@@ -166,7 +180,7 @@ def test_publish_uses_its_own_repository_from_another_directory(tmp_path: Path) 
     env["PUBLISH_CWD_LOG"] = str(cwd_log)
 
     result = subprocess.run(
-        (publish,),
+        (publish, *_APP),
         cwd=elsewhere,
         env=env,
         check=False,
@@ -177,8 +191,8 @@ def test_publish_uses_its_own_repository_from_another_directory(tmp_path: Path) 
     assert result.returncode == 0, result.stderr
     assert Path(cwd_log.read_text().strip()) == publish.parents[2]
     assert call_log.read_text().splitlines()[-2:] == [
-        "r2:push-app",
-        "gh:workflow run cloud-materialize.yml --ref main",
+        "r2:push-app --expect-bucket baibai-stores",
+        _DISPATCH,
     ]
 
 
@@ -186,10 +200,39 @@ def test_failed_dispatch_reports_committed_application_without_reupload(tmp_path
     publish, call_log, env = _isolated_publish_script(tmp_path)
     with (tmp_path / "bin" / "gh").open("a") as stream:
         stream.write("exit 1\n")
-    result = subprocess.run((publish,), env=env, check=False, capture_output=True, text=True)
+    result = subprocess.run((publish, *_APP), env=env, check=False, capture_output=True, text=True)
     assert result.returncode == 1
     assert result.stdout == "application DB uploaded\n"
     assert "Do not repeat publish.sh" in result.stderr
     assert "Check Actions" in result.stderr
     assert "if no run was created" in result.stderr
-    assert call_log.read_text().splitlines().count("r2:push-app") == 1
+    assert call_log.read_text().splitlines().count("r2:push-app --expect-bucket baibai-stores") == 1
+
+
+def test_guarded_preview_forwards_exact_id_and_skips_dispatch(tmp_path: Path) -> None:
+    publish, call_log, env = _isolated_publish_script(tmp_path)
+
+    result = subprocess.run(
+        (publish, *_PROPOSAL, "--check"), env=env, check=False, capture_output=True, text=True
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+    assert call_log.read_text().splitlines()[-1] == (
+        "r2:push-app --expect-bucket baibai-stores --proposal-id us-proposal-review-id --check"
+    )
+    assert not any(line.startswith("gh:") for line in call_log.read_text().splitlines())
+
+
+def test_guarded_publish_forwards_exact_id_before_dispatch(tmp_path: Path) -> None:
+    publish, call_log, env = _isolated_publish_script(tmp_path)
+
+    result = subprocess.run(
+        (publish, *_PROPOSAL), env=env, check=False, capture_output=True, text=True
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert call_log.read_text().splitlines()[-2:] == [
+        "r2:push-app --expect-bucket baibai-stores --proposal-id us-proposal-review-id",
+        _DISPATCH,
+    ]

@@ -31,7 +31,7 @@ shellを開き直したらenv.shをsourceする。checkoutを移動したらsetu
 
 ### 3. 実データが必要なときだけ `.env` を用意する
 
-[設定例](../.env.sample)から必要な項目だけを選ぶ。R2の読取には読み取り専用の `R2_ACCESS_KEY_ID`・`R2_SECRET_ACCESS_KEY` と `R2_ACCOUNT_ID`。日本株を直接取得するなら `JQUANTS_API_KEY`、米国相場を直接取得するなら Alpaca の `APCA_API_KEY_ID`・`APCA_API_SECRET_KEY` を追加する。EDINETとe-Statの鍵は各APIまで使うときのみ。GitHub Actions・Cloudflareの管理用トークン、npm公開トークン、本番Webのパスワードは共有用の設定に混ぜない。AlpacaのIEX取得可否とSIPの契約・権限は別。
+[設定例](../.env.sample)から必要な項目だけを選ぶ。R2には `R2_ACCESS_KEY_ID`・`R2_SECRET_ACCESS_KEY` と `R2_ACCOUNT_ID`。読取だけなら Object Read only、本番反映もする端末は同じ変数に Object Read & Write を設定する。対象は `baibai-stores` で足り、`baibai-serving` を含む鍵でも使える。CloudflareのToken Valueではなく、R2のS3用Access Key IDとSecret Access Keyを使う。日本株を直接取得するなら `JQUANTS_API_KEY`、米国相場を直接取得するなら Alpaca の `APCA_API_KEY_ID`・`APCA_API_SECRET_KEY` を追加する。EDINETとe-Statの鍵は各APIまで使うときのみ。GitHub Actions・Cloudflareの管理用トークン、npm公開トークン、本番Webのパスワードは共有用の設定に混ぜない。AlpacaのIEX取得可否とSIPの契約・権限は別。
 
 **パスワードマネージャーで管理する。** このプロジェクトの `.env` 全文をパスワードマネージャーの保護されたノートに保存する。別の端末では、WSL内の作業コピーで `.env` を用意し、そこに必要な設定を貼り付ける。
 

@@ -1037,3 +1037,59 @@ def test_explicit_fred_recovery_is_bound_to_the_fresh_download_and_conditional_p
     assert "--canonical" in commands[recheck]
     assert "--recheck-source fred-vixcls --recheck-source fred-payems" in commands[recheck]
     assert '--if-match "etag-stable"' in commands[upload]
+
+
+@pytest.mark.parametrize("failure", ["no", "dotenv", "inherited", "id", "stale", "raced-put"])
+def test_guarded_app_push_checks_effective_bucket_and_sealed_body(
+    tmp_path: Path, failure: str
+) -> None:
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env.pop("R2_STORES_BUCKET", None)
+    env["R2_SERVING_BUCKET"] = "baibai-serving"
+    env["UV_EXPECTED_CWD"] = str(root)
+    marker = Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag"
+    marker.write_text('"etag-stable"\n')
+    if failure == "dotenv":
+        env.pop("R2_SECRET_ACCESS_KEY")
+        (root / ".env").write_text("R2_SECRET_ACCESS_KEY=fake\nR2_STORES_BUCKET=baibai-serving\n")
+    if failure == "inherited":
+        env["R2_STORES_BUCKET"] = "baibai-serving"
+    if failure == "id":
+        env["FAKE_PROPOSAL_REJECT"] = "1"
+    if failure == "stale":
+        env["AWS_FAKE_ETAG_OVERRIDE"] = '"different"'
+    if failure == "raced-put":
+        env["AWS_FAKE_REJECT_CONDITIONAL_PUT"] = "1"
+    args = [
+        root / "jobs/scripts/r2_transfer.sh",
+        "push-app",
+        "--expect-bucket",
+        "baibai-stores",
+        "--proposal-id",
+        "us-proposal-known",
+    ]
+    if failure == "no":
+        args.append("--check")
+    result = subprocess.run(
+        args, cwd=tmp_path, env=env, check=False, capture_output=True, text=True
+    )
+    calls = _transfer_commands(log)
+    checked = Path(env["AWS_FAKE_STATE"]) / "proposal-id-checked"
+    assert marker.read_text().strip() == '"etag-stable"'
+    if failure == "no":
+        assert result.returncode == 0, result.stderr
+        assert "proposal=us-proposal-known; no upload or dispatch" in result.stdout
+        assert checked.read_text().strip() == "us-proposal-known"
+    else:
+        assert result.returncode != 0
+    if failure in {"dotenv", "inherited"}:
+        assert calls == []
+        assert "configured bucket is baibai-serving" in result.stderr
+    else:
+        assert all("--bucket baibai-stores" in line for line in calls)
+    if failure == "raced-put":
+        assert any("put-object" in line and '--if-match "etag-stable"' in line for line in calls)
+    else:
+        assert not any("put-object" in line for line in calls)
