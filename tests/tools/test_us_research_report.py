@@ -187,11 +187,21 @@ def test_reviewed_report_round_trips_without_substitution_or_overwrite(
         ("GOOG", "/market-activity/stocks/googl/historical-nocp", False),
         ("GOOGL", "/market-activity/stocks/g%6F%6fg/historical-nocp", False),
         ("GOOGL", "/market-activity/stocks/goo%2Fgl/historical-nocp", False),
-        ("GOOGL", "/market-activity/stocks/goog/historical", True),
-        ("GOOGL", "/market-activity/stocks/goog", True),
+        ("GOOGL", "/market-activity/stocks/goog/historical", False),
+        ("GOOGL", "/market-activity/stocks/goo%2Fgl/historical", False),
+        ("GOOGL", "/market-activity/stocks/goog", False),
+        ("GOOG", "/market-activity/stocks/googl/historical?symbol=GOOG", False),
+        ("NVDA", "/market-activity/stocks/aapl/", False),
+        ("AAPL", "/market-activity/stocks/Nv%44a/historical", False),
+        # No contradicted ticker is not proof of an official price.
+        ("GOOGL", "/market-activity/stocks/googl/historical", True),
+        ("GOOGL", "/market-activity/stocks/googl", True),
+        ("GOOGL", "/market-activity/stocks/screener", True),
+        ("GOOGL", "/market-activity/quotes/historical-nocp", True),
+        ("GOOGL", "/market-activity/stocks/goog/dividend-history", True),
     ],
 )
-def test_new_direct_nasdaq_nocp_link_must_name_the_report_symbol(
+def test_known_direct_nasdaq_stock_link_must_not_contradict_the_report_symbol(
     tmp_path, capsys, ticker, path, admitted
 ):
     payload = _draft(ticker=ticker)
@@ -207,10 +217,13 @@ def test_new_direct_nasdaq_nocp_link_must_name_the_report_symbol(
         assert (captured.out, captured.err) == ("", "FAIL draft\n")
 
 
-def test_direct_nasdaq_symbol_check_leaves_an_existing_saved_report_readable(tmp_path, capsys):
+@pytest.mark.parametrize("suffix", ["/historical-nocp", "/historical", ""])
+def test_direct_nasdaq_symbol_check_leaves_an_existing_saved_report_readable(
+    tmp_path, capsys, suffix
+):
     payload = _draft(ticker="GOOGL")
     payload["official_close"]["source_url"] = (
-        "https://www.nasdaq.com/market-activity/stocks/goog/historical-nocp"
+        f"https://www.nasdaq.com/market-activity/stocks/goog{suffix}"
     )
     draft = ReportDraft.model_validate(payload)
     review = ReportReview.model_validate(
