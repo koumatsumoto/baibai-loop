@@ -41,9 +41,9 @@ export interface ReportEntry {
 }
 
 // An excerpt can discard a final 「ただし…」 or attach another ticker's decision to this one.
-function shortWhole(text: string | null | undefined): string | null {
+export function shortWhole(text: string | null | undefined, maxChars = 90): string | null {
   const value = text?.trim().replace(/\s+/gu, ' ')
-  return value && [...value].length <= 90 ? value : null
+  return value && [...value].length <= maxChars ? value : null
 }
 
 export function reportListSummary({ proposal, item }: ReportEntry): string {
