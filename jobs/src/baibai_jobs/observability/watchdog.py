@@ -287,11 +287,15 @@ def resolve_run_results(
     result_job: str | None = None,
 ) -> tuple[WorkflowRun, ...]:
     """Use the named job's own result, or the aggregate for acquisition workflows."""
+    window_start = window_end - timedelta(hours=window_hours)
     resolved: list[WorkflowRun] = []
     for run in runs:
-        if (result_job is None and not run.succeeded) or not window_end - timedelta(
-            hours=window_hours
-        ) <= run.updated_at <= window_end:
+        # A sibling can update the workflow after the check without changing JP completion.
+        if (
+            run.updated_at < window_start
+            or (result_job is None and (not run.succeeded or run.updated_at > window_end))
+            or (result_job is not None and run.created_at > window_end)
+        ):
             resolved.append(run)
             continue
         jobs = _result_jobs(run, repository=repository, read_jobs=read_jobs, result_job=result_job)
@@ -315,7 +319,7 @@ def resolve_run_results(
             run = replace(
                 run, status=status, conclusion=str(job.get("conclusion") or ""), updated_at=updated
             )
-            if not run.succeeded:
+            if not run.succeeded or run.updated_at < window_start:
                 resolved.append(run)
                 continue
         targets: list[date] = []

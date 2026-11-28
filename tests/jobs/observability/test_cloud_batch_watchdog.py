@@ -1396,6 +1396,58 @@ def test_watchdog_command_checks_jp_terminal_job_not_workflow_conclusion(tmp_pat
 
 
 @pytest.mark.parametrize(
+    ("jp_asof", "jp_finished", "alerting"),
+    [
+        ("2026-08-03", FIRED_AT - timedelta(minutes=15), False),
+        ("2026-08-03", FIRED_AT + timedelta(minutes=10), True),
+        ("2026-08-02", FIRED_AT - timedelta(minutes=15), True),
+    ],
+)
+def test_watchdog_historical_jp_completion_is_independent_of_later_us_finish(
+    tmp_path, monkeypatch, jp_asof, jp_finished, alerting
+):
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", WEBHOOK)
+    path = _write_listing(
+        tmp_path,
+        _listing(
+            _run(
+                created_at=FIRED_AT - timedelta(hours=1),
+                updated_at=FIRED_AT + timedelta(minutes=15),
+                conclusion="failure",
+                batch_asof=None,
+            )
+        ),
+    )
+    transport = FakeTransport()
+    payload = _jobs(jp_asof)
+    payload["jobs"][0].update(
+        name="daily", status="completed", conclusion="success", completed_at=jp_finished.isoformat()
+    )
+    payload["jobs"].append(
+        {
+            "name": "us-market",
+            "status": "completed",
+            "conclusion": "failure",
+            "completed_at": (FIRED_AT + timedelta(minutes=15)).isoformat(),
+            "steps": [],
+        }
+    )
+    assert (
+        main(
+            ["--runs-json", str(path), "--check-date", "2026-08-03", "--read-run-results"],
+            transport=transport,
+            read_jobs=lambda *_: payload,
+        )
+        == 0
+    )
+    if alerting:
+        assert "[MISSING]" in _delivered_message(transport)
+    else:
+        assert transport.calls == []
+
+
+@pytest.mark.parametrize(
     ("job_status", "jp_conclusion", "finish_offset", "verdict"),
     [
         ("completed", "success", -1, STATE_HEALTHY),
