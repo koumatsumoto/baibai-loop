@@ -6,21 +6,31 @@ import os
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from hashlib import sha256
+from math import inf
 from pathlib import Path
-from uuid import uuid4
+from time import monotonic
+from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 from httpx2 import BaseTransport, HTTPTransport
 
 from baibai_engine.data_collection.providers.alpaca import BarsCapture, BarsResponse
+from baibai_engine.data_collection.providers.alpaca_calendar import AlpacaCalendarReading
 from baibai_engine.data_collection.providers.alpaca_http import (
     AlpacaCredentials,
     AlpacaHTTPReceipt,
+    AlpacaTransportReadError,
     receive_alpaca,
     receive_paper_calendar,
 )
+from baibai_engine.data_collection.transport.http import (
+    AcquisitionDeadlineExceeded,
+    parse_retry_after_deadline,
+    wait_for_read_retry,
+)
 from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
     LISTING_MASTER_MAX_BYTES,
+    CurrentListingMarket,
     decode_current_listing_master,
 )
 from baibai_engine.storage.filesystem import write_bytes_atomic
@@ -33,10 +43,103 @@ from baibai_jobs.integration.us_daily_prices import (
 
 _SOURCE = "alpaca-us-daily"
 _NY = ZoneInfo("America/New_York")
+_BARS_INTERVAL = 0.4  # Pace request starts to at most 150 per minute.
+_RETRY_WAIT_CAP = 60.0
+_RETRYABLE_BARS_STATUS = frozenset({408, 429, 500, 502, 503, 504})
 
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+def receive_us_daily_calendar(
+    *,
+    credentials: AlpacaCredentials,
+    transport: BaseTransport,
+    clock: Callable[[], datetime],
+) -> tuple[AlpacaCalendarReading, AlpacaHTTPReceipt | None]:
+    first_clock = clock()
+    if first_clock.utcoffset() is None:
+        raise ValueError("US handoff clock requires a timezone")
+    end = first_clock.astimezone(_NY).date()
+    return receive_paper_calendar(
+        end - timedelta(days=7), end, credentials=credentials, transport=transport, clock=clock
+    )
+
+
+def receive_us_daily_prices(
+    current: CurrentListingMarket | None,
+    *,
+    calendar: AlpacaCalendarReading,
+    credentials: AlpacaCredentials,
+    transport: BaseTransport,
+    clock: Callable[[], datetime],
+    attempt_id: UUID,
+    expected_session: date | None = None,
+    wait: Callable[[float], None] = wait_for_read_retry,
+    monotonic_clock: Callable[[], float] = monotonic,
+) -> USDailyPriceCollection | None:
+    """Collect the closed session from its pinned Alpaca scope, with no storage writes."""
+    not_before: float | None = None
+    last_wire: AlpacaHTTPReceipt | None = None
+    transient_error = False
+    provider_wait = False
+
+    def read_bar_page(url: str) -> BarsResponse:
+        nonlocal not_before, last_wire, transient_error, provider_wait
+        if not_before is not None:
+            delay = not_before - monotonic_clock()
+            if delay > _RETRY_WAIT_CAP:
+                raise AcquisitionDeadlineExceeded("Alpaca SIP wait exceeds this read budget")
+            if delay > 0:
+                wait(delay)
+        not_before = monotonic_clock() + _BARS_INTERVAL
+        transient_error = False
+        provider_wait = False
+        try:
+            last_wire = receive_alpaca(
+                url, endpoint="bars", credentials=credentials, transport=transport, clock=clock
+            )
+        except AlpacaTransportReadError:
+            transient_error = True
+            raise
+        received = last_wire.response.received_at
+        if last_wire.response.status_code in _RETRYABLE_BARS_STATUS:
+            until, unrepresentable = parse_retry_after_deadline(last_wire.retry_after, received)
+            if until is not None or unrepresentable:
+                provider_wait = True
+                delay = (until - received).total_seconds() if until is not None else inf
+                # Applies to any next GET, even after this batch spent its retry.
+                not_before = max(not_before, monotonic_clock() + delay)
+        return last_wire.response
+
+    def wait_and_retry(capture: BarsCapture) -> bool:
+        nonlocal not_before
+        if capture.failure == "transport_error" and transient_error:
+            delay = 1.0
+        elif (
+            capture.failure == "http_status"
+            and last_wire is not None
+            and last_wire.response.status_code in _RETRYABLE_BARS_STATUS
+        ):
+            delay = _RETRY_WAIT_CAP if last_wire.response.status_code == 429 else 1.0
+        else:
+            return False
+        if not provider_wait:
+            now = monotonic_clock()
+            not_before = max(not_before or now, now + delay)
+        return True
+
+    return collect_current_us_daily_prices(
+        current,
+        calendar,
+        attempt_id=attempt_id,
+        clock=clock,
+        transport=read_bar_page,
+        expected_price_session=expected_session,
+        closed_session_pin=True,
+        wait_and_retry=wait_and_retry,
+    )
 
 
 def _page_spec(wire: AlpacaHTTPReceipt, *, digest: str) -> dict[str, object]:
@@ -181,13 +284,8 @@ def acquire_us_daily(
     current = decode_current_listing_master(listing_bytes).get("US")
     if not has_us_price_scope(current):
         return {"source": _SOURCE, "status": "scope_unavailable"}
-    first_clock = clock()
-    if first_clock.utcoffset() is None:
-        raise ValueError("US handoff clock requires a timezone")
-    end = first_clock.astimezone(_NY).date()
-    start = end - timedelta(days=7)
-    calendar, calendar_wire = receive_paper_calendar(
-        start, end, credentials=credentials, transport=transport, clock=clock
+    calendar, calendar_wire = receive_us_daily_calendar(
+        credentials=credentials, transport=transport, clock=clock
     )
     if calendar.problem is not None:
         report: dict[str, object] = {
@@ -222,8 +320,8 @@ def acquire_us_daily(
         collection,
         listing_sha=sha256(listing_bytes).hexdigest(),
         calendar=calendar_wire,
-        calendar_start=start,
-        calendar_end=end,
+        calendar_start=calendar.start,
+        calendar_end=calendar.end,
         pages=pages,
     )
 

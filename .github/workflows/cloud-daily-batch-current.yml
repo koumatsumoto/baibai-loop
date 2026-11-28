@@ -21,6 +21,11 @@ on:
         description: "事前比較したEDINET固定入力・revision・有限sample結果の受入JSON。空欄は通常統合"
         required: false
         type: string
+      us_market:
+        description: "米国株の日足保存・銘柄マスター更新も実行する。日本株の基準日とは別"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -328,3 +333,48 @@ jobs:
             echo "::error::Japan proposal input check failed; see step summary."
             exit 1
           fi
+
+  # The JP publication still runs and reports its own outcome if the US job fails.
+  us-market:
+    if: >-
+      ${{ github.ref == 'refs/heads/main'
+      && (github.event_name == 'schedule'
+      || (github.event_name == 'workflow_dispatch' && inputs.us_market == true)) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    env:
+      UV_NO_DEV: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Pin the original US run clock
+        id: clock
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          created_at="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq '.created_at')"
+          printf 'created_at=%s\n' "$created_at" >> "$GITHUB_OUTPUT"
+      - name: Save closed NY session SIP prices and refresh the current US listing master
+        id: us-market-inputs
+        env:
+          RUN_CREATED_AT: ${{ steps.clock.outputs.created_at }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+        run: |
+          uv run --offline --no-sync python -m baibai_jobs.integration.us_market_daily \
+            --run-created-at "$RUN_CREATED_AT" --event "$GITHUB_EVENT_NAME"

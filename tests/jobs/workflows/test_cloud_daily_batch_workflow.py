@@ -281,6 +281,7 @@ def test_dispatch_does_not_offer_runs_pruning(workflow, by_id):
         "asof",
         "jp_input_probe_ticker",
         "edinet_metrics_acceptance",
+        "us_market",
     }
     for step in ("validate-input", "batch"):
         assert "--preserve-existing-generations" not in by_id[step]["run"]
@@ -345,3 +346,64 @@ def test_economic_l1_follows_machine_admission_but_is_independent_of_hydration(s
     assert "pull-indicators" not in by_id["source-seal"]["run"]
     assert "--economic-report-path" in by_id["notify"]["run"]
     assert "--economic-l1-outcome" in by_id["notify"]["run"]
+
+
+def test_us_job_is_independent_and_manually_opt_in(workflow):
+    option = workflow["on"]["workflow_dispatch"]["inputs"]["us_market"]
+    assert (option["type"], option["default"], option["required"]) == ("boolean", "false", "false")
+    job = workflow["jobs"]["us-market"]
+    assert "github.ref == 'refs/heads/main'" in job["if"]
+    assert "github.event_name == 'schedule'" in job["if"]
+    assert "github.event_name == 'workflow_dispatch' && inputs.us_market == true" in job["if"]
+    assert "needs" not in job
+    assert "continue-on-error" not in job
+    assert "APCA_" not in str(workflow["jobs"]["daily"])
+    assert "US_MARKET" not in str(workflow["jobs"]["daily"])
+    assert "secrets." not in str(job["env"])
+    assert not any("continue-on-error" in step for step in job["steps"])
+    outside = [step for step in job["steps"] if step.get("id") != "us-market-inputs"]
+    assert all(
+        "APCA_" not in str(step) and "R2_SECRET_ACCESS_KEY" not in str(step) for step in outside
+    )
+
+
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_us_job_uses_own_clock_without_jp_asof_and_preserves_exit(tmp_path, workflow, exit_code):
+    steps = {step["id"]: step for step in workflow["jobs"]["us-market"]["steps"] if "id" in step}
+    assert steps["clock"]["env"] == {"GH_TOKEN": "${{ github.token }}"}
+    assert ".created_at" in steps["clock"]["run"]
+    step = steps["us-market-inputs"]
+    assert step["env"]["RUN_CREATED_AT"] == "${{ steps.clock.outputs.created_at }}"
+    assert "inputs." not in str(step)
+    assert "ASOF" not in str(step)
+    uv = tmp_path / "uv"
+    uv.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" > "$RUNNER_TEMP/calls"\nexit {exit_code}\n')
+    uv.chmod(0o755)
+    origin = "2026-11-28T13:43:00Z"
+    result = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", step["run"]],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
+            "RUNNER_TEMP": str(tmp_path),
+            "RUN_CREATED_AT": origin,
+            "GITHUB_EVENT_NAME": "schedule",
+            "INTEGRATION_ASOF": "2026-11-27",
+        },
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == exit_code
+    assert (tmp_path / "calls").read_text().splitlines() == [
+        "run",
+        "--offline",
+        "--no-sync",
+        "python",
+        "-m",
+        "baibai_jobs.integration.us_market_daily",
+        "--run-created-at",
+        origin,
+        "--event",
+        "schedule",
+    ]

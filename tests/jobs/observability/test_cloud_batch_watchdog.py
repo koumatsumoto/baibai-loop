@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -1262,13 +1263,27 @@ def test_scheduled_check_keeps_its_existing_missing_notice_with_truncated_histor
     assert "[MISSING]" in _delivered_message(transport)
 
 
-def test_failed_run_alert_uses_only_the_workflow_listing(tmp_path, monkeypatch):
-    def unexpected_attempt_jobs(*args, **kwargs):
-        pytest.fail("no successful run to resolve from attempt jobs")
+def test_failed_jp_daily_job_still_alerts_after_reading_the_attempt(tmp_path, monkeypatch):
+    calls = []
 
-    monkeypatch.setattr(
-        "baibai_jobs.observability.watchdog.subprocess.run", unexpected_attempt_jobs
-    )
+    def attempt_jobs(argv, **_options):
+        calls.append(argv)
+        return SimpleNamespace(
+            stdout=json.dumps(
+                {
+                    "jobs": [
+                        {
+                            "name": "daily",
+                            "status": "completed",
+                            "conclusion": "failure",
+                            "steps": [],
+                        }
+                    ]
+                }
+            )
+        )
+
+    monkeypatch.setattr("baibai_jobs.observability.watchdog.subprocess.run", attempt_jobs)
     payload = _listing(
         _run(
             number=71,
@@ -1282,7 +1297,246 @@ def test_failed_run_alert_uses_only_the_workflow_listing(tmp_path, monkeypatch):
         tmp_path, monkeypatch, payload, argv=["--check-date", "2026-08-03", "--read-run-results"]
     )
     assert code == 0
+    assert calls == [
+        [
+            "gh",
+            "api",
+            "repos/koumatsumoto/baibai-loop/actions/runs/71/attempts/2/jobs?per_page=100",
+        ]
+    ]
     message = _delivered_message(transport)
     assert "[MISSING]" in message
     assert "2026-08-03" in message
     assert "#71" in message
+
+
+@pytest.mark.parametrize(
+    ("attempt2_result", "verdict", "read_attempts"),
+    [
+        ("success", STATE_HEALTHY, [2]),
+        ("failure", STATE_MISSING, [2]),
+        (None, STATE_HEALTHY, [2, 1]),
+    ],
+)
+def test_jp_job_verdict_is_independent_of_us_failure_and_selective_retry(
+    attempt2_result, verdict, read_attempts
+):
+    runs = parse_runs(
+        _listing(
+            _run(
+                created_at=FIRED_AT - timedelta(hours=2),
+                conclusion="failure",
+                attempt=2,
+                batch_asof=None,
+            ),
+        )
+    )
+    called = []
+
+    def read_jobs(_repository, _run_id, attempt):
+        called.append(attempt)
+        us = {
+            "name": "us-market",
+            "status": "completed",
+            "conclusion": "failure",
+            "steps": [
+                {"name": RESULT_STEP_PREFIX + "2026-08-01", "status": "completed"},
+            ],
+        }
+        result = "success" if attempt == 1 else attempt2_result
+        if result is None:
+            return {"jobs": [us]}
+        jp = {
+            "name": "daily",
+            "status": "completed",
+            "conclusion": result,
+            "steps": _jobs("2026-08-03")["jobs"][0]["steps"],
+        }
+        return {"jobs": [jp, us]}
+
+    resolved = resolve_run_results(
+        runs,
+        repository="owner/repo",
+        window_end=FIRED_AT,
+        window_hours=20,
+        read_jobs=read_jobs,
+        result_job="daily",
+    )
+    assert evaluate(resolved, window_end=FIRED_AT, window_hours=20).state == verdict
+    assert called == read_attempts
+
+
+def test_watchdog_command_checks_jp_terminal_job_not_workflow_conclusion(tmp_path, monkeypatch):
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    path = _write_listing(
+        tmp_path,
+        _listing(
+            _run(
+                created_at=FIRED_AT - timedelta(hours=1),
+                conclusion="failure",
+                batch_asof=None,
+            )
+        ),
+    )
+    transport = FakeTransport()
+    payload = _jobs("2026-08-03")
+    payload["jobs"][0].update(name="daily", status="completed", conclusion="success")
+    payload["jobs"].append(
+        {"name": "us-market", "status": "completed", "conclusion": "failure", "steps": []}
+    )
+    assert (
+        main(
+            ["--runs-json", str(path), "--check-date", "2026-08-03", "--read-run-results"],
+            transport=transport,
+            read_jobs=lambda *_: payload,
+        )
+        == 0
+    )
+    assert transport.calls == []
+
+
+@pytest.mark.parametrize(
+    ("jp_asof", "jp_finished", "alerting"),
+    [
+        ("2026-08-03", FIRED_AT - timedelta(minutes=15), False),
+        ("2026-08-03", FIRED_AT + timedelta(minutes=10), True),
+        ("2026-08-02", FIRED_AT - timedelta(minutes=15), True),
+    ],
+)
+def test_watchdog_historical_jp_completion_is_independent_of_later_us_finish(
+    tmp_path, monkeypatch, jp_asof, jp_finished, alerting
+):
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", WEBHOOK)
+    path = _write_listing(
+        tmp_path,
+        _listing(
+            _run(
+                created_at=FIRED_AT - timedelta(hours=1),
+                updated_at=FIRED_AT + timedelta(minutes=15),
+                conclusion="failure",
+                batch_asof=None,
+            )
+        ),
+    )
+    transport = FakeTransport()
+    payload = _jobs(jp_asof)
+    payload["jobs"][0].update(
+        name="daily", status="completed", conclusion="success", completed_at=jp_finished.isoformat()
+    )
+    payload["jobs"].append(
+        {
+            "name": "us-market",
+            "status": "completed",
+            "conclusion": "failure",
+            "completed_at": (FIRED_AT + timedelta(minutes=15)).isoformat(),
+            "steps": [],
+        }
+    )
+    assert (
+        main(
+            ["--runs-json", str(path), "--check-date", "2026-08-03", "--read-run-results"],
+            transport=transport,
+            read_jobs=lambda *_: payload,
+        )
+        == 0
+    )
+    if alerting:
+        assert "[MISSING]" in _delivered_message(transport)
+    else:
+        assert transport.calls == []
+
+
+@pytest.mark.parametrize(
+    ("job_status", "jp_conclusion", "finish_offset", "verdict"),
+    [
+        ("completed", "success", -1, STATE_HEALTHY),
+        ("completed", "failure", -1, STATE_MISSING),
+        ("in_progress", None, None, STATE_IN_FLIGHT),
+        ("completed", "success", 1, STATE_IN_FLIGHT),
+    ],
+)
+def test_us_still_running_does_not_mask_jp_terminal_result_at_the_check_time(
+    job_status, jp_conclusion, finish_offset, verdict
+):
+    runs = parse_runs(
+        _listing(
+            _run(
+                created_at=FIRED_AT - timedelta(hours=2),
+                updated_at=FIRED_AT - timedelta(minutes=30),
+                status="in_progress",
+                conclusion=None,
+                batch_asof=None,
+            ),
+        )
+    )
+    job = {
+        "name": "daily",
+        "status": job_status,
+        "conclusion": jp_conclusion,
+        "completed_at": None
+        if finish_offset is None
+        else (FIRED_AT + timedelta(minutes=finish_offset)).isoformat(),
+        "steps": _jobs("2026-08-03")["jobs"][0]["steps"],
+    }
+    us = {"name": "us-market", "status": "in_progress", "conclusion": None, "steps": []}
+    resolved = resolve_run_results(
+        runs,
+        repository="owner/repo",
+        window_end=FIRED_AT,
+        window_hours=20,
+        read_jobs=lambda *_: {"jobs": [job, us]},
+        result_job="daily",
+    )
+    assert evaluate(resolved, window_end=FIRED_AT, window_hours=20).state == verdict
+
+
+@pytest.mark.parametrize(
+    ("active_jobs", "verdict", "calls"),
+    [
+        ([], STATE_IN_FLIGHT, [2]),
+        (["us-market"], STATE_HEALTHY, [2, 1]),
+        (["us-market", "retirement / check"], STATE_IN_FLIGHT, [2]),
+    ],
+)
+def test_in_progress_us_only_retry_preserves_the_previous_jp_job(active_jobs, verdict, calls):
+    runs = parse_runs(
+        _listing(
+            _run(
+                created_at=FIRED_AT - timedelta(hours=2),
+                updated_at=FIRED_AT - timedelta(minutes=30),
+                status="in_progress",
+                conclusion=None,
+                attempt=2,
+                batch_asof=None,
+            ),
+        )
+    )
+    attempts = []
+
+    def read_jobs(_repo, _id, attempt):
+        attempts.append(attempt)
+        if attempt == 2:
+            return {"jobs": [{"name": name, "status": "in_progress"} for name in active_jobs]}
+        return {
+            "jobs": [
+                {
+                    "name": "daily",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "completed_at": (FIRED_AT - timedelta(hours=1)).isoformat(),
+                    "steps": _jobs("2026-08-03")["jobs"][0]["steps"],
+                }
+            ]
+        }
+
+    resolved = resolve_run_results(
+        runs,
+        repository="owner/repo",
+        window_end=FIRED_AT,
+        window_hours=20,
+        read_jobs=read_jobs,
+        result_job="daily",
+    )
+    assert evaluate(resolved, window_end=FIRED_AT, window_hours=20).state == verdict
+    assert attempts == calls
