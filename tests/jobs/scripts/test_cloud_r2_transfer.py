@@ -420,6 +420,9 @@ def test_indicator_push_uploads_nothing_when_the_merge_refuses(tmp_path: Path) -
     [
         (),
         ("unknown-command",),
+        ("--help",),
+        ("-h",),
+        ("--help", "extra"),
         ("pull-app", "extra"),
         ("pull-machine", "extra"),
         ("pull-portfolio-market", "extra"),
@@ -446,7 +449,7 @@ def test_indicator_push_uploads_nothing_when_the_merge_refuses(tmp_path: Path) -
         ("upload-portfolio-views", "views", "extra"),
     ],
 )
-def test_invalid_transfer_arguments_stop_before_helpers_or_credentials(
+def test_transfer_usage_stops_before_helpers_or_credentials(
     tmp_path: Path, args: tuple[str, ...]
 ) -> None:
     root = _fake_repo(tmp_path)
@@ -469,10 +472,17 @@ def test_invalid_transfer_arguments_stop_before_helpers_or_credentials(
         text=True,
     )
 
-    assert completed.returncode == 2
-    assert "usage:" in completed.stderr
-    assert "jobs/scripts/publish.sh --help" in completed.stderr
-    assert "push-app" not in completed.stderr
+    help_requested = args in (("-h",), ("--help",))
+    assert completed.returncode == (0 if help_requested else 2)
+    usage, other = (
+        (completed.stdout, completed.stderr)
+        if help_requested
+        else (completed.stderr, completed.stdout)
+    )
+    assert "usage:" in usage
+    assert "jobs/scripts/publish.sh --help" in usage
+    assert "push-app" not in usage
+    assert other == ""
     assert not log.exists()
 
 
