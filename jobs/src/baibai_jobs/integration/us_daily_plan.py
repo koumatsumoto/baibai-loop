@@ -22,6 +22,9 @@ from baibai_engine.machine_analysis.observations.prices.us_sip_coverage import (
     AlpacaSIPDailyBatch,
     plan_alpaca_sip_daily_batches,
 )
+from baibai_engine.machine_analysis.observations.stocks.alpaca_listing_input import (
+    alpaca_research_ids_for_close,
+)
 from baibai_engine.machine_analysis.observations.stocks.listing_master import ListingKey
 from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
     ALPACA_ASSETS_SOURCE,
@@ -125,30 +128,16 @@ def plan_current_alpaca_research_prices(
     price_close_at: datetime | None = None,
 ) -> USDailyPricePlan | None:
     """Plan explicit current research coverage without making broker-order claims."""
-    if cutoff.utcoffset() is None:
-        raise ValueError("US daily price plan requires a timezone")
-    today = cutoff.astimezone(_NY).date()
-    if type(price_session) is not date or price_session > today:
-        raise ValueError("price session cannot follow the current NY date")
-    if (
-        current is None
-        or current.source != ALPACA_ASSETS_SOURCE
-        or current.received_at > cutoff
-        or current.slice.session not in ((today,) if today_open else (today, price_session))
-        or price_close_at is None
-        or price_close_at.utcoffset() is None
-        or price_close_at > cutoff
-        or price_close_at.astimezone(_NY).date() != price_session
-    ):
+    identities = alpaca_research_ids_for_close(
+        current,
+        today_open=today_open,
+        price_session=price_session,
+        price_close_at=price_close_at,
+        cutoff=cutoff,
+    )
+    if current is None or not identities:
         return None
-    targets = [
-        USPriceTarget(row.key, row.instrument_id)
-        for row in current.slice.rows
-        if row.listing_state == "listed"
-        and row.instrument_id is not None
-        and row.identity_observed_at is not None
-        and row.identity_observed_at <= price_close_at
-    ]
+    targets = [USPriceTarget(key, instrument_id) for key, instrument_id in identities]
     return _daily_plan(current.slice.session, price_session, targets, adjustment)
 
 

@@ -7,9 +7,12 @@ from datetime import date, datetime, time, timedelta
 from hashlib import sha256
 from pathlib import Path
 from urllib.parse import urlencode
+from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from tools.experiments.us_research_report import main as run_cli
 
+from baibai_engine.data_collection.providers.alpaca_assets import AlpacaAssetsReceipt
 from baibai_engine.data_collection.providers.alpaca_calendar import (
     AlpacaCalendarReading,
     USRegularSession,
@@ -21,13 +24,16 @@ from baibai_engine.investment_judgment.us_proposal import (
     prepare_us_proposal,
     save_us_proposal,
 )
+from baibai_engine.machine_analysis.observations.stocks.alpaca_listing_input import (
+    prepare_alpaca_research_inventory,
+)
 from baibai_engine.machine_analysis.observations.stocks.listing_master import (
+    ListingKey,
     ListingMasterRow,
     ListingSlice,
 )
 from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
     NASDAQ_DIRECTORY_SOURCE,
-    RAKUTEN_SCOPE_ZONE,
     CurrentListingMarket,
     CurrentRakutenScope,
     NasdaqDirectoryVersion,
@@ -36,6 +42,9 @@ from baibai_engine.machine_analysis.observations.stocks.listing_master_file impo
     active_us_listing_sha256,
     encode_current_listing_master,
 )
+
+_NY = ZoneInfo("America/New_York")
+_EXCHANGE = {"XNAS": "NASDAQ", "XNYS": "NYSE"}
 
 
 def write_calendar_capture(
@@ -84,7 +93,7 @@ def make_current_us(
     state: RakutenBrokerState = "catalog_target",
     issue_type: str = "not_flagged_fund",
 ) -> CurrentListingMarket:
-    received = datetime.combine(day, time.min, tzinfo=RAKUTEN_SCOPE_ZONE)
+    received = datetime.combine(day, time.min, tzinfo=_NY)
     key = (venue, ticker)
     broker_ticker = ticker.replace(".", " ") if venue == "XNYS" else ticker
     listing = ListingMasterRow(
@@ -113,6 +122,31 @@ def make_current_us(
     )
 
 
+def observe_alpaca_us(
+    rows: tuple[tuple[ListingKey, int], ...],
+    *,
+    at: datetime,
+    previous: CurrentListingMarket | None = None,
+) -> CurrentListingMarket:
+    body = json.dumps(
+        [
+            {
+                "id": str(UUID(int=number)),
+                "class": "us_equity",
+                "status": "active",
+                "exchange": _EXCHANGE[venue],
+                "symbol": ticker,
+                "name": f"{ticker} synthetic listing",
+                "tradable": True,
+            }
+            for (venue, ticker), number in rows
+        ]
+    ).encode()
+    return prepare_alpaca_research_inventory(
+        AlpacaAssetsReceipt(at, body), previous=previous
+    ).current
+
+
 def current_flags(listing: Path, calendar: Path) -> list[str]:
     return ["--current-listing-master", str(listing), "--calendar-proof", str(calendar)]
 
@@ -120,27 +154,29 @@ def current_flags(listing: Path, calendar: Path) -> list[str]:
 def _synthetic_inputs(draft: ReportDraft, checked_at: datetime):
     day = draft.expected_session_et
     basis = draft.listing_basis
-    listing = make_current_us(
-        venue=draft.venue,
-        ticker=draft.ticker,
-        day=basis.listing_session_et if basis is not None else day,
-        identity_since=day,
-        instrument_id=basis.instrument_id if basis is not None else "synthetic-bound-instrument",
-    )
-    open_at = datetime.combine(day, time(9, 30), tzinfo=RAKUTEN_SCOPE_ZONE)
+    number = 1 if basis is None else UUID(basis.instrument_id.removeprefix("us:alpaca:")).int
+    rows = (((draft.venue, draft.ticker), number),)
+    listing = observe_alpaca_us(rows, at=datetime.combine(day, time.min, tzinfo=_NY))
+    if basis is not None and basis.listing_session_et != day:
+        listing = observe_alpaca_us(
+            rows,
+            at=datetime.combine(basis.listing_session_et, time.min, tzinfo=_NY),
+            previous=listing,
+        )
+    open_at = datetime.combine(day, time(9, 30), tzinfo=_NY)
     sessions = [USRegularSession(day, open_at, draft.session_close_at)]
     listing_day = listing.slice.session
     if listing_day != day:
         sessions.append(
             USRegularSession(
                 listing_day,
-                datetime.combine(listing_day, time(9, 30), tzinfo=RAKUTEN_SCOPE_ZONE),
-                datetime.combine(listing_day, time(16), tzinfo=RAKUTEN_SCOPE_ZONE),
+                datetime.combine(listing_day, time(9, 30), tzinfo=_NY),
+                datetime.combine(listing_day, time(16), tzinfo=_NY),
             )
         )
     return listing, AlpacaCalendarReading(
         day,
-        checked_at.astimezone(RAKUTEN_SCOPE_ZONE).date(),
+        checked_at.astimezone(_NY).date(),
         tuple(sessions),
         draft.cutoff_at,
     )
@@ -194,7 +230,7 @@ def run_with_synthetic_current(args: list[str]) -> int:
         start=reading.start,
         end=reading.end,
         sessions={
-            row.trading_date: row.close_at.astimezone(RAKUTEN_SCOPE_ZONE).strftime("%H:%M")
+            row.trading_date: row.close_at.astimezone(_NY).strftime("%H:%M")
             for row in reading.sessions
         },
         received_at=draft.cutoff_at,

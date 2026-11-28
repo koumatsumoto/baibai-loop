@@ -318,7 +318,7 @@ def build_parser() -> _Parser:
             "--current-listing-master",
             type=Path,
             metavar="PATH",
-            help="required: pinned local current listing master",
+            help="required: pinned local listing master with current Alpaca US scope",
         )
         authoring.add_argument(
             "--calendar-proof",

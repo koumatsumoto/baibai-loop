@@ -9,8 +9,15 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from httpx2 import ByteStream, MockTransport, Request, Response
-from tests.helpers.us_research_admission import make_current_us
-from tests.jobs.integration.test_us_daily_plan import _CUTOFF, _FRI, _MON, _attach, _store
+from tests.helpers.us_research_admission import make_current_us, observe_alpaca_us
+from tests.jobs.integration.test_us_daily_plan import (
+    _CUTOFF,
+    _ESTABLISHED,
+    _FRI,
+    _MON,
+    _attach,
+    _store,
+)
 from tests.jobs.integration.test_us_daily_prices import _CALENDAR_ROWS, _payload
 from tests.tools.test_us_research_report import _draft, _write
 from tools.experiments.us_research_mvp import _adjacent_loader, _fixed_alpaca_capture
@@ -25,8 +32,10 @@ from baibai_engine.machine_analysis.observations.stocks.listing_master_file impo
     encode_current_listing_master,
     read_local_listing_master,
 )
+from baibai_engine.storage.paths import APPLICATION_DB_PATH
 from baibai_engine.storage.sqlite.application.write import initialize_database
 from baibai_jobs.integration import source_handoff, us_daily_handoff
+from baibai_web.materialize import export_read_models
 
 _PAPER_AUTH = ("fixture-paper-id", "fixture-paper-secret")
 _ENV = {
@@ -145,7 +154,13 @@ def test_existing_handoff_entrypoint_replays_exact_one_date_terminal_native_pack
             return _whole(request, _payload(symbols[7:]))
         return _whole(request, _payload(symbols))
 
-    code, output, calls, directory, pinned = invoke(get)
+    assets = tuple(
+        (("XNYS" if symbol == "BRK.B" else "XNAS", symbol), number)
+        for number, symbol in enumerate(_ESTABLISHED, start=1)
+    )
+    prior = observe_alpaca_us(assets, at=_CUTOFF - timedelta(days=3))
+    current = observe_alpaca_us(assets, at=_CUTOFF - timedelta(minutes=1), previous=prior)
+    code, output, calls, directory, pinned = invoke(get, current=current)
     assert code == 0
     assert output.err == ""
     assert len(calls) == 5
@@ -234,19 +249,10 @@ def _app_roundtrip(tmp_path, capsys, pinned, manifest, calendar, fixed):
     assert research_cli(initial, now=at) == 0
     binding = json.loads(capsys.readouterr().out)
     replacement = tmp_path / "same-label-other-instrument.json"
-    replacement.write_bytes(
-        encode_current_listing_master(
-            {
-                "US": make_current_us(
-                    venue="XNYS",
-                    ticker="BRK.B",
-                    day=_MON,
-                    identity_since=_FRI,
-                    instrument_id="different-current-instrument",
-                ),
-            }
-        )
-    )
+    another = ((("XNYS", "BRK.B"), 999),)
+    prior = observe_alpaca_us(another, at=_CUTOFF - timedelta(days=3))
+    current = observe_alpaca_us(another, at=_CUTOFF, previous=prior)
+    replacement.write_bytes(encode_current_listing_master({"US": current}))
     wrong_context = [context[0], str(replacement), *context[2:]]
     assert (
         research_cli(["draft-digest", draft, *wrong_context], now=_CUTOFF + timedelta(minutes=1))
@@ -319,7 +325,7 @@ def _app_roundtrip(tmp_path, capsys, pinned, manifest, calendar, fixed):
             "notes": "合成の判断を独立確認。",
         },
     )
-    db = tmp_path / "synthetic-app.sqlite"
+    db = tmp_path / APPLICATION_DB_PATH
     initialize_database(db)
     assert (
         research_cli(
@@ -351,6 +357,12 @@ def _app_roundtrip(tmp_path, capsys, pinned, manifest, calendar, fixed):
     assert saved["analysis"]["draft"]["daily_close"] == raw["daily_close"]
     assert "next_page_token" not in output.out
     assert all(token not in output.out for token in (*_ENV.values(), _PRIVATE_HEADER))
+    views = tmp_path / "serving"
+    export_read_models(tmp_path, views)
+    served = json.loads((views / "views/latest-us-proposal.json").read_bytes())["proposal"]
+    assert served["proposal_id"] == proposal_binding["proposal_id"]
+    assert served["draft_sha256"] == proposal_binding["draft_sha256"]
+    assert served["reason"] == saved["decision"]["reason"]
 
 
 @pytest.mark.parametrize(

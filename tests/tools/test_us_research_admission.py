@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import json
-from dataclasses import replace
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from hashlib import sha256
+from zoneinfo import ZoneInfo
 
 import pytest
 from tests.helpers.us_research_admission import (
     current_flags,
     make_current_us,
+    observe_alpaca_us,
     write_calendar_capture,
 )
 from tests.tools.test_us_research_report_daily_close import DAY, _input
@@ -31,6 +32,8 @@ _SHORT = date.fromisoformat(DAY)
 _NEXT = _SHORT + timedelta(days=3)
 _CUTOFF = datetime.fromisoformat("2025-11-29T14:00:00Z")
 _NOW = datetime.fromisoformat("2025-11-29T15:10:00Z")
+_NY = ZoneInfo("America/New_York")
+_SHORT_CLOSE = datetime(2025, 11, 28, 18, tzinfo=UTC)
 
 
 def _write(path, data):
@@ -42,9 +45,7 @@ def _inputs(tmp_path, ticker="BRK.B"):
     draft, capture, _ = _input(tmp_path, ticker)
     path = _write(tmp_path / "source.json", draft)
     listing = tmp_path / "current.json"
-    current = make_current_us(
-        venue=draft["venue"], ticker=ticker, day=_SHORT, identity_since=_SHORT
-    )
+    current = _alpaca_listing(venue=draft["venue"], ticker=ticker)
     listing.write_bytes(encode_current_listing_master({"US": current}))
     calendar = write_calendar_capture(
         tmp_path / "calendar.json",
@@ -56,6 +57,21 @@ def _inputs(tmp_path, ticker="BRK.B"):
     return draft, path, listing, current, calendar, ["--daily-close-proof", capture]
 
 
+def _alpaca_listing(
+    day=_SHORT,
+    *,
+    venue="XNYS",
+    ticker="BRK.B",
+    number=1,
+    observed=None,
+    received=None,
+):
+    rows = (((venue, ticker), number),)
+    received = received or datetime.combine(day, time.min, tzinfo=_NY)
+    prior = None if observed is None else observe_alpaca_us(rows, at=observed)
+    return observe_alpaca_us(rows, at=received, previous=prior)
+
+
 @pytest.mark.parametrize("command", ["draft-digest", "save", "proposal-digest", "proposal-save"])
 def test_authoring_help_marks_current_listing_and_calendar_required(command, capsys):
     with pytest.raises(SystemExit) as result:
@@ -64,7 +80,10 @@ def test_authoring_help_marks_current_listing_and_calendar_required(command, cap
     captured = capsys.readouterr()
     assert captured.err == ""
     help_text = " ".join(captured.out.split())
-    assert "--current-listing-master PATH required:" in help_text
+    assert (
+        "--current-listing-master PATH required: pinned local listing master with current Alpaca US scope"
+        in help_text
+    )
     assert "--calendar-proof RECEIPT required:" in help_text
 
 
@@ -112,11 +131,8 @@ def test_shortened_friday_remains_eligible_at_confirmed_weekend_and_saved_read_s
         "old_master",
         "other_market",
         "other_class",
-        "sell_only",
-        "buy_suspended",
-        "fund",
-        "changed_identity",
-        "stale_listing_set",
+        "other_source",
+        "duplicate_symbol",
         "late_scope",
         "bad_cal_digest",
         "late_calendar",
@@ -130,66 +146,27 @@ def test_shortened_friday_remains_eligible_at_confirmed_weekend_and_saved_read_s
     ],
 )
 def test_new_report_never_uses_a_stale_or_unconfirmed_record(tmp_path, capsys, fault):
-    draft, source, listing, current, calendar, price = _inputs(tmp_path)
+    _, source, listing, current, calendar, price = _inputs(tmp_path)
     flags = current_flags(listing, calendar)
     now = _NOW
     old_date = _SHORT - timedelta(days=2)
     if fault in {"no_calendar", "no_master"}:
         flags = flags[2:] if fault == "no_master" else flags[:2]
-    elif fault in {
-        "old_master",
-        "other_market",
-        "other_class",
-        "fund",
-        "sell_only",
-        "buy_suspended",
-    }:
-        current = make_current_us(
+    elif fault in {"old_master", "other_market", "other_class"}:
+        current = _alpaca_listing(
+            old_date if fault == "old_master" else _SHORT,
             venue="XNAS" if fault == "other_market" else "XNYS",
             ticker="BRK.A" if fault == "other_class" else "BRK.B",
-            day=old_date if fault == "old_master" else _SHORT,
-            identity_since=old_date,
-            state=fault if fault in ("sell_only", "buy_suspended") else "catalog_target",
-            issue_type="fund" if fault == "fund" else "not_flagged_fund",
         )
-    elif fault in {"changed_identity", "stale_listing_set", "late_scope"}:
-        assert current.rakuten is not None
-        if fault == "changed_identity":
-            current = replace(
-                current,
-                rakuten=replace(
-                    current.rakuten,
-                    rows=(replace(current.rakuten.rows[0], instrument_id="other-security"),),
-                ),
-            )
-        elif fault == "late_scope":
-            # Same NY session but later than the optimistic draft cutoff, which is moved
-            # to Friday; the price proof and report dates remain otherwise usable.
-            cutoff = datetime(2025, 11, 28, 21, tzinfo=UTC)
-            draft.update(cutoff_at=cutoff.isoformat(), prepared_at=cutoff.isoformat())
-            _write(tmp_path / "source.json", draft)
-            current = replace(
-                current,
-                rakuten=replace(
-                    current.rakuten, exclusions_received_at=cutoff + timedelta(minutes=1)
-                ),
-            )
-            capture = json.loads(calendar.read_text())
-            capture["received_at"] = cutoff.isoformat()
-            _write(calendar, capture)
-        else:
-            current = replace(
-                current,
-                slice=replace(
-                    current.slice,
-                    rows=(
-                        *current.slice.rows,
-                        replace(
-                            current.slice.rows[0], key=("XNYS", "OTHER"), instrument_id="new-target"
-                        ),
-                    ),
-                ),
-            )
+    elif fault == "other_source":
+        current = make_current_us(venue="XNYS", ticker="BRK.B", day=_SHORT, identity_since=_SHORT)
+    elif fault == "duplicate_symbol":
+        current = observe_alpaca_us(
+            ((("XNYS", "BRK.B"), 1), (("XNAS", "BRK.B"), 2)),
+            at=current.received_at,
+        )
+    elif fault == "late_scope":
+        current = _alpaca_listing(received=_CUTOFF + timedelta(microseconds=1))
     elif fault in {
         "late_calendar",
         "rounded_late_calendar",
@@ -243,9 +220,7 @@ def test_same_day_reused_id_invalidates_existing_review_digest_without_touching_
             "notes": "Reviewed the old identity only.",
         },
     )
-    current = make_current_us(
-        venue="XNYS", ticker="BRK.B", day=_SHORT, identity_since=_SHORT, instrument_id="other-id"
-    )
+    current = _alpaca_listing(number=2, received=_SHORT_CLOSE - timedelta(minutes=1))
     listing.write_bytes(encode_current_listing_master({"US": current}))
     assert main(cmd, now=_NOW) == 0
     after = json.loads(capsys.readouterr().out)
@@ -264,13 +239,37 @@ def test_preclose_latest_completed_price_may_be_prior_session_but_not_for_a_new_
     draft.update(cutoff_at=before_close.isoformat(), prepared_at=before_close.isoformat())
     _write(tmp_path / "source.json", draft)
     cmd = ["draft-digest", source, *price, *current_flags(listing, calendar)]
-    for identity_since, expected in ((_SHORT, 0), (_NEXT, 2)):
-        current = make_current_us(
-            venue="XNYS", ticker="BRK.B", day=_NEXT, identity_since=identity_since
-        )
+    for first_seen, expected in ((_SHORT_CLOSE, 0), (None, 2)):
+        current = _alpaca_listing(_NEXT, observed=first_seen)
         listing.write_bytes(encode_current_listing_master({"US": current}))
         assert main(cmd, now=before_close) == expected
         capsys.readouterr()
+
+
+@pytest.mark.parametrize(("offset_us", "code"), [(-1, 0), (0, 0), (1, 2)])
+def test_exact_alpaca_identity_must_exist_by_the_shortened_close(tmp_path, capsys, offset_us, code):
+    _, source, listing, _, calendar, price = _inputs(tmp_path)
+    current = _alpaca_listing(received=_SHORT_CLOSE + timedelta(microseconds=offset_us))
+    listing.write_bytes(encode_current_listing_master({"US": current}))
+    assert (
+        main(["draft-digest", source, *price, *current_flags(listing, calendar)], now=_NOW) == code
+    )
+    if code == 2:
+        assert capsys.readouterr().err == "FAIL draft\n"
+
+
+def test_closed_day_recapture_preserves_the_trading_basis_and_signed_digest(tmp_path, capsys):
+    _, source, listing, current, calendar, price = _inputs(tmp_path)
+    cmd = ["draft-digest", source, *price, *current_flags(listing, calendar)]
+    assert main(cmd, now=_NOW) == 0
+    digest = capsys.readouterr().out
+    weekend = observe_alpaca_us(
+        ((("XNYS", "BRK.B"), 1),), at=_CUTOFF - timedelta(minutes=1), previous=current
+    )
+    assert weekend.slice.session != current.slice.session
+    listing.write_bytes(encode_current_listing_master({"US": weekend}))
+    assert main(cmd, now=_NOW) == 0
+    assert capsys.readouterr().out == digest
 
 
 def test_preexisting_saved_report_canonical_json_and_render_remain_unbound(tmp_path, capsys):
