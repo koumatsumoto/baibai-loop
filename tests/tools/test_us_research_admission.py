@@ -56,6 +56,18 @@ def _inputs(tmp_path, ticker="BRK.B"):
     return draft, path, listing, current, calendar, ["--daily-close-proof", capture]
 
 
+@pytest.mark.parametrize("command", ["draft-digest", "save", "proposal-digest", "proposal-save"])
+def test_authoring_help_marks_current_listing_and_calendar_required(command, capsys):
+    with pytest.raises(SystemExit) as result:
+        main([command, "--help"])
+    assert result.value.code == 0
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    help_text = " ".join(captured.out.split())
+    assert "--current-listing-master PATH required:" in help_text
+    assert "--calendar-proof RECEIPT required:" in help_text
+
+
 def test_shortened_friday_remains_eligible_at_confirmed_weekend_and_saved_read_skips_pins(
     tmp_path, capsys
 ):

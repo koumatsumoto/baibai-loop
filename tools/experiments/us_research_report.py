@@ -314,8 +314,18 @@ def build_parser() -> _Parser:
     show.add_argument("--db", type=Path, required=True)
     show.add_argument("--proposal-id")
     for authoring in (draft_digest_command, save, digest, publish):
-        authoring.add_argument("--current-listing-master", type=Path, metavar="PATH")
-        authoring.add_argument("--calendar-proof", type=Path, metavar="RECEIPT")
+        authoring.add_argument(
+            "--current-listing-master",
+            type=Path,
+            metavar="PATH",
+            help="required: pinned local current listing master",
+        )
+        authoring.add_argument(
+            "--calendar-proof",
+            type=Path,
+            metavar="RECEIPT",
+            help="required: retained Alpaca Paper US calendar receipt",
+        )
         sources = authoring.add_mutually_exclusive_group()
         sources.add_argument(
             "--sip-proof",
