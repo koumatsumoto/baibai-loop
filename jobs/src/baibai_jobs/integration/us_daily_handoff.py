@@ -20,6 +20,7 @@ from baibai_engine.data_collection.providers.alpaca_http import (
     receive_paper_calendar,
 )
 from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
+    ALPACA_ASSETS_SOURCE,
     LISTING_MASTER_MAX_BYTES,
     decode_current_listing_master,
 )
@@ -178,7 +179,7 @@ def acquire_us_daily(
     with listing_master.open("rb") as stream:
         listing_bytes = stream.read(LISTING_MASTER_MAX_BYTES + 1)
     current = decode_current_listing_master(listing_bytes).get("US")
-    if current is None or current.rakuten is None:
+    if current is None or (current.source != ALPACA_ASSETS_SOURCE and current.rakuten is None):
         return {"source": _SOURCE, "status": "scope_unavailable"}
     first_clock = clock()
     if first_clock.utcoffset() is None:

@@ -6,10 +6,12 @@ import json
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, replace
-from datetime import date
+from datetime import date, datetime
 from hashlib import sha256
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import NAMESPACE_URL, uuid5
+
+from pydantic import Field
 
 type ListingMarket = Literal["JP", "US"]
 type ListingKey = tuple[str, str]  # Primary listing MIC and exact venue-local symbol.
@@ -64,6 +66,10 @@ class ListingMasterRow:
     identity_since: date | None = None  # First assigned identity, not necessarily the IPO date.
     effective_session: date | None = None  # Only a verified official event supplies this date.
     japan: JapanListingAttributes | None = None
+    # A date alone cannot tell whether this observed alias existed by a shortened close.
+    identity_observed_at: Annotated[
+        datetime | None, Field(exclude_if=lambda value: value is None)
+    ] = None
 
 
 @dataclass(frozen=True, slots=True)

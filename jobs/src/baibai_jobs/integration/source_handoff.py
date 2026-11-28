@@ -34,6 +34,7 @@ FINANCIAL_REVISION_OVERLAP_DAYS = 7
 
 SOURCES = (
     "tradingview",
+    "alpaca-us-assets",
     "alpaca-us-daily",
     "alpaca-us-technical",
     *NATIVE_JQUANTS_MARKET_SOURCES,
@@ -463,6 +464,18 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     directory = args.directory
     try:
+        if args.source == "alpaca-us-assets":
+            if args.command != "acquire":
+                raise ValueError("Alpaca Assets is a private local acquire-only handoff")
+            from baibai_jobs.integration.us_assets_handoff import acquire_us_assets_from_env
+
+            assets_report = acquire_us_assets_from_env(
+                previous=args.current_listing_master,
+                directory=directory,
+                expected_ny_date=args.asof,
+            )
+            print(json.dumps(assets_report, sort_keys=True))
+            return 0
         if args.source in {"alpaca-us-daily", "alpaca-us-technical"}:
             if args.command != "acquire" or args.current_listing_master is None:
                 raise ValueError(

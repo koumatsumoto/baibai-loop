@@ -71,7 +71,7 @@ def collect_current_us_daily_prices(
     """Collect SIP raw USD observations after the latest confirmed NY regular close.
 
     Supply a complete authorized calendar covering the current NY date and an
-    already closed session, plus one pinned current exchange/broker view. The
+    already closed session, plus one pinned current research or broker scope. The
     caller supplies the direct whole-response transport and owns any L1 handoff.
     None means the scope was not ready; no request or fallback is attempted.
     """
@@ -99,6 +99,7 @@ def collect_current_us_daily_prices(
         current,
         today_open=today_open,
         price_session=session.trading_date,
+        price_close_at=session.close_at,
         cutoff=cutoff,
         adjustment="raw",
     )
