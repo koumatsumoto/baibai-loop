@@ -23,6 +23,10 @@ from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
 _CODEC = TypeAdapter(ScreeningSelection)
 
 
+class ScreeningGenerationMismatch(ValueError):
+    """発行済みの選抜が、呼び出し側で固定したGenerationに属さない。"""
+
+
 def _load_selection_json(wire: bytes) -> object:
     return json.loads(wire.decode("utf-8"))
 
@@ -197,5 +201,5 @@ def find_publication_header(
     if row is None:
         return None
     if expected_generation_id is not None and row[2] != expected_generation_id:
-        raise ValueError("screening selection differs from the chosen generation")
+        raise ScreeningGenerationMismatch("screening selection differs from the chosen generation")
     return row[0], row[1], row[2], row[3], row[4]

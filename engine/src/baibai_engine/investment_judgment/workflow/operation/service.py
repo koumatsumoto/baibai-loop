@@ -55,6 +55,7 @@ from baibai_engine.machine_analysis.generation.query import (
     read_research_model_inputs_from_connection,
 )
 from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
+from baibai_engine.machine_analysis.screening.selection_query import ScreeningGenerationMismatch
 from baibai_engine.primitives.json import encode_json
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.paths import RUNS_DB_PATH
@@ -158,12 +159,16 @@ class OperationService:
             del canonical
             selection_id = selection.inputs.screening_selection_id
             if selection_id is not None:
-                proven = read_case_screening_from_connection(
-                    runs,
-                    selection_id,
-                    known_at=selection.input_known_at,
-                    subjects=subjects,
-                )
+                try:
+                    proven = read_case_screening_from_connection(
+                        runs,
+                        selection_id,
+                        known_at=selection.input_known_at,
+                        subjects=subjects,
+                        expected_generation_id=selection.inputs.generation.generation_id,
+                    )
+                except ScreeningGenerationMismatch:
+                    proven = None
                 if (
                     proven is None
                     or proven[0] != selection.inputs.screening_published_at
