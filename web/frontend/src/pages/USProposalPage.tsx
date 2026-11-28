@@ -90,7 +90,7 @@ function CashComparison({ comparison, horizon, cash }: {
           <h5 className="font-medium">{label}（1株当たり）</h5>
           <dl className="mt-2 grid gap-1 text-muted-foreground">
             <div><dt>終価</dt><dd>USD {scenario.terminal_value_usd_per_share}</dd></div>
-            <div><dt>取得権のある分配</dt><dd>USD {scenario.eligible_distributions_usd_per_share}</dd></div>
+            <div><dt>分配（権利を得ると仮定）</dt><dd>USD {scenario.eligible_distributions_usd_per_share}</dd></div>
             <div><dt>現金との差</dt><dd>USD {difference.startsWith('-') ? difference : `+${difference}`}</dd></div>
           </dl>
         </div>
