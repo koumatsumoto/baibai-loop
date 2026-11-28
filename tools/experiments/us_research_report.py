@@ -61,10 +61,12 @@ def _unique_fields(fields: list[tuple[str, object]]) -> dict[str, object]:
     return result
 
 
+def _decode(body: bytes) -> object:
+    return json.loads(body.decode("utf-8"), object_pairs_hook=_unique_fields, parse_float=Decimal)
+
+
 def _read(path: Path) -> object:
-    return json.loads(
-        path.read_text(encoding="utf-8"), object_pairs_hook=_unique_fields, parse_float=Decimal
-    )
+    return _decode(path.read_bytes())
 
 
 def _transfer_time(stamp: object) -> datetime:
@@ -129,10 +131,61 @@ def _sip_proof(draft: ReportDraft, paths: list[Path] | None) -> SipCloseProof | 
     )
 
 
-def _daily_close_proof(draft: ReportDraft, manifest: Path) -> BarsCapture:
-    spec = _read(manifest)
+_HANDOFF_SOURCE = "alpaca-us-daily"
+_HANDOFF_REQUEST = re.compile(
+    r"us-daily-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-[1-9][0-9]*"
+)
+
+
+def _handoff_listing_pin(
+    manifest: Path, *, spec: dict[str, object], body: bytes, price_session: date
+) -> str | None:
+    # Stand-alone receipts have no acquisition-run commit marker. A reserved
+    # request ID cannot silently turn into a stand-alone receipt if its marker is lost.
+    request_id = spec.get("request_id")
+    generated = isinstance(request_id, str) and _HANDOFF_REQUEST.fullmatch(request_id) is not None
+    if "source_handoff" not in spec and not generated:
+        return None
+    proof = f"{manifest.parent.name}/{manifest.name}"
+    day = price_session.isoformat()
+    if (
+        not generated
+        or spec.get("source_handoff") != _HANDOFF_SOURCE
+        or re.fullmatch(r"batch-[0-9]{3,}/capture\.json", proof) is None
+        or (spec.get("start"), spec.get("end")) != (day, day)
+    ):
+        raise ValueError("invalid generated US price handoff proof")
+    report = _read(manifest.parent.parent / "result.json")
+    if (
+        not isinstance(report, dict)
+        or report.get("source") != _HANDOFF_SOURCE
+        or report.get("status") not in ("complete", "partial")
+        or report.get("asof") != day
+        or not isinstance(batches := report.get("batches"), list)
+        or not isinstance(pin := report.get("listing_master_sha256"), str)
+        or re.fullmatch(r"[0-9a-f]{64}", pin) is None
+    ):
+        raise ValueError("invalid US price handoff result")
+    matches = [row for row in batches if isinstance(row, dict) and row.get("proof") == proof]
+    if len(matches) != 1 or matches[0].get("proof_sha256") != sha256(body).hexdigest():
+        raise ValueError("US price proof does not belong to the committed handoff")
+    return pin
+
+
+def _daily_close_proof(
+    draft: ReportDraft, manifest: Path, *, bind_current: bool
+) -> tuple[BarsCapture, str | None]:
+    body = manifest.read_bytes()
+    spec = _decode(body)
     if not isinstance(spec, dict) or not isinstance(symbols := spec.get("symbols"), list):
         raise ValueError("daily close manifest requires the fixed request symbols")
+    listing_pin = (
+        _handoff_listing_pin(
+            manifest, spec=spec, body=body, price_session=draft.expected_session_et
+        )
+        if bind_current
+        else None
+    )
     capture = _fixed_alpaca_capture(
         spec,
         tuple(symbols),
@@ -143,7 +196,7 @@ def _daily_close_proof(draft: ReportDraft, manifest: Path) -> BarsCapture:
     )
     if isinstance(capture, str):
         raise ValueError("daily close manifest is not a complete raw SIP capture")
-    return capture
+    return capture, listing_pin
 
 
 def _calendar_proof(path: Path) -> AlpacaCalendarReading:
@@ -195,19 +248,25 @@ def _calendar_proof(path: Path) -> AlpacaCalendarReading:
     )
 
 
-def _current_inputs(args: argparse.Namespace) -> USProposalCurrentInputs:
+def _current_inputs(
+    args: argparse.Namespace, *, expected_listing_sha: str | None = None
+) -> USProposalCurrentInputs:
     if args.current_listing_master is None or args.calendar_proof is None:
         raise ValueError("new US Research or decision requires the current master and calendar")
     return (
-        read_local_listing_master(args.current_listing_master).get("US"),
+        read_local_listing_master(
+            args.current_listing_master, expected_sha256=expected_listing_sha
+        ).get("US"),
         _calendar_proof(args.calendar_proof),
     )
 
 
-def _proof(draft: ReportDraft, args: argparse.Namespace) -> CloseProof | None:
+def _proof(
+    draft: ReportDraft, args: argparse.Namespace, *, bind_current: bool = False
+) -> tuple[CloseProof | None, str | None]:
     if args.daily_close_proof is not None:
-        return _daily_close_proof(draft, args.daily_close_proof)
-    return _sip_proof(draft, args.sip_proof)
+        return _daily_close_proof(draft, args.daily_close_proof, bind_current=bind_current)
+    return _sip_proof(draft, args.sip_proof), None
 
 
 def _save(
@@ -278,8 +337,12 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     try:
         if args.command in {"draft-digest", "save"}:
             draft = ReportDraft.model_validate(_read(args.draft))
-            proof = _proof(draft, args)
-            draft = admit_new_us_report(draft, *_current_inputs(args), checked_at=checked_time())
+            proof, listing_pin = _proof(draft, args, bind_current=True)
+            draft = admit_new_us_report(
+                draft,
+                *_current_inputs(args, expected_listing_sha=listing_pin),
+                checked_at=checked_time(),
+            )
             if args.command == "save":
                 stage = "review/save"
                 _save(
@@ -320,7 +383,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             stage = "US proposal draft"
             analysis = ReviewedReport.model_validate(_read(args.saved_analysis))
             decision = USProposalDraft.model_validate(_read(args.decision))
-            proof = _proof(analysis.draft, args)
+            proof, _ = _proof(analysis.draft, args)
             if args.command == "proposal-digest":
                 digest_value = prepare_us_proposal(
                     decision,

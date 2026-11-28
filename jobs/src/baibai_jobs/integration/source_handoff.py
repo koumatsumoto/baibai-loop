@@ -34,6 +34,7 @@ FINANCIAL_REVISION_OVERLAP_DAYS = 7
 
 SOURCES = (
     "tradingview",
+    "alpaca-us-daily",
     *NATIVE_JQUANTS_MARKET_SOURCES,
     "jpx-earnings",
     "jpx-regulations",
@@ -453,6 +454,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--since", type=datetime.fromisoformat)
     parser.add_argument("--asof", type=date.fromisoformat)
     parser.add_argument("--stage-id")
+    parser.add_argument("--current-listing-master", type=Path)
     return parser
 
 
@@ -460,6 +462,20 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     directory = args.directory
     try:
+        if args.source == "alpaca-us-daily":
+            from baibai_jobs.integration.us_daily_handoff import acquire_us_daily_from_env
+
+            if args.command != "acquire" or args.current_listing_master is None:
+                raise ValueError(
+                    "US price handoff requires acquire and a pinned current listing master"
+                )
+            us_report = acquire_us_daily_from_env(
+                listing_master=args.current_listing_master,
+                directory=directory,
+                expected_session=args.asof,
+            )
+            print(json.dumps(us_report, sort_keys=True))
+            return int(us_report["status"] != "complete")
         if args.source in NATIVE_JQUANTS_MARKET_SOURCES and args.command != "acquire":
             raise ValueError("J-Quants sources publish directly to native L1")
         if args.source == "tradingview" and args.command != "download":

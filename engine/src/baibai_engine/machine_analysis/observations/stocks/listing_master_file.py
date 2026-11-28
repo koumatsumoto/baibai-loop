@@ -216,7 +216,12 @@ def decode_current_listing_master(body: bytes) -> dict[ListingMarket, CurrentLis
     return current
 
 
-def read_local_listing_master(path: Path) -> dict[ListingMarket, CurrentListingMarket]:
-    """Read one already-pinned local artifact, without selecting or fetching another."""
+def read_local_listing_master(
+    path: Path, *, expected_sha256: str | None = None
+) -> dict[ListingMarket, CurrentListingMarket]:
+    """Read one pin; optionally bind the decoded bytes to an acquisition receipt."""
     with path.open("rb") as stream:
-        return decode_current_listing_master(stream.read(LISTING_MASTER_MAX_BYTES + 1))
+        body = stream.read(LISTING_MASTER_MAX_BYTES + 1)
+    if expected_sha256 is not None and sha256(body).hexdigest() != expected_sha256:
+        raise ValueError("listing master pin differs from the acquisition handoff")
+    return decode_current_listing_master(body)

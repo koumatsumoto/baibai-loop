@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 from baibai_engine.data_collection.providers.alpaca import decode_alpaca_json
 
-_URL = "https://paper-api.alpaca.markets/v2/calendar"
+CALENDAR_URL = "https://paper-api.alpaca.markets/v2/calendar"
 _NY = ZoneInfo("America/New_York")
 _FIRST = date(1970, 1, 1)
 _LAST = date(2029, 12, 31)
@@ -116,7 +116,7 @@ def read_paper_us_calendar(
     if not _FIRST <= start <= end <= _LAST or (end - start).days >= _MAX_DAYS:
         return AlpacaCalendarReading(start, end, problem="unsupported_window")
     params = urlencode({"start": start.isoformat(), "end": end.isoformat(), "date_type": "TRADING"})
-    url = f"{_URL}?{params}"
+    url = f"{CALENDAR_URL}?{params}"
     try:
         response = get_authorized(url)
     except OSError:

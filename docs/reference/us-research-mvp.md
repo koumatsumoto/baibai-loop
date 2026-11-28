@@ -230,6 +230,18 @@ SECが `text/html` で返す索引では、[HTMLで省略可能な外側の終�
 
 上記の新規作成・保存の各回に、同じ固定受領JSONを `--daily-close-proof` で渡す。保存後の読戻しに原本は不要。IEX、最終約定、分割調整後、別日・別株式クラス、取引所の公式値に読み替えない。日足を取得できなければ価格を埋めず、保留理由と見直し条件を記す。第三者への配信はデータ利用条件の確認が別に必要で、認証Webであることだけでは許可にならない。
 
+### 現行対象の日足を作業用に取得する
+
+既に許可されたSIP Market Dataの `APCA_API_KEY_ID` / `APCA_API_SECRET_KEY` と、別に確認したPaper Calendarの `APCA_PAPER_API_KEY_ID` / `APCA_PAPER_API_SECRET_KEY` を実行環境へ渡す。新たに照会するのは固定した現行銘柄マスターの対象だけ。 `--asof` を指定する場合は暦で確認した最新の引け済みNY立会日を指定し、異なれば取得しない。
+
+```bash
+uv run --offline --no-sync python -m baibai_jobs.integration.source_handoff acquire \
+  --source alpaca-us-daily --current-listing-master "$CURRENT_LISTING_MASTER" \
+  --directory "$RUNNER_TEMP/us-daily-prices"
+```
+
+同じ run の私有作業ディレクトリに、`result.json`、`calendar.json` と必要な応答原本・`batch-*/capture.json` を出す。欠測・未確認を区別し、全対象に適格な足が揃わなければ終了コードは非0。受領が完了した一部の原本は対応する既存の `--daily-close-proof` で使える。この引渡しから初回原稿を作成・保存するときは、同じ `result.json`・元の価格原本・取得に使った銘柄マスターを組で渡す。この入口はSQL staging・外部への配信・定期起動・L2や提案の発行をしない。
+
 ## Nasdaqの公式終値を固定受領から読む
 
 Alpaca SIP経由でNasdaqの公式値を比較価格に採用する場合だけ追加する。対象はNasdaq上場（XNAS）で、同一銘柄・株式クラス・NY立会日とその終了時刻を別の証拠で確認済みのもの。[UTPのQ/M](https://www.utpplan.com/DOC/UtpBinaryOutputSpec-4.1b.pdf)に当たるNasdaqの無調整公式終値であり、取引所からの直接受領、約定値、統合終値、IEX観測ではない。
