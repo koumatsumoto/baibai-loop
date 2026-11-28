@@ -61,6 +61,7 @@ jobs:
           import json
           import os
           from datetime import UTC, date, datetime, time, timedelta
+          from math import isfinite
           from urllib.error import HTTPError, URLError
           from urllib.parse import urlencode
           from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -95,8 +96,9 @@ jobs:
           request = Request("https://data.alpaca.markets/v2/stocks/bars?" + params, headers=headers)
           try:
               with build_opener(NoRedirect()).open(request, timeout=15) as response:
+                  response_status = response.status
                   body = response.read(262145)
-              if len(body) > 262144:
+              if response_status != 200 or len(body) > 262144:
                   raise ValueError
               payload = json.loads(body)
               if payload["next_page_token"] is not None or not isinstance(payload["bars"], dict):
@@ -104,12 +106,23 @@ jobs:
               bars = payload["bars"]
               if set(bars) - set(symbols):
                   raise ValueError
-              matched = [symbol for symbol in symbols
-                         if any(datetime.fromisoformat(row["t"]).astimezone(ny).date() == expected
-                                for row in bars.get(symbol, []))]
+              def valid_daily_bar(rows):
+                  if not isinstance(rows, list) or len(rows) != 1:
+                      return False
+                  row = rows[0]
+                  stamp = datetime.fromisoformat(row["t"])
+                  if stamp.utcoffset() is None or stamp.astimezone(ny) != start:
+                      return False
+                  o, h, low, c, volume = (row[key] for key in ("o", "h", "l", "c", "v"))
+                  if any(type(value) not in (int, float) or not isfinite(value)
+                         for value in (o, h, low, c, volume)):
+                      return False
+                  return 0 < low <= min(o, c) <= max(o, c) <= h and volume >= 0
+          
+              matched = [symbol for symbol in symbols if valid_daily_bar(bars.get(symbol, []))]
           except HTTPError as error:
               raise SystemExit(f"feed=sip status=http_error http_status={error.code}") from None
-          except (URLError, OSError, ValueError, KeyError, TypeError, AttributeError):
+          except (URLError, OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError):
               raise SystemExit("feed=sip status=invalid_or_incomplete_response") from None
           print(f"feed=sip session={expected} symbols_ok={len(matched)}/{len(symbols)} "
                 f"matched={','.join(matched) or '-'}")
