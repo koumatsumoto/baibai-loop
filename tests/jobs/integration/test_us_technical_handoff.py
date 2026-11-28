@@ -7,16 +7,22 @@ from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 from itertools import pairwise
 from urllib.parse import parse_qs, urlsplit
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 import pytest
 from httpx2 import ByteStream, MockTransport, Response
 from tests.helpers.us_research_admission import make_current_us
+from tests.jobs.integration.test_alpaca_research_scope import _CLOSE, _asset, _receipt
 from tests.jobs.integration.test_us_technical_input import _CUTOFF, _DAYS, _FRI, _MON, _listing
+from tools.experiments.us_technical_check import check_packet
 from tools.experiments.us_technical_check import main as check
 
 from baibai_engine.data_collection.providers.alpaca_calendar import CALENDAR_WINDOW_MAX_DAYS
 from baibai_engine.data_collection.providers.alpaca_http import BARS_BODY_MAX_BYTES
+from baibai_engine.machine_analysis.observations.stocks.alpaca_listing_input import (
+    prepare_alpaca_research_inventory,
+)
 from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
     active_us_listing_sha256,
     decode_current_listing_master,
@@ -161,12 +167,16 @@ def run(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("APCA_API_SECRET_KEY", _AUTH[1])
     monkeypatch.setenv("APCA_API_BASE_URL", "https://not-a-service.invalid")
     monkeypatch.setenv("HTTPS_PROXY", "https://not-a-proxy.invalid")
-    monkeypatch.setattr(us_technical_handoff, "_now", lambda: _CUTOFF)
     listing = tmp_path / "pin.json"
     listing.write_bytes(_mixed_listing())
     directory = tmp_path / "receipt"
 
-    def invoke(*, expected=_FRI, command="acquire", pinned=True, **options):
+    def invoke(
+        *, expected=_FRI, command="acquire", pinned=True, pin_bytes=None, cutoff=_CUTOFF, **options
+    ):
+        if pin_bytes is not None:
+            listing.write_bytes(pin_bytes)
+        monkeypatch.setattr(us_technical_handoff, "_now", lambda: cutoff)
         calendars, bars, parts = [], [], []
 
         def transport(*, trust_env, retries):
@@ -236,6 +246,75 @@ def test_real_private_acquire_then_offline_check_with_calendar_chunks_and_exact_
         "price_session": _FRI.isoformat(),
         "status": "admitted",
     }
+
+
+def _alpaca_research_pin(*, with_old_history=True):
+    late = _CLOSE + timedelta(minutes=10)
+    latest = (_asset(1, "AAPL"), _asset(3, "REUSE", "NYSE", tradable=False))
+    previous = None
+    if with_old_history:
+        previous = prepare_alpaca_research_inventory(
+            _receipt(
+                _asset(1, "AAPL"),
+                _asset(2, "REUSE", "NYSE"),
+                received_at=datetime.combine(_DAYS[0], time(11), tzinfo=_NY),
+            )
+        ).current
+    changed = prepare_alpaca_research_inventory(
+        _receipt(*latest, received_at=late), previous=previous
+    ).current
+    monday = prepare_alpaca_research_inventory(
+        _receipt(*latest, received_at=_CUTOFF - timedelta(minutes=1)), previous=changed
+    ).current
+    assert monday.rakuten is monday.nasdaq_directories is None
+    return encode_current_listing_master({"US": monday})
+
+
+@pytest.mark.parametrize("after_next_close", [False, True])
+def test_current_alpaca_pin_reaches_existing_split_and_offline_l2(run, capsys, after_next_close):
+    price_session = _MON if after_next_close else _FRI
+    cutoff = datetime(2026, 11, 30, 21, 30, tzinfo=UTC) if after_next_close else _CUTOFF
+    exit_code, output, packet, listing, _, bars, _ = run(
+        pin_bytes=_alpaca_research_pin(), expected=price_session, cutoff=cutoff
+    )
+    assert exit_code == 0
+    assert json.loads(output.out)["status"] == "complete"
+    expected_start = _DAYS[1] if after_next_close else _DAYS[0]
+    expected_queries = [(("AAPL",), expected_start, price_session, True)]
+    if after_next_close:
+        expected_queries.append((("REUSE",), _MON, _MON, True))
+    assert bars == expected_queries
+    assert check(["--packet", str(packet), "--current-listing-master", str(listing)]) == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "listing_session": _MON.isoformat(),
+        "models": 2 if after_next_close else 1,
+        "price_session": price_session.isoformat(),
+        "status": "admitted",
+    }
+    observed = check_packet(packet, listing)
+    assert observed is not None
+    stable = observed.models[0]
+    assert stable.subject == f"us:alpaca:{UUID(int=1)}"
+    assert stable.payload["history_scope_start"] == expected_start.isoformat()
+    assert stable.payload["price_source"] == "alpaca_sip_daily_split"
+    if after_next_close:
+        new = observed.models[1]
+        assert new.subject == f"us:alpaca:{UUID(int=3)}"
+        assert new.payload["ticker"] == "REUSE"
+        assert new.payload["primary_mic"] == "XNYS"
+        assert new.payload["bar_count"] == 1
+        assert new.payload["history_scope_start"] == _MON.isoformat()
+        assert new.payload["moving_averages"]["sma_20bar"]["status"] == "insufficient_history"
+
+
+def test_new_scope_after_the_verified_short_close_never_fetches_older_prices(run):
+    exit_code, output, packet, _, _, bars, _ = run(
+        pin_bytes=_alpaca_research_pin(with_old_history=False),
+    )
+    assert exit_code == 1
+    assert json.loads(output.out)["status"] == "scope_unavailable"
+    assert not bars
+    assert not packet.exists()
 
 
 @pytest.mark.parametrize(

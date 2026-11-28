@@ -20,12 +20,12 @@ from baibai_engine.data_collection.providers.alpaca_http import (
     receive_paper_calendar,
 )
 from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
-    ALPACA_ASSETS_SOURCE,
     LISTING_MASTER_MAX_BYTES,
     decode_current_listing_master,
 )
 from baibai_engine.storage.filesystem import write_bytes_atomic
 from baibai_engine.storage.json import canonical_json, write_json_atomic
+from baibai_jobs.integration.us_daily_plan import has_us_price_scope
 from baibai_jobs.integration.us_daily_prices import (
     USDailyPriceCollection,
     collect_current_us_daily_prices,
@@ -179,7 +179,7 @@ def acquire_us_daily(
     with listing_master.open("rb") as stream:
         listing_bytes = stream.read(LISTING_MASTER_MAX_BYTES + 1)
     current = decode_current_listing_master(listing_bytes).get("US")
-    if current is None or (current.source != ALPACA_ASSETS_SOURCE and current.rakuten is None):
+    if not has_us_price_scope(current):
         return {"source": _SOURCE, "status": "scope_unavailable"}
     first_clock = clock()
     if first_clock.utcoffset() is None:

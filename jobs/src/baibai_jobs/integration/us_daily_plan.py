@@ -52,6 +52,13 @@ class USDailyPricePlan:
     batches: tuple[AlpacaSIPDailyBatch, ...]
 
 
+def has_us_price_scope(current: CurrentListingMarket | None) -> bool:
+    """Choose a recognized pin before calendar lookup, not price or order eligibility."""
+    return current is not None and (
+        current.source == ALPACA_ASSETS_SOURCE or current.rakuten is not None
+    )
+
+
 def plan_current_us_daily_prices(
     current: CurrentListingMarket | None,
     *,
@@ -168,7 +175,7 @@ def _daily_plan(
 
 def _verified_window(
     readings: Iterable[AlpacaCalendarReading], *, cutoff: datetime
-) -> tuple[PriceCalendar, datetime, bool] | None:
+) -> tuple[PriceCalendar, tuple[datetime, ...], datetime, bool] | None:
     today = cutoff.astimezone(_NY).date()
     known: dict[date, USRegularSession | None] = {}
     confirmed_at: datetime | None = None
@@ -209,7 +216,8 @@ def _verified_window(
         {day: row is not None for day, row in known.items() if start <= day <= latest.trading_date},
         as_of=latest.trading_date,
     )
-    return calendar, max(confirmed_at, latest.close_at), known[today] is not None
+    closes = tuple(row.close_at for row in reversed(sessions))
+    return calendar, closes, max(confirmed_at, latest.close_at), known[today] is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,29 +241,39 @@ def plan_us_technical_scope(
     window = _verified_window(calendars, cutoff=cutoff)
     if current is None or window is None:
         return None
-    calendar, start_clock, today_open = window
-    days = calendar.trading_dates
-    session = calendar.as_of
+    calendar, closes, start_clock, today_open = window
     plan = plan_current_us_daily_prices(
-        current, today_open=today_open, price_session=session, cutoff=cutoff, adjustment="split"
+        current,
+        today_open=today_open,
+        price_session=calendar.as_of,
+        price_close_at=closes[-1],
+        cutoff=cutoff,
+        adjustment="split",
     )
-    if plan is None or current.rakuten is None:
+    if plan is None:
         return None
     native = {row.key: row for row in current.slice.rows}
     first: dict[str, int] = {}
     for target in plan.targets:
         row = native[target.listing_key]
-        # This is only the proven floor for the current exact key, not an IPO
-        # date. In particular the current token cannot cross a known move/reuse.
-        floor = row.identity_since
-        assert floor is not None  # The existing price plan requires it.
-        if row.effective_session is not None:
-            floor = max(floor, row.effective_session)
-        first[target.listing_key[1]] = bisect_left(days, floor)
+        # The earliest usable bar belongs to the exact current key, not just
+        # this ticker. A first observation after a short close starts later.
+        if current.source == ALPACA_ASSETS_SOURCE:
+            observed_at = row.identity_observed_at
+            assert observed_at is not None  # The price plan already qualified the row.
+            start = bisect_left(closes, observed_at)
+        else:
+            floor = row.identity_since
+            assert floor is not None
+            if row.effective_session is not None:
+                floor = max(floor, row.effective_session)
+            start = bisect_left(calendar.trading_dates, floor)
+        first[target.listing_key[1]] = start
+    broker_clocks = current.rakuten.clocks if current.rakuten is not None else ()
     return USTechnicalScope(
         plan.listing_session,
         calendar,
         plan.targets,
         first,
-        max(start_clock, current.received_at, *current.rakuten.clocks),
+        max(start_clock, current.received_at, *broker_clocks),
     )
