@@ -30,6 +30,9 @@ from baibai_engine.data_collection.providers.sec_edgar import (
     capture_sec_edgar,
     observe_reported_ticker,
 )
+from baibai_engine.machine_analysis.models.company_financials.reported_comparisons import (
+    sec_reported_change,
+)
 from baibai_engine.machine_analysis.models.technical_analysis.calculations import (
     simple_moving_average,
 )
@@ -551,6 +554,18 @@ def _sec(
                         f"- {row.metric} ({row.basis}, {column}) "
                         f"{period.start}〜{period.end}: {value}"
                     )
+            evidence.extend(("", "### 前年同期差（同一提出・報告ベース）", ""))
+            for row in comparison:
+                if row.metric == "ppe_cash_paid":
+                    continue  # 取得支出は原額のみ。成長やFCFとは扱わない。
+                difference, rate, reasons = sec_reported_change(row)
+                values = [] if difference is None else [f"差額 USD {difference:+,}"]
+                if rate is not None:
+                    values.append(f"前年比 {rate:+.2%}")
+                if reasons:
+                    label = "未算出" if difference is None else "前年比未算出"
+                    values.append(f"{label}: {', '.join(f'`{reason}`' for reason in reasons)}")
+                evidence.append(f"- {row.metric} ({row.basis}): {'; '.join(values)}")
             return evidence, None
         result = observe_sec_revenue(
             capture,

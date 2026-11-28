@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from datetime import date, datetime, timedelta
+from decimal import localcontext
 from hashlib import sha256
 from pathlib import Path
 
@@ -976,6 +977,9 @@ def test_opt_in_sec_comparison_uses_one_issuer_and_does_not_read_price(
     assert "operating_income (quarter, current) 2026-07-01〜2026-09-30: USD 123" in report
     assert "operating_income (quarter, prior) 2025-07-01〜2025-09-30: USD 100" in report
     assert report.count("operating_income (quarter,") == 2
+    assert "- operating_income (quarter): 差額 USD +23; 前年比 +23.00%" in report
+    assert "- operating_cash_flow (year_to_date): 未算出: " in report
+    assert "- ppe_cash_paid (year_to_date):" not in report
     assert "operating_cash_flow (year_to_date, current)" in report
     assert "unmapped_concept_or_unit" in report
     assert "SMA" not in report
@@ -988,6 +992,7 @@ def test_opt_in_sec_comparison_uses_one_issuer_and_does_not_read_price(
     wrong = capsys.readouterr().out
     assert "sec_filing_period_mismatch" in wrong
     assert "operating_income (" not in wrong
+    assert "前年同期差" not in wrong
 
     subject["filing"]["form"] = "10-K"
     bundle["subjects"][1]["filing"] = subject["filing"]
@@ -1003,3 +1008,54 @@ def test_opt_in_sec_comparison_uses_one_issuer_and_does_not_read_price(
         main(cmd)
     assert exc.value.code == 2
     assert "invalid fixed US research receipt bundle" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("prior", "current", "different_concept", "reported"),
+    [
+        (0, 7, False, "差額 USD +7; 前年比未算出: `nonpositive_base`"),
+        (-5, 7, False, "差額 USD +12; 前年比未算出: `nonpositive_base`"),
+        (100_000_000_000_000_000_001, 100_000_000_000_000_000_002, False, "差額 USD +1; 前年比"),
+        (100_000, 199_999, False, "差額 USD +99,999; 前年比"),
+        (1, 10**31 + 2, False, f"差額 USD {10**31 + 1:+,}; 前年比"),
+        (1, 10**35 + 2, False, "未算出: `inexact_difference`"),
+        (8, 9, True, "未算出: `incomparable_concepts`"),
+        (None, 9, False, "未算出: `prior:no_fact_for_scope`"),
+    ],
+)
+def test_same_filing_reported_change_does_not_mix_values_or_concepts(
+    prior, current, different_concept, reported
+):
+    bundle, files, _ = _public_index_bundle()
+    record = bundle["subjects"][0]["companyfacts"]
+    facts = json.loads(files[record["file"]])
+    gaap = facts["facts"]["us-gaap"]
+    (sample,) = next(iter(gaap.values()))["units"]["USD"]
+    gaap.clear()
+    gaap["Revenues"] = {"units": {"USD": [dict(sample, val=current)]}}
+    if prior is not None:
+        prior_row = dict(sample, val=prior, start="2025-07-01", end="2025-09-30")
+        if different_concept:
+            gaap["RevenueFromContractWithCustomerExcludingAssessedTax"] = {
+                "units": {"USD": [prior_row]}
+            }
+        else:
+            gaap["Revenues"]["units"]["USD"].append(prior_row)
+    gaap["NetCashProvidedByUsedInOperatingActivities"] = {
+        "units": {
+            "USD": [
+                dict(sample, val=100, start="2026-01-01"),
+                dict(sample, val=80, start="2025-01-01", end="2025-09-30"),
+                dict(sample, val=999_999),
+            ]
+        }
+    }
+    _replace_body(record, files, facts)
+    args = ["320193", "Q3", "2025-07-01", "2025-09-30", "2026-01-01", "2025-01-01"]
+    with localcontext() as context:
+        context.prec = 4
+        output = _compare_sec_report(bundle, files.__getitem__, args)
+    assert f"- revenue (quarter): {reported}" in output
+    assert f"revenue (quarter, current) 2026-07-01〜2026-09-30: USD {current:,};" in output
+    assert "- operating_cash_flow (year_to_date): 差額 USD +20; 前年比 +25.00%" in output
+    assert "999,999" not in output

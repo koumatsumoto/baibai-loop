@@ -1,10 +1,10 @@
-"""同一EDINET文書に報告された比較。成長系列や評価倍率の基準にしない。"""
+"""同一提出書に報告された比較。成長系列や評価倍率の基準にしない。"""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import date
-from decimal import Decimal
+from decimal import Context, Decimal, Inexact, localcontext
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, FiniteFloat
@@ -13,6 +13,13 @@ from baibai_engine.machine_analysis.observations.financials.edinet_comparison_mo
     ComparativeMetric,
     FilingComparisons,
 )
+from baibai_engine.machine_analysis.observations.financials.sec_companyfacts import (
+    SecIssuerUsdObservation,
+    SecRevenueAmbiguity,
+    SecStatementComparison,
+)
+
+_SEC_CHANGE_CONTEXT = Context(prec=34)
 
 
 class _ReportedFilingChange(BaseModel):
@@ -45,6 +52,45 @@ class ReportedFilingComparison(BaseModel):
     )
 
 
+def _reported_rate(difference: Decimal | None, prior: Decimal | None) -> Decimal | None:
+    return (
+        difference / prior if difference is not None and prior is not None and prior > 0 else None
+    )
+
+
+def sec_reported_change(
+    row: SecStatementComparison,
+) -> tuple[Decimal | None, Decimal | None, tuple[str, ...]]:
+    # Compare only the two checked columns, not successive filings or a growth series.
+    prior, current = row.prior, row.current
+    if not isinstance(prior, SecIssuerUsdObservation) or not isinstance(
+        current, SecIssuerUsdObservation
+    ):
+        reasons = tuple(
+            f"{column}:{fact.reason if isinstance(fact, SecRevenueAmbiguity) else fact}"
+            for column, fact in (("current", current), ("prior", prior))
+            if not isinstance(fact, SecIssuerUsdObservation)
+        )
+        return None, None, reasons
+    if current.concept != prior.concept:
+        return None, None, ("incomparable_concepts",)
+    # Do not report an ambient-context or rounded subtraction as a native amount.
+    with localcontext(_SEC_CHANGE_CONTEXT) as context:
+        context.traps[Inexact] = True
+        try:
+            difference = current.amount - prior.amount
+        except Inexact:
+            return None, None, ("inexact_difference",)
+        except ArithmeticError:
+            return None, None, ("arithmetic_unavailable",)
+        context.traps[Inexact] = False  # A displayed rate, unlike the difference, may round.
+        try:
+            rate = _reported_rate(difference, prior.amount)
+        except ArithmeticError:
+            return difference, None, ("arithmetic_unavailable",)
+    return difference, rate, () if rate is not None else ("nonpositive_base",)
+
+
 def _reported_comparison(observation: FilingComparisons) -> ReportedFilingComparison:
     changes: list[_ReportedFilingChange] = []
     for pair in observation.pairs:
@@ -54,6 +100,7 @@ def _reported_comparison(observation: FilingComparisons) -> ReportedFilingCompar
         prior = Decimal(before.amount) if before.amount is not None else None
         current = Decimal(after.amount) if after.amount is not None else None
         difference = current - prior if prior is not None and current is not None else None
+        rate = _reported_rate(difference, prior)
         changes.append(
             _ReportedFilingChange(
                 metric=pair.metric,
@@ -64,9 +111,7 @@ def _reported_comparison(observation: FilingComparisons) -> ReportedFilingCompar
                 from_value=float(prior) if prior is not None else None,
                 to_value=float(current) if current is not None else None,
                 difference=float(difference) if difference is not None else None,
-                rate=float(difference / prior)
-                if difference is not None and prior is not None and prior > 0
-                else None,
+                rate=float(rate) if rate is not None else None,
                 reason=pair.reason
                 or ("nonpositive_base" if prior is not None and prior <= 0 else None),
             )
