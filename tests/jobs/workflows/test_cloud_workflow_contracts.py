@@ -205,7 +205,38 @@ def test_materialize_keeps_verified_application_independent_of_market_failure():
         "&& steps.pull-app.outcome == 'success' }}"
     )
     assert materialize["env"]["MARKET_OUTCOME"] == "${{ steps.market.outcome }}"
-    assert upload["if"] == "${{ !cancelled() && steps.materialize.outcome == 'success' }}"
+    current_revision = by_id["current-revision"]
+    assert steps.index(materialize) < steps.index(current_revision) < steps.index(upload)
+    assert current_revision["if"] == "${{ !cancelled() && steps.materialize.outcome == 'success' }}"
+    assert upload["if"] == "${{ !cancelled() && steps.current-revision.outcome == 'success' }}"
+
+
+@pytest.mark.parametrize(("main_is_current", "api_exit"), [(True, 0), (False, 0), (True, 1)])
+def test_materialize_checks_main_before_upload(tmp_path, main_is_current, api_exit):
+    steps = _steps(_workflow("cloud-materialize.yml"), "materialize")
+    script = next(step["run"] for step in steps if step.get("id") == "current-revision")
+    checked_out = "a" * 40
+    current = checked_out if main_is_current else "b" * 40
+    # Exercise the actual workflow shell, not a second implementation.
+    stubs = f"""
+git() {{ [[ "$*" == 'rev-parse HEAD' ]] || return 99; echo {checked_out}; }}
+gh() {{
+  [[ "$*" == "api --method GET repos/koumatsumoto/baibai-loop/git/ref/heads/main --jq .object.sha" ]] || return 99
+  echo {current}
+  return {api_exit}
+}}
+"""
+    result = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", stubs + script],
+        cwd=tmp_path,
+        env={**os.environ, "GITHUB_REPOSITORY": "koumatsumoto/baibai-loop"},
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == (0 if main_is_current and not api_exit else 1)
+    if not main_is_current:
+        assert "regenerate views from the current main" in result.stderr
 
 
 @pytest.mark.parametrize(
