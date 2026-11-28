@@ -32,6 +32,8 @@ dist/
 
 # Local environment files
 .env
+.env.share.local
+.envshare-tmp-*/
 .wrangler/
 .r2-transfer.*
 .r2-staging/

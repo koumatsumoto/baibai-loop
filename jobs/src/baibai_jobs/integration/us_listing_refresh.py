@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
+from hashlib import sha256
 from typing import Literal
 from zoneinfo import ZoneInfo
 
@@ -17,8 +18,10 @@ from baibai_engine.machine_analysis.observations.stocks.us_listing_input import 
     normalize_us_listings,
 )
 from baibai_jobs.integration.listing_master_current import (
+    NASDAQ_DIRECTORY_SOURCE,
     ListingMasterStore,
     ListingUpdateStatus,
+    NasdaqDirectoryVersion,
     refresh_current_listing_master,
 )
 from baibai_jobs.schedule import us_master_refresh_date
@@ -72,9 +75,19 @@ def refresh_current_us_listings(
         for receipt in inputs.receipts
     ):
         raise ValueError("US listing directories require complete receipts for the current NY day")
-    observations = normalize_us_listings(
-        (read_us_symbol_directory(r.body, file=r.file) for r in inputs.receipts), complete=True
+    directories = tuple(
+        read_us_symbol_directory(receipt.body, file=receipt.file) for receipt in inputs.receipts
     )
+    observations = normalize_us_listings(directories, complete=True)
+    versions = tuple(
+        NasdaqDirectoryVersion(
+            directory.file, directory.creation_stamp, sha256(receipt.body).hexdigest()
+        )
+        for directory, receipt in zip(directories, inputs.receipts, strict=True)
+    )
+    # This rules out a cache from a different day; it does not establish session scope.
+    if any(version.native_minute.date() != target for version in versions):
+        raise ValueError("US listing directory native creation date does not match the session")
     if any(
         event.key[0] not in _US_PRIMARY_MIC
         or (event.previous_key is not None and event.previous_key[0] not in _US_PRIMARY_MIC)
@@ -92,9 +105,10 @@ def refresh_current_us_listings(
         store,
         market="US",
         session=target,
-        source="nasdaq-trader",
+        source=NASDAQ_DIRECTORY_SOURCE,
         received_at=received_at,
         observations=observations,
         complete=True,
         verified_events=inputs.verified_events,
+        nasdaq_directories=versions,
     )

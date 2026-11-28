@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -7,8 +7,10 @@ from baibai_engine.data_collection.providers.alpaca import DailyBarsQuery
 from baibai_engine.data_collection.providers.nasdaq_symbols import read_us_symbol_directory
 from baibai_engine.machine_analysis.observations.stocks.us_universe import (
     RakutenOrdinaryRow,
+    RakutenRestrictionRow,
     cover_rakuten_us_ordinary_shares,
     parse_rakuten_ordinary_snapshot,
+    rakuten_listing_key,
 )
 
 _NASDAQ = b"""Symbol|Security Name|Market Category|Test Issue|Financial Status|Round Lot Size|ETF|NextShares
@@ -26,6 +28,22 @@ ARC|Plains ETF|P|ARC|Y|100|N|ARC
 NTST|Test Issue|N|NTST|N|100|Y|NTST
 File Creation Time: 1127202618:01||||||
 """
+
+
+@pytest.mark.parametrize(
+    ("ticker", "exchange", "expected"),
+    [
+        ("BRK A", "NYSE", ("XNYS", "BRK.A")),
+        ("BRK B", "NYSE", ("XNYS", "BRK.B")),
+        ("BRK.B", "NYSE", ("XNYS", "BRK.B")),
+        ("BRK B", "NASDAQ", ("XNAS", "BRK B")),
+        ("LEN P", "NYSE", ("XNYS", "LEN P")),
+        ("BW", "NYSE American", None),
+        ("BW", "OTC", None),
+    ],
+)
+def test_rakuten_listing_key_only_applies_supported_native_aliases(ticker, exchange, expected):
+    assert rakuten_listing_key(ticker, exchange) == expected
 
 
 def _directories():
@@ -222,7 +240,9 @@ def test_a_confirmed_alias_cannot_double_count_or_disagree_on_buyability():
             )
 
 
-_RECEIVED = datetime.fromisoformat("2026-11-28T11:55:00+09:00")
+_NY_SESSION = date(2026, 11, 27)
+_CATALOG_RECEIVED = datetime.fromisoformat("2026-11-28T11:55:00+09:00")
+_EXCLUSIONS_RECEIVED = datetime.fromisoformat("2026-11-27T22:07:00-05:00")
 _CATALOG = "ticker,exchange\nMSTA,NASDAQ\nMSTB,NASDAQ\nPR B,NYSE\nCT,NYSE\n"
 _EXCLUSION_HEADER = "ticker,exchange,restriction\n"
 _TRADABLE = "cash_ordinary_tradable"
@@ -230,14 +250,24 @@ _CATALOG_ONLY = "cash_ordinary_catalog"
 
 
 def _parsed_snapshot(
-    *, mode=_TRADABLE, catalog=_CATALOG, count=4, exclusions=None, excluded_count=None
+    *,
+    mode=_TRADABLE,
+    catalog=_CATALOG,
+    count=4,
+    exclusions=None,
+    excluded_count=None,
+    target=_NY_SESSION,
+    catalog_time=_CATALOG_RECEIVED,
+    restrictions_time=_EXCLUSIONS_RECEIVED,
 ):
     return parse_rakuten_ordinary_snapshot(
         catalog,
         catalog_mode=mode,
-        observed_at=_RECEIVED,
+        effective_session=target,
+        catalog_received_at=catalog_time,
         reported_count=count,
         exclusions_csv=exclusions,
+        exclusions_received_at=restrictions_time if exclusions is not None else None,
         exclusions_reported_count=excluded_count,
     )
 
@@ -258,8 +288,16 @@ def test_complete_cash_catalog_and_official_restrictions_join_before_the_alpaca_
         exclusions=exclusions,
         excluded_count=4,
     )
-    assert (snapshot.catalog_mode, snapshot.observed_at) == (_TRADABLE, _RECEIVED)
+    assert (snapshot.catalog_mode, snapshot.effective_session) == (_TRADABLE, _NY_SESSION)
+    assert snapshot.catalog_received_at == _CATALOG_RECEIVED
+    assert snapshot.catalog_received_at.tzinfo is UTC
+    assert snapshot.exclusions_received_at == _EXCLUSIONS_RECEIVED
+    assert snapshot.exclusions_received_at.tzinfo is UTC
     assert (snapshot.reported_count, snapshot.exclusions_reported_count) == (4, 4)
+    assert snapshot.restriction_only == (
+        RakutenRestrictionRow("MSTA", "NYSE", "sell_only"),
+        RakutenRestrictionRow("OLD", "OTC", "sell_only"),
+    )
     assert [(row.ticker, row.state, row.alpaca_symbol) for row in _coverage(snapshot)] == [
         ("MSTA", "eligible", "MSTA"),
         ("MSTB", "sell_only", None),
@@ -283,6 +321,43 @@ def test_completed_zero_restrictions_is_not_a_missing_capture():
         _parsed_snapshot()
     snapshot = _parsed_snapshot(exclusions=_EXCLUSION_HEADER, excluded_count=0)
     assert all(row.state == "eligible" for row in _coverage(snapshot))
+    assert snapshot.restriction_only == ()
+    assert snapshot.exclusions_reported_count == 0
+    assert snapshot.exclusions_received_at == _EXCLUSIONS_RECEIVED
+
+
+def test_restriction_only_rows_do_not_expand_the_ordinary_listing_or_price_denominator():
+    exclusion_rows = (
+        "PR B,NYSE,buy_suspended",
+        "PR.B,NASDAQ,sell_only",
+        "ZRESTR,NYSE,sell_only",
+    )
+
+    def with_restrictions(lines):
+        return _parsed_snapshot(
+            catalog="ticker,exchange\nMSTA,NASDAQ\n",
+            count=1,
+            exclusions=_EXCLUSION_HEADER + "\n".join(lines) + "\n",
+            excluded_count=len(exclusion_rows),
+        )
+
+    snapshot = with_restrictions(exclusion_rows)
+    assert snapshot == with_restrictions(reversed(exclusion_rows))
+    assert snapshot.restriction_only == (
+        RakutenRestrictionRow("PR.B", "NASDAQ", "sell_only"),
+        RakutenRestrictionRow("PR B", "NYSE", "buy_suspended"),
+        RakutenRestrictionRow("ZRESTR", "NYSE", "sell_only"),
+    )
+    assert snapshot.rows == (RakutenOrdinaryRow("MSTA", "NASDAQ", "buyable"),)
+    assert [row.alpaca_symbol for row in _coverage(snapshot)] == ["MSTA"]
+
+
+def test_informational_missing_restrictions_remain_explicitly_unknown():
+    snapshot = _parsed_snapshot(mode=_CATALOG_ONLY)
+    assert snapshot.exclusions_received_at is None
+    assert snapshot.exclusions_reported_count is None
+    assert snapshot.restriction_only == ()
+    assert {row.state for row in _coverage(snapshot)} == {"unknown_buyability"}
 
 
 @pytest.mark.parametrize(
@@ -317,11 +392,40 @@ def test_incomplete_or_wrong_snapshot_has_no_screening_result(overrides, error):
         _parsed_snapshot(**arguments)
 
 
-def test_rakuten_snapshot_provenance_requires_an_observed_clock_with_offset():
-    with pytest.raises(ValueError, match="UTC offset"):
+@pytest.mark.parametrize(
+    ("overrides", "error"),
+    [
+        ({"target": _CATALOG_RECEIVED}, "requires a target NY session date"),
+        ({"target": date(2026, 11, 28)}, "receipt is outside its target NY session date"),
+        ({"catalog_time": _CATALOG_RECEIVED - timedelta(days=1)}, "outside its target NY session"),
+        (
+            {"restrictions_time": _EXCLUSIONS_RECEIVED + timedelta(days=1)},
+            "outside its target NY session",
+        ),
+        (
+            {"restrictions_time": _EXCLUSIONS_RECEIVED - timedelta(days=1)},
+            "outside its target NY session",
+        ),
+        ({"catalog_time": _CATALOG_RECEIVED.replace(tzinfo=None)}, "receipt time.*UTC offset"),
+        (
+            {"restrictions_time": _EXCLUSIONS_RECEIVED.replace(tzinfo=None)},
+            "receipt time.*UTC offset",
+        ),
+        ({"restrictions_time": None}, "incomplete Rakuten buy restriction"),
+    ],
+)
+def test_rakuten_snapshot_requires_a_complete_pair_of_same_session_source_clocks(overrides, error):
+    with pytest.raises(ValueError, match=error):
+        _parsed_snapshot(exclusions=_EXCLUSION_HEADER, excluded_count=0, **overrides)
+
+
+def test_exclusion_clock_without_an_independently_counted_capture_is_not_complete():
+    with pytest.raises(ValueError, match="incomplete Rakuten buy restriction"):
         parse_rakuten_ordinary_snapshot(
             _CATALOG,
             catalog_mode=_CATALOG_ONLY,
+            effective_session=_NY_SESSION,
+            catalog_received_at=_CATALOG_RECEIVED,
             reported_count=4,
-            observed_at=_RECEIVED.replace(tzinfo=None),
+            exclusions_received_at=_EXCLUSIONS_RECEIVED,
         )

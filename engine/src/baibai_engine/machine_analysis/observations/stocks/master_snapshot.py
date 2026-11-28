@@ -53,15 +53,33 @@ def normalize_master_record(record: Mapping[str, Any]) -> SecurityMaster | None:
     must also be zero. ETFs and REITs may have suffix zero but are not ordinary shares.
     https://jpx-jquants.com/ja/spec/eq-master/product-category
     """
-    ticker, primary_issue = parse_jquants_code_parts(record.get("Code"), require_text=True)
+    return project_primary_security(
+        record.get("Code"),
+        name=record.get("CoName"),
+        market_segment=record.get("MktNm"),
+        sector_33=record.get("S33Nm"),
+        product_category=record.get("ProdCat"),
+    )
+
+
+def project_primary_security(
+    code: object,
+    *,
+    name: object,
+    market_segment: object,
+    sector_33: object,
+    product_category: object,
+) -> SecurityMaster | None:
+    """Share the same Japanese security classification across input shapes."""
+    ticker, primary_issue = parse_jquants_code_parts(code, require_text=True)
     if not primary_issue:
         return None
     return SecurityMaster(
         ticker=ticker,
-        name=str(record.get("CoName") or "").strip(),
-        market_segment=str(record.get("MktNm") or "").strip(),
-        sector_33=normalize_sector_name(record.get("S33Nm")).strip(),
-        is_common_stock=record.get("ProdCat") == "011",
+        name=str(name or "").strip(),
+        market_segment=str(market_segment or "").strip(),
+        sector_33=normalize_sector_name(sector_33).strip(),
+        is_common_stock=product_category == "011",
     )
 
 

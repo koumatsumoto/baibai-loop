@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, time
+from datetime import date, datetime, time
 from typing import Literal
 
 type PrimaryUSVenue = Literal["XNAS", "XNYS"]
 type DirectoryFile = Literal["nasdaqlisted.txt", "otherlisted.txt"]
+
+_CREATION_MINUTE = r"[0-9]{10}:[0-9]{2}"
 
 _HEADERS: dict[DirectoryFile, str] = {
     "nasdaqlisted.txt": (
@@ -36,16 +38,24 @@ class USSymbolDirectory:
     listings: tuple[USListing, ...]
 
 
+def directory_creation_minute(stamp: str) -> datetime:
+    """Read the provider wall minute, with no inferred timezone or session scope."""
+    if re.fullmatch(_CREATION_MINUTE, stamp) is None:
+        raise ValueError("invalid Nasdaq Trader file creation record")
+    try:
+        day = date(int(stamp[4:8]), int(stamp[:2]), int(stamp[2:4]))
+        minute = time(int(stamp[8:10]), int(stamp[11:13]))
+    except ValueError as error:
+        raise ValueError("invalid Nasdaq Trader file creation record") from error
+    return datetime.combine(day, minute)
+
+
 def _creation_stamp(line: str) -> str:
-    match = re.fullmatch(r"File Creation Time: ([0-9]{10}:[0-9]{2})\|+", line)
+    match = re.fullmatch(rf"File Creation Time: ({_CREATION_MINUTE})\|+", line)
     if match is None:
         raise ValueError("missing Nasdaq Trader file creation record")
     stamp = match[1]
-    try:
-        date(int(stamp[4:8]), int(stamp[:2]), int(stamp[2:4]))
-        time(int(stamp[8:10]), int(stamp[11:13]))
-    except ValueError as error:
-        raise ValueError("invalid Nasdaq Trader file creation record") from error
+    directory_creation_minute(stamp)
     return stamp
 
 

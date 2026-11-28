@@ -2,16 +2,23 @@
 
 ## 手元で始める
 
-初めて作業コピーを作るときは、`main` の先端だけを取得する。
+### 1. WSL / Linux で作業コピーを作る
+
+Windowsでは PowerShell で `wsl -l -v` を実行し、Ubuntu が WSL 2 で動いていることを確認する。未導入なら `wsl --install -d Ubuntu` を実行し、再起動を求められたら再起動する。以降は **Ubuntu の Bash** で実行し、作業コピーは `~/baibai-loop` に置く（`/mnt/c` ではない）。Ubuntu 24.04 なら `sudo apt install git python3 curl` で基本ツールを用意できる。別途 [uv](https://docs.astral.sh/uv/getting-started/installation/) を入れておく。
+
+初回は `main` の先端だけを取得する。既に作業コピーがあればクローンは不要。
 
 ```bash
+cd ~
 git clone --depth=1 --single-branch --branch main https://github.com/koumatsumoto/baibai-loop.git
 cd baibai-loop
 ```
 
 過去の差分を調べるときだけ、履歴の浅い作業コピーで `git fetch --deepen=50 origin main` を実行する。`main` の全履歴が必要なら `git fetch --unshallow origin` を使う。既存の作業コピーを作り直す必要はない。
 
-Linux / Bash、bootstrap用Python 3.11以上、uvを用意し、リポジトリのルートで実行する。利用版は[.python-version](../.python-version)・[pyproject.toml](../pyproject.toml)、依存は[uv.lock](../uv.lock)で固定する。
+### 2. 鍵なしで起動を確認する
+
+Ubuntu/Linux の Bash、bootstrap用Python 3.11以上、uvを使い、リポジトリのルートで実行する。利用版は[.python-version](../.python-version)・[pyproject.toml](../pyproject.toml)、依存は[uv.lock](../uv.lock)で固定する。
 
 ```bash
 bash tools/setup-dev.sh
@@ -21,6 +28,27 @@ uv run baibai-jobs --help
 ```
 
 shellを開き直したらenv.shをsourceする。checkoutを移動したらsetupをやり直す。通常のfixture・CLI helpに.envや本番storeは不要。ブラウザの検証が必要なときだけsetupに `--with-browser` を付ける。
+
+### 3. 実データが必要なときだけ `.env` を用意する
+
+[設定例](../.env.sample)から必要な項目だけを選ぶ。R2の読取には読み取り専用の `R2_ACCESS_KEY_ID`・`R2_SECRET_ACCESS_KEY` と `R2_ACCOUNT_ID`。日本株を直接取得するなら `JQUANTS_API_KEY`、米国相場を直接取得するなら Alpaca の `APCA_API_KEY_ID`・`APCA_API_SECRET_KEY` を追加する。EDINETとe-Statの鍵は各APIまで使うときのみ。GitHub Actions・Cloudflareの管理用トークン、npm公開トークン、本番Webのパスワードは共有用の設定に混ぜない。AlpacaのIEX取得可否とSIPの契約・権限は別。
+
+**envshareを使う場合:** リポジトリのルートに配布元が用意した `envshare.enc` があるときだけ同期する。まだ配布されていなければこの手順は飛ばし、必要なら `.env.sample` を元に自分の `.env` を作る。既存の `.env` は上書きコピーしない。
+
+[envshare](https://github.com/koumatsumoto/envshare#インストール) またはそのソースCLIを使う。このリポジトリのWeb用Node固定版がenvshareの要求未満なら、envshare用に別のNodeを一時的に使う。たとえば fnm では `fnm install 26` の後に次を実行する。
+
+```bash
+fnm exec --using=26 npm install --global @koumatsumoto/envshare
+(
+  set +x
+  read -rs -p 'envshare key: ' ENVSHARE_KEY && printf '\n' &&
+    ENVSHARE_KEY="$ENVSHARE_KEY" fnm exec --using=26 envshare sync --bootstrap
+)
+```
+
+鍵は別経路で受け取り、コマンドの引数や履歴に直接書かない。すでに `.env` に鍵がある場合は `fnm exec --using=26 envshare sync` だけ。同期で `.env` の既存の無関係な設定は消えない。Gitには必要な場合だけ暗号文を置き、鍵・`.env`・平文の配布元は追加しない。CLIの単体テストには同期不要。
+
+本番データを読む場合だけ、[運用手順の実行前確認](../jobs/OPERATIONS.md#actions-write-boundary)へ。提案のAppデータだけなら [`pull-app`](../jobs/OPERATIONS.md#application-db-を反映する) を使う（AWS CLIと空の作業領域が必要）。`pull-app` は必要なR2変数が未設定なら `.env` をBashで読むため、信頼できる設定だけを使い、R2の各行は設定例どおりの単純な `名前=値` にする。セットアップ確認のために全DBをダウンロードしたり、`publish.sh` や本番バッチを実行したりしない。
 
 ## 変更を検証する
 

@@ -18,6 +18,7 @@ from baibai_engine.storage.objects.r2 import LakePublishError, RemoteObject
 from baibai_jobs.integration.listing_master_current import (
     LISTING_MASTER_CURRENT_KEY,
     ListingUpdateStatus,
+    NasdaqDirectoryVersion,
     read_current_listing_master,
     refresh_current_listing_master,
 )
@@ -65,6 +66,14 @@ def _refresh(
     complete: bool = True,
     events: tuple[VerifiedListingEvent, ...] = (),
 ) -> ListingUpdateStatus:
+    versions = None
+    if market == "US":
+        native_minute = f"{day:%m%d%Y}{received:%H:%M}"
+        digest = hashlib.sha256(native_minute.encode()).hexdigest()
+        versions = (
+            NasdaqDirectoryVersion("nasdaqlisted.txt", native_minute, digest),
+            NasdaqDirectoryVersion("otherlisted.txt", native_minute, digest),
+        )
     return refresh_current_listing_master(
         store,
         market=market,
@@ -74,6 +83,7 @@ def _refresh(
         observations=observations,
         complete=complete,
         verified_events=events,
+        nasdaq_directories=versions,
     )
 
 
@@ -143,7 +153,9 @@ def test_partial_market_update_preserves_both_clocks_but_does_not_block_other_ma
     assert store.values[machine_key].body == b"fixture Machine pointer"
     assert set(store.values) == {machine_key, LISTING_MASTER_CURRENT_KEY}
     persisted = json.loads(store.values[LISTING_MASTER_CURRENT_KEY].body)
-    assert set(persisted["US"]) == {"slice", "source", "received_at", "received_count"}
+    fields = {"slice", "source", "received_at", "received_count"}
+    assert set(persisted["JP"]) == fields
+    assert set(persisted["US"]) == fields | {"nasdaq_directories"}
     assert "changes" not in persisted["US"]["slice"]
 
 
