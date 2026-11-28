@@ -246,6 +246,98 @@ def test_input_time_and_evidence_resolution():
         MarketContextAssessment.model_validate(payload)
 
 
+def change_evidence_payload(statuses):
+    payload = document().payload()
+    payload["inputs"] = [
+        {
+            "input_id": name,
+            "reference": f"private-synthetic-{name}-receipt",
+            "layer": "primary_source",
+            "available_at": "2026-07-17T05:00:00+00:00",
+            "status": status,
+        }
+        for name, status in statuses
+    ]
+    return payload
+
+
+@pytest.mark.parametrize("statuses", [("missing",), ("failed",), ("missing", "failed")])
+def test_new_market_change_cannot_cite_only_unavailable_evidence(tmp_path, capsys, statuses):
+    db, draft = tmp_path / "app.sqlite", tmp_path / "assessment.json"
+    refs = tuple(f"cited-{i}" for i in range(len(statuses)))
+    payload = change_evidence_payload([("not-cited", "ok"), *zip(refs, statuses, strict=True)])
+    payload["changes"] = [{"summary": "上昇を確認したと主張", "source_ids": refs}]
+    draft.write_text(json.dumps(payload))
+    candidate = MarketContextAssessment.model_validate(payload)
+    for flags in (["--check"], []):
+        assert main(["--db", str(db), "publish", str(draft), *flags]) == 1
+        assert "market change cites only missing or failed inputs" in capsys.readouterr().err
+        assert not db.exists()
+
+    db.touch()
+    assert main(["--db", str(db), "publish", str(draft)]) == 1
+    assert "market change cites only missing or failed inputs" in capsys.readouterr().err
+    assert db.read_bytes() == b""
+
+    prior = document()
+    service = AssessmentService(db)
+    service.publish(prior, expected_head=None)
+    before = db.read_bytes()
+    candidate = candidate.model_copy(
+        update={"context_id": "market-context-assessment-2026-07-17-new-change"}
+    )
+    with pytest.raises(ValueError, match="market change cites only missing or failed inputs"):
+        service.publish(candidate, expected_head=prior.context_id)
+    assert db.read_bytes() == before
+    assert service.head_id() == prior.context_id
+
+
+def test_market_change_keeps_available_mixed_sources_and_missing_context(tmp_path, capsys):
+    db, draft = tmp_path / "app.sqlite", tmp_path / "assessment.json"
+    payload = change_evidence_payload([("observed", "ok"), ("unresolved", "missing")])
+    payload["changes"] = [
+        {
+            "summary": "観測済みの市場は上昇。別の市場は未確認。",
+            "source_ids": ["observed", "unresolved"],
+        },
+        {"summary": "出典なしの現況節は従来どおり。"},
+    ]
+    payload["uncertainties"] = [{"summary": "パネル未着", "source_ids": ["unresolved"]}]
+    payload["implications"] = [
+        {"summary": "資料が来るまで銘柄への波及は判断しない", "source_ids": ["unresolved"]}
+    ]
+    draft.write_text(json.dumps(payload))
+    candidate = MarketContextAssessment.model_validate(payload)
+    assert main(["--db", str(db), "publish", str(draft), "--check"]) == 0
+    assert json.loads(capsys.readouterr().out)["check"] == "ok"
+    assert not db.exists()
+    assert publish_at_declared_time(db, candidate, expected_head=None) == candidate
+    assert assessment_by_id(db, context_id=candidate.context_id).document == candidate.payload()
+
+
+@pytest.mark.parametrize("has_receipt", [False, True])
+def test_saved_market_assessment_read_and_exact_retry_do_not_apply_new_evidence_rule(
+    tmp_path, has_receipt
+):
+    db = tmp_path / "app.sqlite"
+    payload = change_evidence_payload([("missing-screen", "missing")])
+    payload["published_at"] = "2026-07-18T21:00:00+09:00"
+    payload["changes"] = [{"summary": "元の保存済み本文", "source_ids": ["missing-screen"]}]
+    candidate = MarketContextAssessment.model_validate(payload)
+    payload = candidate.payload()
+    seed_history(db, payload)
+    if has_receipt:
+        with closing(sqlite3.connect(db)) as connection, connection:
+            connection.execute("UPDATE market_context_assessment SET schema_version=7")
+    before = db.read_bytes()
+    saved = assessment_by_id(db, context_id=candidate.context_id)
+    assert saved.document == payload
+    assert (saved.recorded_at is not None) == has_receipt
+    assert latest_assessment(db, as_of=candidate.as_of, known_at=candidate.published_at) == saved
+    assert publish_at_declared_time(db, candidate, expected_head=None) == candidate
+    assert db.read_bytes() == before
+
+
 def test_missing_and_stale_are_distinct_and_do_not_create_a_store(tmp_path):
     db = tmp_path / "absent.sqlite"
     assert (

@@ -48,6 +48,11 @@ class AssessmentService:
     ) -> MarketContextAssessment:
         # Typed copies can bypass nested validation; do not publish an unreadable head.
         document = MarketContextAssessment.model_validate(document.model_dump(mode="python"))
+        # Do not bootstrap an invalid draft, even from a blank placeholder.
+        # An initialized head may still be an exact retry.
+        path = database_path(self._db_path)
+        if not path.is_file() or path.stat().st_size == 0:
+            document.validate_new_change_evidence()
         initialize_database(self._db_path)
         payload = canonical_json(document.payload())
         with closing(connect_existing(self._db_path)) as connection:
@@ -79,6 +84,7 @@ class AssessmentService:
                     raise AssessmentConflictError(
                         f"assessment head changed: expected={expected_head!r}, actual={current!r}"
                     )
+                document.validate_new_change_evidence()
                 # Legacy rows carry an author's claim, not a receipt. Compare against
                 # the nearest receipted ancestor, never against a legacy clock.
                 prior_receipt = connection.execute(

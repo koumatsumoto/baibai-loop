@@ -55,6 +55,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             if args.check:
                 if args.expected_head is not None:
                     raise ValueError("--check does not inspect or change the head")
+                document.validate_new_change_evidence()
                 result = {"check": "ok", "context_id": document.context_id}
             else:
                 result = service.publish(document, expected_head=args.expected_head).payload()
