@@ -10,6 +10,7 @@ from decimal import Decimal
 import pytest
 
 from baibai_engine.data_collection.providers.alpaca import (
+    AlpacaBarsFeed,
     AlpacaCaptureIncomplete,
     BarsCapture,
     BarsPage,
@@ -51,10 +52,12 @@ def _capture(
     return capture_daily_bars(query, request_id=request_id, transport=lambda _: next(stream))
 
 
-def test_exact_native_query_and_row_evidence_survive_normalization() -> None:
+@pytest.mark.parametrize("feed", ["iex", "sip"])
+def test_exact_native_query_and_row_evidence_survive_normalization(feed: AlpacaBarsFeed) -> None:
     capture = _capture(
         _page({"META": [_row(v=0)]}, "opaque+cursor"),
         _page({"BRK.B": [_row(_SUMMER)]}, received=_LATER),
+        query=replace(_QUERY, feed=feed),
     )
     winter, summer = normalize_alpaca_daily_bars(capture)
     assert normalize_alpaca_daily_bars(capture) == (winter, summer)
@@ -72,10 +75,11 @@ def test_exact_native_query_and_row_evidence_survive_normalization() -> None:
     assert winter.bar_started_at == datetime.fromisoformat(_WINTER)
     assert summer.bar_started_at == datetime.fromisoformat(_SUMMER)
     assert (winter.feed, winter.price_unit, winter.price_basis) == (
-        "iex",
+        feed,
         "USD_per_share",
         "vendor_daily_aggregate",
     )
+    assert summer.feed == feed
     assert winter.adjustment == "raw"
     assert winter.symbol_asof == "-"
     assert (winter.open, winter.high, winter.low, winter.close, winter.volume) == (
@@ -198,13 +202,16 @@ def test_wrong_scope_reordered_or_truncated_native_receipt_chain_is_rejected() -
     capture = _capture(first, other)
     foreign_request = _capture(first, other, request_id="fixture-b")
     foreign_basis = _capture(first, other, query=replace(_QUERY, adjustment="split"))
-    for wrong in (foreign_request.pages[1], foreign_basis.pages[1]):
+    foreign_feed = _capture(first, other, query=replace(_QUERY, feed="sip"))
+    for wrong in (foreign_request.pages[1], foreign_basis.pages[1], foreign_feed.pages[1]):
         with pytest.raises(
             ValueError, match="Alpaca page receipt does not match the fixed capture"
         ):
             normalize_alpaca_daily_bars(replace(capture, pages=(capture.pages[0], wrong)))
     with pytest.raises(ValueError, match="Alpaca page receipt does not match the fixed capture"):
         normalize_alpaca_daily_bars(replace(capture, pages=tuple(reversed(capture.pages))))
+    with pytest.raises(ValueError, match="Alpaca page receipt does not match the fixed capture"):
+        normalize_alpaca_daily_bars(replace(capture, query=foreign_feed.query))
     with pytest.raises(ValueError, match="Alpaca fixed capture has no terminal receipt"):
         normalize_alpaca_daily_bars(replace(capture, pages=(capture.pages[0],)))
 
