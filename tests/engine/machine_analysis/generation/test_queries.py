@@ -1,17 +1,17 @@
-"""Market Contextの過去分類、統計量・端点、保存読取とimportの境界。"""
+"""Market Contextの現行分類、統計量・端点、保存読取とimportの境界。"""
 
 import hashlib
 import socket
 import sqlite3
 import subprocess
 import sys
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from functools import partial
 
 import pytest
 from tests.helpers.assessment_history import historical_context_payload, seed_history
-from tests.helpers.market_context import security_context_from_store
-from tests.helpers.master import insert_master_rows
+from tests.helpers.market_context import fixture_market_master, security_context_from_store
+from tests.helpers.master_calendar_native import pinned_jp_listing, seed_listing_session
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
@@ -34,34 +34,33 @@ from baibai_engine.machine_analysis.models.technical_analysis.calculations impor
 from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 from baibai_engine.machine_analysis.observations.prices.price_observation import price_calendar
-from baibai_engine.machine_analysis.observations.stocks.reader import (
-    read_master_snapshot,
-)
+from baibai_engine.machine_analysis.observations.stocks.current_reader import read_current_jp_master
+from baibai_engine.primitives.time import JST
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 ASOF = date(2026, 5, 29)
 
 
-def master(path, snapshot, memberships):
-    connection = open_connection(path)
-    try:
-        insert_master_rows(
-            connection,
-            [
-                (
-                    snapshot,
-                    ticker,
-                    ticker,
-                    "プライム",
-                    sector,
-                    "014" if sector == "その他" else "011",
-                )
-                for ticker, sector in memberships.items()
-            ],
+def companies(memberships):
+    return tuple(
+        (ticker, ticker, "プライム", sector, "014" if sector == "その他" else "011")
+        for ticker, sector in memberships.items()
+    )
+
+
+def current_reader(memberships, *, session=ASOF):
+    section = pinned_jp_listing(as_of=session, companies=companies(memberships)).section
+    evaluation_time = datetime.combine(session, time(17), tzinfo=JST)
+
+    def read(connection, as_of):
+        return read_current_jp_master(
+            section,
+            calendar=connection,
+            as_of=as_of,
+            evaluation_time=evaluation_time,
         )
-        connection.commit()
-    finally:
-        connection.close()
+
+    return read
 
 
 def bars(path, ticker, total_return, *, end=ASOF):
@@ -70,41 +69,55 @@ def bars(path, ticker, total_return, *, end=ASOF):
     )
 
 
-def security(path, *, ticker="AAAA", as_of=ASOF):
-    return security_context_from_store(path, ticker=ticker, as_of=as_of)
+def security(path, *, ticker="AAAA", as_of=ASOF, master=None):
+    return security_context_from_store(path, ticker=ticker, as_of=as_of, master=master)
 
 
-def test_past_master_and_peers_ignore_future_classification_and_prices(tmp_path):
+def test_current_peers_ignore_future_classification_and_prices(tmp_path):
     path = tmp_path / "market.sqlite"
-    for ticker, ret in (("AAAA", -0.1), ("BBBB", 0.2), ("CCCC", 0.4), ("DDDD", 1), ("1321", 0.1)):
+    next_session = date(2026, 6, 1)
+    for ticker, ret in (("1301", -0.1), ("1302", 0.2), ("1303", 0.4), ("1304", 1), ("1321", 0.1)):
         bars(path, ticker, ret)
-    master(path, "2026-05-28", {"AAAA": "機械", "BBBB": "機械", "CCCC": "機械", "DDDD": "小売業"})
-    master(path, "2026-06-01", {"AAAA": "小売業", "BBBB": "建設業", "DDDD": "小売業"})
-    result = security(path)
+    insert_daily_bars_from_closes(path, "1301", [999], end_date=next_session)
+    insert_daily_bars_from_closes(path, "1321", [300], end_date=next_session)
+    seed_listing_session(path, ASOF)
+    seed_listing_session(path, next_session)
+    current = {"1301": "機械", "1302": "機械", "1303": "機械", "1304": "小売業"}
+    result = security(path, ticker="1301", master=fixture_market_master(ASOF, companies(current)))
     assert result["master"] == {
-        "name": "AAAA",
+        "name": "1301",
         "market_segment": "プライム",
         "sector_33": "機械",
         "is_common_stock": True,
-        "snapshot_date": "2026-05-28",
+        "snapshot_date": ASOF.isoformat(),
     }
+    assert result["price"]["close"] == pytest.approx(90)
     peer = result["relative"]["sector"]
     assert peer["peer_count"] == 2
     assert peer["peer_median_return_20d"] == pytest.approx(0.3)
     assert peer["relative_return_20d"] == pytest.approx(-0.4)
     assert peer["comparison_start_date"] < peer["comparison_end_date"] == ASOF.isoformat()
     assert result["relative"]["relative_20d"] == pytest.approx(-0.2)
-    assert (
-        build_market_snapshot(sqlite_path=path, asof_date=ASOF)["master_snapshot_date"]
-        == "2026-05-28"
+
+    confirmed = build_market_snapshot(
+        sqlite_path=path, asof_date=ASOF, read_current_master=current_reader(current)
     )
-    assert security(path, as_of=date(2026, 6, 1))["master"]["sector_33"] == "小売業"
+    assert confirmed["master_snapshot_date"] == ASOF.isoformat()
+    future = current_reader({"1301": "小売業"}, session=next_session)
+    too_early = build_market_snapshot(sqlite_path=path, asof_date=ASOF, read_current_master=future)
+    assert too_early["master_snapshot_date"] is None
+    assert too_early["sectors"] == []
+    next_snapshot = build_market_snapshot(
+        sqlite_path=path, asof_date=next_session, read_current_master=future
+    )
+    assert next_snapshot["master_snapshot_date"] == next_session.isoformat()
+    assert [sector["sector_33"] for sector in next_snapshot["sectors"]] == ["小売業"]
 
 
 def test_exact_peer_window_is_shared_but_never_reused_for_a_different_end(tmp_path, monkeypatch):
     path = tmp_path / "market.sqlite"
     tickers = tuple(f"1{i:03}" for i in range(7))
-    master(path, ASOF.isoformat(), dict.fromkeys(tickers, "機械"))
+    current = fixture_market_master(ASOF, companies(dict.fromkeys(tickers, "機械")))
     for ticker, end_price in zip(tickers, (75, 100, 100, 125, 150, 125, 200), strict=True):
         end = ASOF - timedelta(days=ticker == tickers[5])
         insert_daily_bars_from_closes(path, ticker, [100] * 21 + [end_price], end_date=end)
@@ -112,7 +125,7 @@ def test_exact_peer_window_is_shared_but_never_reused_for_a_different_end(tmp_pa
     args = dict(sqlite_path=path, asof_date=ASOF)
     prepared = prepare_market_context_from_bars(
         **args,
-        master=read_master_snapshot(path, as_of=ASOF),
+        master=current,
         bars_by_ticker=prices,
         subjects=tickers,
     )
@@ -149,31 +162,43 @@ def test_exact_peer_window_is_shared_but_never_reused_for_a_different_end(tmp_pa
     assert calls <= 3 * 2 * len(tickers)  # regular → earlier → regular; no per-company read
 
 
-def test_latest_eligible_snapshot_does_not_restore_removed_members(tmp_path):
+def test_pinned_current_snapshot_does_not_restore_removed_members(tmp_path):
     path = tmp_path / "market.sqlite"
-    bars(path, "AAAA", 0.1)
-    master(path, "2026-05-27", {"AAAA": "機械"})
-    master(path, "2026-05-28", {"BBBB": "機械"})
-    result = security(path)
+    bars(path, "1301", 0.1)
+    previous_session = ASOF - timedelta(days=1)
+    seed_listing_session(path, previous_session)
+    seed_listing_session(path, ASOF)
+    current = {"1302": "機械"}
+    result = security(path, ticker="1301", master=fixture_market_master(ASOF, companies(current)))
     assert result["master"] is None
     assert result["price"]["close"] == pytest.approx(110)
     assert result["relative"]["sector"] is None
-    assert read_master_snapshot(path, as_of=date(2026, 5, 26)) is None
+    past = build_market_snapshot(
+        sqlite_path=path, asof_date=previous_session, read_current_master=current_reader(current)
+    )
+    assert past["master_snapshot_date"] is None
+    assert past["sectors"] == []
 
 
 def test_snapshot_sector_median_and_self_excluded_peer_median_remain_distinct(tmp_path):
     path = tmp_path / "market.sqlite"
-    returns = {"AAAA": 0.0, "BBBB": 0.0, "CCCC": 0.9, "DDDD": 0.1}
-    sectors = {"AAAA": "機械", "BBBB": "機械", "CCCC": "機械", "DDDD": "小売業"}
+    returns = {"1301": 0.0, "1302": 0.0, "1303": 0.9, "1304": 0.1}
+    sectors = {"1301": "機械", "1302": "機械", "1303": "機械", "1304": "小売業"}
     for ticker, ret in returns.items():
         bars(path, ticker, ret)
-    master(path, "2026-05-28", sectors)
-    snapshot = build_market_snapshot(sqlite_path=path, asof_date=ASOF, history_weeks=1)
+    seed_listing_session(path, ASOF)
+    snapshot = build_market_snapshot(
+        sqlite_path=path,
+        asof_date=ASOF,
+        history_weeks=1,
+        read_current_master=current_reader(sectors),
+    )
     row = next(item for item in snapshot["sectors"] if item["sector_33"] == "機械")
     assert row["median_return_20d"] == 0.0
     assert row["pct_above_ma20"] == pytest.approx(1 / 3)
     # Own-vs-peers excludes the subject rather than using the whole-sector median.
-    assert security(path)["relative"]["sector"]["relative_return_20d"] == pytest.approx(-0.45)
+    own = security(path, ticker="1301", master=fixture_market_master(ASOF, companies(sectors)))
+    assert own["relative"]["sector"]["relative_return_20d"] == pytest.approx(-0.45)
 
 
 def test_null_close_split_factor_adjusts_past_prices_without_future_events(tmp_path):
@@ -201,7 +226,7 @@ def test_null_close_split_factor_adjusts_past_prices_without_future_events(tmp_p
     benchmark = prepare_market_context_from_bars(
         sqlite_path=path,
         asof_date=ASOF,
-        master=read_master_snapshot(path, as_of=ASOF),
+        master=None,
         bars_by_ticker=read_price_bars(path, start=date.min, end=ASOF),
         subjects=("1321",),
     ).benchmark_trend.to_dict()
@@ -344,8 +369,8 @@ def test_domain_reads_have_no_network_or_writes_and_missing_stores_stay_absent(
     market_path, indicators_path, app_path = (
         tmp_path / name for name in ("market.sqlite", "indicators.sqlite", "app.sqlite")
     )
-    bars(market_path, "AAAA", 0.1)
-    master(market_path, "2026-05-28", {"AAAA": "機械"})
+    bars(market_path, "1301", 0.1)
+    seed_listing_session(market_path, ASOF)
     connection = initialize_database(indicators_path)
     connection.commit()
     connection.close()
@@ -380,8 +405,13 @@ def test_domain_reads_have_no_network_or_writes_and_missing_stores_stay_absent(
 
     monkeypatch.setattr(sqlite3, "connect", connect)
     monkeypatch.setattr(socket, "socket", forbidden)
-    assert security(market_path)["price"] is not None
-    assert build_market_snapshot(sqlite_path=market_path, asof_date=ASOF)["sectors"]
+    assert security(market_path, ticker="1301")["price"] is not None
+    snapshot = build_market_snapshot(
+        sqlite_path=market_path,
+        asof_date=ASOF,
+        read_current_master=current_reader({"1301": "機械"}),
+    )
+    assert snapshot["sectors"]
     assert reading_snapshot(indicators_path, asof=ASOF)["asof"] == ASOF.isoformat()
     selected = latest_assessment(
         app_path, as_of=date(2026, 7, 19), known_at=datetime(2026, 7, 21, tzinfo=UTC)
@@ -417,7 +447,7 @@ def test_security_price_basis_includes_rights_price_adjustments(tmp_path):
     assert price["return_20d"] == pytest.approx(0.0)
 
 
-@pytest.mark.parametrize("reader", ["prices", "master"])
+@pytest.mark.parametrize("reader", ["prices", "snapshot"])
 def test_market_context_readers_reject_obsolete_market_schema(tmp_path, reader):
     from baibai_engine.storage.sqlite.source_cache.schema import (
         SQLITE_SCHEMA_VERSION,
@@ -426,17 +456,25 @@ def test_market_context_readers_reject_obsolete_market_schema(tmp_path, reader):
 
     path = tmp_path / "market.sqlite"
     bars(path, "AAAA", 0.1)
-    master(path, "2026-05-28", {"AAAA": "機械"})
     connection = sqlite3.connect(path)
     try:
         connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
         connection.commit()
     finally:
         connection.close()
+
+    def unexpected_reader(*_args):
+        pytest.fail("obsolete store should fail before resolving pinned classification")
+
     read = (
         partial(read_price_bars, path, start=ASOF - timedelta(days=90), end=ASOF)
         if reader == "prices"
-        else partial(read_master_snapshot, path, as_of=ASOF)
+        else partial(
+            build_market_snapshot,
+            sqlite_path=path,
+            asof_date=ASOF,
+            read_current_master=unexpected_reader,
+        )
     )
     with pytest.raises(SQLiteSchemaError, match="obsolete market SQLite schema"):
         read()

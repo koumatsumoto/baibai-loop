@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 from tests.helpers.financial_native import fixed_empty_financial_input
 from tests.helpers.lake_release import market_store
+from tests.helpers.master_calendar_native import pinned_jp_listing
 from tests.helpers.price_native import seed_prices
 from tests.helpers.r2_store import MemoryR2Store
 from tests.jobs.integration.test_model_integration import integration as integration
@@ -162,7 +163,7 @@ def test_native_projection_and_prepare_boundaries(tmp_path, monkeypatch, progres
     store, source = calendar.owner(tmp_path / "calendar")
     source.commit([calendar.attempt(CANARY)])
     calendar.native_dependencies(store, tmp_path)
-    for phase in ("calendar", "master", "price"):
+    for phase in ("calendar", "price"):
         name = f"native_{phase}_model_input"
         original = getattr(publication, name)
 
@@ -182,7 +183,6 @@ def test_native_projection_and_prepare_boundaries(tmp_path, monkeypatch, progres
         assert prepared.release.release_id == CANARY
         for phase in (
             "native_calendar",
-            "native_master",
             "native_price",
             "base_resolve",
             "release_prepare",
@@ -355,6 +355,10 @@ def test_input_read_boundaries_preserve_failure(tmp_path, monkeypatch, progress,
 
         monkeypatch.setattr(inputs, name, observed)
     market = market_store(tmp_path / CANARY / "market.sqlite")
+    with sqlite3.connect(market) as connection:
+        connection.execute(
+            "INSERT INTO jquants_market_calendar VALUES (?, '1')", (calendar.DAY.isoformat(),)
+        )
     with writer.sealed_sqlite_snapshot(
         sqlite_path=market, mirror_root=tmp_path / "mirror"
     ) as sealed:
@@ -366,6 +370,7 @@ def test_input_read_boundaries_preserve_failure(tmp_path, monkeypatch, progress,
             market_snapshot=sealed,
             market_release=InputRelease(release_id=CANARY, manifest_sha256="a" * 64),
             economic_input=None,
+            current_master=pinned_jp_listing(as_of=calendar.DAY),
             as_of=calendar.DAY,
             evaluation_time=calendar.AT,
             ttm_rules=DEFAULT_TTM_RULES,

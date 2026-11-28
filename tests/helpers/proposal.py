@@ -40,7 +40,6 @@ from tests.helpers.assessment_v1 import (
 )
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.generated_selection import seed_generated_selection
-from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import add_source_coverage, seed_daily_bars
 
 PREPARED = datetime.fromisoformat("2026-10-14T16:10:00+09:00")
@@ -203,13 +202,6 @@ def backend_case(
     write_jp_proposal_listing(listing_path, tickers=tickers)
     seed_daily_bars(market, [(ticker, "2026-10-14", 1100.0, 1.0) for ticker in tickers])
     with closing(sqlite3.connect(market)) as connection, connection:
-        insert_master_rows(
-            connection,
-            [
-                ("2026-10-14", ticker, "合成企業", "Prime", "情報・通信業", "011")
-                for ticker in tickers
-            ],
-        )
         connection.executemany(
             "INSERT INTO jquants_market_calendar(day,holiday_division) VALUES (?,?)",
             [

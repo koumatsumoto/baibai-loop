@@ -15,6 +15,7 @@ from baibai_engine.storage.snapshots.objects import LocalMirrorSource
 from baibai_engine.storage.snapshots.reader import resolve_release
 from baibai_engine.storage.sqlite.snapshot import create_snapshot
 from baibai_engine.storage.sqlite.source_cache.lake_origin import read_lake_store_origin
+from baibai_engine.storage.sqlite.source_cache.schema import SQLITE_SCHEMA_VERSION
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 
 
@@ -100,7 +101,7 @@ def test_special_schema_uses_lossless_sqlite_backup(inputs, tmp_path, monkeypatc
                 "CREATE INDEX idx_source_coverage_source_window ON source_coverage(coverage_key)"
             )
         else:
-            db.execute("PRAGMA user_version=53")
+            db.execute(f"PRAGMA user_version={SQLITE_SCHEMA_VERSION + 1}")
     old, new = tmp_path / "old", tmp_path / "new"
     create_snapshot(source, old)
     dehydrate_market_store(old, **kwargs)

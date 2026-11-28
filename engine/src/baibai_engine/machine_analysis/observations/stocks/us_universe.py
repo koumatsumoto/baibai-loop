@@ -24,6 +24,7 @@ from baibai_engine.machine_analysis.observations.stocks.listing_master import (
 
 _NY = ZoneInfo("America/New_York")
 _BUYABLE_VENUES: dict[str, PrimaryUSVenue] = {"NASDAQ": "XNAS", "NYSE": "XNYS"}
+RAKUTEN_LISTING_EXCHANGES = frozenset(_BUYABLE_VENUES)
 _BROKER_EXCHANGE_BY_MIC: dict[str, str] = {venue: name for name, venue in _BUYABLE_VENUES.items()}
 # NYSE CQS .A/.B are regular classes; preferred and warrant suffixes are distinct.
 # The primary native name is display text and can omit "Common Stock" (e.g. LEN.B).

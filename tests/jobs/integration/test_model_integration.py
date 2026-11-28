@@ -11,6 +11,7 @@ from pydantic import TypeAdapter
 from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.financial_native import seed_empty_financial
 from tests.helpers.lake_release import market_store
+from tests.helpers.master_calendar_native import pinned_jp_listing
 from tests.helpers.model_generation import empty_selection, generation, publish_generation
 from tests.helpers.r2_store import MemoryR2Store
 
@@ -50,7 +51,6 @@ def integration(tmp_path, monkeypatch):
         release_sha256="a" * 64,
         source_snapshot=SimpleNamespace(sealed_at=datetime(2026, 10, 25, tzinfo=UTC)),
         price_identity=None,
-        master_identity=None,
         margin_alerts_identity=None,
         margin_interest_identity=None,
         short_sale_reports_identity=None,
@@ -87,7 +87,7 @@ def integration(tmp_path, monkeypatch):
         assert kwargs["edinet_input"] is prepared.edinet_input
         assert kwargs["evaluation_time"] >= prepared.source_snapshot.sealed_at
         assert kwargs["price_identity"] is prepared.price_identity
-        assert kwargs["master_identity"] is prepared.master_identity
+        assert kwargs["current_master"] is arguments["current_master"]
         assert kwargs["calendar_identity"] is prepared.calendar_identity
         assert kwargs["margin_alerts_identity"] is prepared.margin_alerts_identity
         assert kwargs["margin_interest_identity"] is prepared.margin_interest_identity
@@ -196,6 +196,7 @@ def integration(tmp_path, monkeypatch):
         runs=tmp_path / "runs",
         mirror=tmp_path / "mirror",
         as_of=date(2026, 10, 23),
+        current_master=pinned_jp_listing(as_of=date(2026, 10, 23)),
         lease_handle=tmp_path / "lease",
         growth_start=date(2023, 10, 23),
     )
@@ -280,11 +281,14 @@ def test_cli_does_not_implicitly_truncate_growth_history(tmp_path, monkeypatch, 
         return {"models_ready": True}
 
     monkeypatch.setattr(job, "integrate_models", integrate)
+    pinned_jp_listing(as_of=date(2026, 10, 23), output=tmp_path / "listing.json")
     arguments = [
         "--asof",
         "2026-10-23",
         "--lease-handle",
         str(tmp_path / "lease"),
+        "--current-listing-master",
+        str(tmp_path / "listing.json"),
         "--notice-output",
         str(tmp_path / "notice.json"),
     ]
@@ -317,12 +321,15 @@ def test_daily_attempt_is_stamped_only_on_a_successful_model_notice(tmp_path, mo
 
     monkeypatch.setattr(job, "integrate_models", integrated)
     notice = tmp_path / "notice.json"
+    pinned_jp_listing(as_of=date(2026, 10, 23), output=tmp_path / "listing.json")
     status = job.main(
         [
             "--asof",
             "2026-11-19",
             "--lease-handle",
             str(tmp_path / "lease"),
+            "--current-listing-master",
+            str(tmp_path / "listing.json"),
             "--notice-output",
             str(notice),
             "--daily-origin",
@@ -422,12 +429,15 @@ def test_cli_passes_the_applied_edinet_input_only_for_its_date(tmp_path, monkeyp
         "integrate_models",
         lambda **kwargs: seen.append(kwargs["edinet_input"]) or {"models_ready": True},
     )
+    pinned_jp_listing(as_of=date(2026, 10, 23), output=tmp_path / "listing.json")
     result = job.main(
         [
             "--asof",
             "2026-10-23" if same_date else "2026-10-24",
             "--lease-handle",
             str(tmp_path / "lease"),
+            "--current-listing-master",
+            str(tmp_path / "listing.json"),
             "--notice-output",
             str(tmp_path / "notice.json"),
             "--integration-report",
@@ -579,6 +589,7 @@ def test_cli_cannot_bootstrap_from_a_missing_or_Lake_only_head(tmp_path, monkeyp
     integrate = Mock(side_effect=AssertionError("normal CLI must never bootstrap"))
     monkeypatch.setattr(job, "integrate_models", integrate)
     notice = tmp_path / "notice.json"
+    pinned_jp_listing(as_of=date(2026, 10, 23), output=tmp_path / "listing.json")
     assert (
         job.main(
             [
@@ -586,6 +597,8 @@ def test_cli_cannot_bootstrap_from_a_missing_or_Lake_only_head(tmp_path, monkeyp
                 "2026-10-23",
                 "--lease-handle",
                 str(tmp_path / "lease"),
+                "--current-listing-master",
+                str(tmp_path / "listing.json"),
                 "--notice-output",
                 str(notice),
             ]

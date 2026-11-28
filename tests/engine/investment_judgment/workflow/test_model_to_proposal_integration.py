@@ -32,7 +32,7 @@ from tests.helpers.external_assessment_html import monex_eps_section, monex_html
 from tests.helpers.external_assessment_responses import response
 from tests.helpers.financial_native import fixed_empty_financial_input, seed_financial
 from tests.helpers.lake_release import publish_market_fixture
-from tests.helpers.master import insert_master_rows
+from tests.helpers.master_calendar_native import pinned_jp_listing
 from tests.helpers.proposal import (
     PREPARED,
     PROPOSAL_ID,
@@ -40,7 +40,6 @@ from tests.helpers.proposal import (
     bind_review,
     read_jp_proposal_listing,
     read_saved_proposal,
-    write_jp_proposal_listing,
 )
 from tests.helpers.r2_store import MemoryR2Store
 from tests.helpers.research_selection import selected_target
@@ -333,19 +332,12 @@ def _prepare_case(
         ],
     )
     with closing(sqlite3.connect(market)) as connection, connection:
-        insert_master_rows(
-            connection, [("2026-10-14", "1234", "合成企業", "Prime", "情報・通信業", "011")]
-        )
         connection.executemany(
             "INSERT INTO jquants_market_calendar(day,holiday_division) VALUES (?,?)",
             [("2026-10-14", 1), ("2026-10-15", 1)],
         )
     if discover:
         seed_daily_bars(market, [("1001", START.date().isoformat(), 500.0, 1.0)])
-        with closing(sqlite3.connect(market)) as connection, connection:
-            insert_master_rows(
-                connection, [("2026-10-14", "1001", "別の合成企業", "Prime", "小売業", "011")]
-            )
     # 同じ四半期の増収と利益率低下を別々に残す。成長スコアや将来予測ではない。
     financial_store = MemoryR2Store()
     financial_owner = seed_financial(
@@ -430,6 +422,11 @@ def _prepare_case(
         ),
         expected_head=None,
     )
+    listing_path = tmp_path / "current-listings.json"
+    companies = [("1234", "合成企業", "Prime", "情報・通信業", "011")]
+    if discover:
+        companies.append(("1001", "別の合成企業", "Prime", "小売業", "011"))
+    pinned = pinned_jp_listing(as_of=START.date(), companies=companies, output=listing_path)
     with (
         sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "sealed") as snapshot,
         monkeypatch.context() as assembly,
@@ -438,6 +435,7 @@ def _prepare_case(
             _bind_historical_article_inputs(assembly, snapshot.path, model_release)
         generation = read_and_generate_models(
             generation_id="synthetic-five-models",
+            current_master=pinned,
             financial_input=financial,
             market_snapshot=snapshot,
             market_release=model_release,
@@ -485,8 +483,6 @@ def _prepare_case(
     operations = OperationService(app)
     saved = selection_binding(operations.get(prepared.operation_id).payload)
     assert saved is not None
-    listing_path = tmp_path / "current-listings.json"
-    write_jp_proposal_listing(listing_path, tickers=("1001", "1234") if discover else ("1234",))
     case = SimpleNamespace(
         app=app,
         market=market,
@@ -1596,9 +1592,6 @@ def test_monex_fixed_research_uses_the_same_eligible_price_pair_and_eps_original
     seed_daily_bars(market, [("1234", t.date().isoformat(), 100.0, 1.0) for t in (a, b)])
     receipts = []
     with closing(sqlite3.connect(market)) as conn, conn:
-        insert_master_rows(
-            conn, [(a.date().isoformat(), "1234", "合成企業", "Prime", "情報・通信業", "011")]
-        )
         conn.executemany(
             "INSERT INTO jquants_market_calendar(day,holiday_division) VALUES (?,?)",
             [(t.date().isoformat(), 1) for t in (a, b)],
@@ -1624,6 +1617,9 @@ def test_monex_fixed_research_uses_the_same_eligible_price_pair_and_eps_original
         def build():
             return read_and_generate_models(
                 generation_id="fixed-overnight",
+                current_master=pinned_jp_listing(
+                    as_of=as_of, tickers=("1234",), received_at=a - timedelta(hours=1)
+                ),
                 financial_input=financial,
                 market_snapshot=replace(snapshot, sealed_at=seal_clock),
                 market_release=InputRelease(release_id="fixture-release", manifest_sha256="a" * 64),

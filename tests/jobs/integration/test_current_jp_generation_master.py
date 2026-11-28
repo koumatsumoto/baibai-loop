@@ -10,7 +10,6 @@ from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.financial_native import fixed_empty_financial_input, seed_empty_financial
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
-from tests.helpers.master import insert_master_rows
 from tests.helpers.model_generation import materialize_generation
 from tests.helpers.r2_store import MemoryR2Store
 
@@ -37,7 +36,6 @@ from baibai_engine.machine_analysis.observations.stocks.listing_master_file impo
     encode_current_listing_master,
 )
 from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
-from baibai_engine.machine_analysis.screening.policies.discovery import project_discovery_row
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.cli import main as jobs_cli
@@ -96,10 +94,6 @@ def run_inputs(tmp_path):
     ]
     market = market_store(tmp_path / "market.sqlite", daily_bars=rows)
     with closing(open_connection(market)) as connection, connection:
-        insert_master_rows(connection, [(_DAY.isoformat(), *row) for row in _COLS])
-        insert_master_rows(
-            connection, [(_PRIOR.isoformat(), "5555", "旧マスター", "プライム", "機械", "011")]
-        )
         connection.executemany(
             "INSERT OR REPLACE INTO jquants_market_calendar VALUES (?, ?)",
             [(_DAY.isoformat(), "1"), (_PRIOR.isoformat(), "1")],
@@ -118,78 +112,39 @@ def run_inputs(tmp_path):
         )
 
 
-def _stock_discovery(saved):
-    return {
-        ticker: project_discovery_row(
-            ticker,
-            models=tuple(model for model in saved.models if model.subject == ticker),
-            metadata=saved,
-        )
-        for ticker in saved.subject_plan
-        if ticker != "market"
-    }
-
-
-def test_pinned_l2_changes_only_unproven_historical_breadth_on_same_inputs(
-    tmp_path, run_inputs, monkeypatch
-):
-    old = materialize_generation(generation.read_and_generate_models(**run_inputs))
+def test_pinned_l2_keeps_exact_session_and_never_reuses_history(tmp_path, run_inputs, monkeypatch):
     path = tmp_path / "current.json"
     _populate_listing(path)
     calls = _observe_listing_reads(monkeypatch)
     pinned = job.pin_current_jp_generation_master(path)
     assert calls == [path]
-    # A replacement after the pin cannot supply names or membership to Generation.
+    # A replacement after the pin must not affect either name or membership.
     _populate_listing(path, received_at=_RECEIVED + timedelta(minutes=1), rename="別の新名称")
-
-    def forbidden(*args, **kwargs):
-        raise AssertionError("new current generation must not use legacy master SQL")
-
-    monkeypatch.setattr(generation, "read_master_snapshot", forbidden)
-    monkeypatch.setattr(market_snapshot, "read_master_snapshot", forbidden)
     stream = generation.read_and_generate_models(**run_inputs, current_master=pinned)
     assert stream.subjects == ("1001", "1002")
-    new = materialize_generation(stream)
+    saved = materialize_generation(stream)
     assert calls == [path]
-    assert new.subject_plan == old.subject_plan
-    assert new.result("market_context", "1001").payload["master"]["name"] == "合成機械A"
-    assert [model for model in new.models if model.subject != "market"] == [
-        model for model in old.models if model.subject != "market"
-    ]
-    assert _stock_discovery(new) == _stock_discovery(old)
-
-    legacy_market = old.result("market_context", "market")
-    current_market = new.result("market_context", "market")
-    assert current_market.calculation_revision != legacy_market.calculation_revision
-    old_payload, new_payload = legacy_market.payload, current_market.payload
-    assert new_payload["benchmark_trend"] == old_payload["benchmark_trend"]
-    assert {k: v for k, v in new_payload["market"].items() if k != "points"} == {
-        k: v for k, v in old_payload["market"].items() if k != "points"
-    }
-    old_points, new_points = old_payload["market"]["points"], new_payload["market"]["points"]
-    assert new_points[-1] == old_points[-1]
-    assert new_points[-1]["breadth_sample_size"] == 2
-    assert old_points[-2]["breadth_sample_size"] == 1  # Classified by the older SQLite master.
-    assert new_points[-2]["observation_date"] == _PRIOR.isoformat()
-    assert new_points[-2]["breadth_pct_above_ma20"] is None
-    assert new_points[-2]["breadth_sample_size"] == 0
-    assert new_points[-2]["benchmark_return_20d"] == old_points[-2]["benchmark_return_20d"]
-
-    check = new.inputs["master"]
+    assert saved.result("market_context", "1001").payload["master"]["name"] == "合成機械A"
+    market = saved.result("market_context", "market").payload["market"]
+    older, latest = market["points"][-2:]
+    assert latest["observation_date"] == _DAY.isoformat()
+    assert latest["breadth_sample_size"] == 2
+    assert older["observation_date"] == _PRIOR.isoformat()
+    assert older["breadth_pct_above_ma20"] is None
+    assert older["breadth_sample_size"] == 0
+    assert older["benchmark_return_20d"] is not None
+    check = saved.inputs["master"]
+    assert check == pinned.input_identity()
     assert check.kind == "current_listing_master"
     assert check.reference == f"{LISTING_MASTER_CURRENT_KEY}#JP"
     assert check.descriptor["session"] == _DAY.isoformat()
-    assert check == ModelGeneration.model_validate_json(new.model_dump_json()).inputs["master"]
+    assert check == ModelGeneration.model_validate_json(saved.model_dump_json()).inputs["master"]
 
 
 @pytest.mark.parametrize("case", ["missing", "stale_session", "late_receipt", "descriptor_only"])
-def test_new_l2_pin_fails_without_falling_back(tmp_path, run_inputs, monkeypatch, case):
+def test_new_l2_pin_fails_without_falling_back(tmp_path, run_inputs, case):
     path = tmp_path / "current.json"
 
-    def forbidden(*args, **kwargs):
-        raise AssertionError("invalid current scope/receipt must not read legacy SQL")
-
-    monkeypatch.setattr(generation, "read_master_snapshot", forbidden)
     if case == "missing":
         with pytest.raises(FileNotFoundError):
             job.pin_current_jp_generation_master(path)
@@ -205,7 +160,7 @@ def test_new_l2_pin_fails_without_falling_back(tmp_path, run_inputs, monkeypatch
     else:
         _populate_listing(path)
         identity = job.pin_current_jp_generation_master(path).input_identity()
-        with pytest.raises(ValueError, match="requires its pinned section"):
+        with pytest.raises(TypeError, match="master_identity"):
             generation.read_and_generate_models(**run_inputs, master_identity=identity)
         return
     pinned = job.pin_current_jp_generation_master(path)
@@ -213,19 +168,20 @@ def test_new_l2_pin_fails_without_falling_back(tmp_path, run_inputs, monkeypatch
         generation.read_and_generate_models(**run_inputs, current_master=pinned, tickers=("1001",))
 
 
-def test_current_market_breadth_requires_prepared_scope(run_inputs):
-    with pytest.raises(ValueError, match="pinned market context"):
-        market_snapshot.build_market_snapshot(
-            sqlite_path=run_inputs["market_snapshot"].path,
-            asof_date=_DAY,
-            current_master_only=True,
-        )
+def test_bare_snapshot_has_prices_without_classification(run_inputs):
+    snapshot = market_snapshot.build_market_snapshot(
+        sqlite_path=run_inputs["market_snapshot"].path, asof_date=_DAY
+    )
+    assert snapshot["master_snapshot_date"] is None
+    assert snapshot["sectors"] == []
+    assert snapshot["points"][-1]["observation_date"] == _DAY.isoformat()
+    assert snapshot["points"][-1]["breadth_sample_size"] == 0
 
 
 @pytest.mark.parametrize("has_benchmark", [True, False])
 @pytest.mark.parametrize("price_lag", [0, 1])
 def test_current_sector_breadth_requires_same_price_day_even_on_weekend(
-    tmp_path, monkeypatch, has_benchmark, price_lag
+    tmp_path, has_benchmark, price_lag
 ):
     sunday = _DAY + timedelta(days=2)
     endpoint = _DAY - timedelta(days=price_lag)
@@ -253,18 +209,12 @@ def test_current_sector_breadth_requires_same_price_day_even_on_weekend(
         subjects=("1001", "1002"),
         history_weeks=2,
     )
-    monkeypatch.setattr(
-        market_snapshot,
-        "read_master_snapshot",
-        lambda *args, **kwargs: pytest.fail("current generation read legacy master"),
-    )
     result = market_snapshot.build_market_snapshot(
         sqlite_path=source,
         asof_date=sunday,
         prepared=prepared,
         history_weeks=2,
         min_breadth_sample=1,
-        current_master_only=True,
     )
     point = result["points"][-1]
     assert (point["breadth_pct_above_ma20"], point["breadth_sample_size"]) == (
@@ -327,7 +277,6 @@ def cli_case(tmp_path, run_inputs, monkeypatch):
         source_snapshot=seal,
         edinet_input=None,
         price_identity=None,
-        master_identity=None,
         calendar_identity=None,
         margin_alerts_identity=None,
         margin_interest_identity=None,
@@ -377,47 +326,27 @@ def cli_case(tmp_path, run_inputs, monkeypatch):
     return SimpleNamespace(listing=listing, prepared=prepared, calls=calls, seal=seal, store=store)
 
 
-def test_jobs_cli_generates_same_native_stock_models_from_one_fixed_current_file(
+def test_jobs_cli_generates_stock_models_from_one_fixed_current_file(
     tmp_path, monkeypatch, cli_case
 ):
-    previous_status, previous = _run_cli(tmp_path, "native")
-    assert previous_status == 0
-    old = read_generation(previous["generation_id"], path=tmp_path / "native.sqlite")
     _populate_listing(cli_case.listing)
     reads = _observe_listing_reads(monkeypatch)
 
-    def forbidden(*args, **kwargs):
-        pytest.fail("current CLI run read a legacy master")
-
-    monkeypatch.setattr(generation, "read_master_snapshot", forbidden)
-    monkeypatch.setattr(market_snapshot, "read_master_snapshot", forbidden)
     status, notice = _run_cli(tmp_path, "fixed", listing=cli_case.listing)
     assert status == 0
     assert notice["models_ready"] is True
-    assert notice["company_count"] == previous["company_count"] == 2
-    assert notice["screening_summary"] == previous["screening_summary"]
+    assert notice["company_count"] == 2
     new = read_generation(notice["generation_id"], path=tmp_path / "fixed.sqlite")
     assert reads == [cli_case.listing]
     assert LISTING_MASTER_CURRENT_KEY not in cli_case.store.get_keys
-    assert cli_case.calls == ["prepare", "stage", "publish"] * 2
+    assert cli_case.calls == ["prepare", "stage", "publish"]
     assert new.inputs["market_snapshot"].sha256 == cli_case.seal.ref.sha256
     assert new.inputs["master"].kind == "current_listing_master"
-    assert [model for model in new.models if model.subject != "market"] == [
-        model for model in old.models if model.subject != "market"
-    ]
     assert new.result("market_context", "1001").payload["master"]["name"] == "合成機械A"
-    assert (
-        new.result("market_context", "market").payload["market"]["points"][-1]
-        == (old.result("market_context", "market").payload["market"]["points"][-1])
-    )
 
 
-@pytest.mark.parametrize(
-    "case", ["missing_file", "malformed_file", "future_receipt", "dual_release"]
-)
-def test_explicit_jobs_cli_bad_artifact_or_legacy_release_never_publishes(
-    tmp_path, monkeypatch, cli_case, case
-):
+@pytest.mark.parametrize("case", ["missing_file", "malformed_file", "future_receipt"])
+def test_jobs_cli_bad_artifact_never_publishes(tmp_path, monkeypatch, cli_case, case):
     if case == "malformed_file":
         cli_case.listing.write_bytes(b'{"JP":{"bad":"shape"}}')
     elif case == "future_receipt":
@@ -425,35 +354,11 @@ def test_explicit_jobs_cli_bad_artifact_or_legacy_release_never_publishes(
         _populate_listing(
             cli_case.listing, received_at=cli_case.seal.sealed_at + timedelta(seconds=1)
         )
-    elif case == "dual_release":
-        _populate_listing(cli_case.listing)
-        cli_case.prepared.release.datasets["jquants.master_snapshots"] = object()
     if case in ("missing_file", "malformed_file"):
         monkeypatch.setattr(job, "Boto3R2Store", lambda **kwargs: pytest.fail("bad file opened R2"))
 
-    def forbidden(*args, **kwargs):
-        pytest.fail("invalid explicit current mode attempted legacy fallback")
-
-    monkeypatch.setattr(generation, "read_master_snapshot", forbidden)
     result, notice = _run_cli(tmp_path, "failed", listing=cli_case.listing)
     assert result == 1
     assert notice["models_ready"] is False
-    assert cli_case.calls == (["prepare"] if case in ("future_receipt", "dual_release") else [])
+    assert cli_case.calls == (["prepare"] if case == "future_receipt" else [])
     assert not (tmp_path / "failed.sqlite").exists()
-
-
-def test_current_cli_option_does_not_prepare_a_run_under_shipping_legacy_policy(
-    tmp_path, cli_case, monkeypatch
-):
-    # Supply only the real legacy-required profile for the admission test.
-    narrow_release_policy(monkeypatch, datasets=("jquants.master_snapshots",))
-    _populate_listing(cli_case.listing)
-
-    def forbid_lease(_):
-        pytest.fail("current route touched a lease before no-master cutover")
-
-    monkeypatch.setattr(job, "_load_handle", forbid_lease)
-    status, notice = _run_cli(tmp_path, "blocked", listing=cli_case.listing)
-    assert status == 1
-    assert notice["models_ready"] is False
-    assert cli_case.calls == []

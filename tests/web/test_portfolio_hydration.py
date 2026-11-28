@@ -4,7 +4,8 @@ import json
 import shutil
 import sqlite3
 from contextlib import closing
-from datetime import datetime
+from dataclasses import replace
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -39,7 +40,6 @@ from baibai_web.sources import proposal
 DISPLAY_DATASETS = (
     "jquants.daily_bars",
     "jquants.market_calendar",
-    "jquants.master_snapshots",
 )
 ALL_DATASETS = (*DISPLAY_DATASETS, "jquants.short_sale_reports")
 NOW = datetime.fromisoformat("2026-10-16T18:00:00+09:00")
@@ -146,6 +146,13 @@ def test_scoped_and_full_hydration_produce_identical_four_views(
     monkeypatch.setattr(dashboard, "datetime", Clock)
     monkeypatch.setattr(proposal, "datetime", Clock)
     app_before = case.app.read_bytes()
+    captured = case.listing_reader()
+    assert captured is not None
+    listing = replace(
+        captured,
+        slice=replace(captured.slice, session=NOW.date()),
+        received_at=NOW - timedelta(minutes=1),
+    )
     views = []
     for command in ("hydrate", "hydrate-portfolio"):
         root = tmp_path / command
@@ -159,7 +166,7 @@ def test_scoped_and_full_hydration_produce_identical_four_views(
         assert set(report["rows"]) == set(expected)
         assert read_lake_store_origin(market) == origin
         market_before = market.read_bytes()
-        paths = export_read_models(root, root / "serving")
+        paths = export_read_models(root, root / "serving", current_jp_listing=listing)
         views.append({path.name: path.read_bytes() for path in paths})
         assert len(paths) == 5
         assert app.read_bytes() == app_before
@@ -221,7 +228,7 @@ def test_scoped_fill_skips_unrelated_bodies_and_keeps_native_cache(
         assert connection.execute("SELECT * FROM source_coverage").fetchall() == coverage_before
 
 
-@pytest.mark.parametrize("omitted", ["jquants.master_snapshots", "jquants.short_sale_reports"])
+@pytest.mark.parametrize("omitted", ["jquants.market_calendar", "jquants.short_sale_reports"])
 def test_scoped_fill_does_not_narrow_production_release_metadata_validation(
     portfolio_lake, tmp_path, mocker, capsys, omitted
 ):

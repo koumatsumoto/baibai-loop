@@ -11,9 +11,16 @@ from zoneinfo import ZoneInfo
 import pytest
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
-from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import add_source_coverage, seed_daily_bars
 
+from baibai_engine.machine_analysis.observations.stocks.listing_master import (
+    JapanListingAttributes,
+    ListingMasterRow,
+    ListingSlice,
+)
+from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
+    CurrentListingMarket,
+)
 from baibai_engine.portfolio.ledger.drafts import (
     apply_draft,
     build_sell_execution_draft,
@@ -34,8 +41,8 @@ from baibai_web.readmodel.builders.dashboard import build_dashboard
 from baibai_web.readmodel.builders.presentation import percentage
 from baibai_web.sources import db_sources
 from baibai_web.sources.db_sources import (
+    CurrentJpMarketSource,
     DbLedgerSource,
-    DbMarketSource,
 )
 
 NOW = datetime.fromisoformat("2026-09-07T18:00:00+09:00")
@@ -101,22 +108,35 @@ def test_dashboard_reads_market_without_ledger_quotes_and_retains_unknowns(
 
     monkeypatch.setattr(dashboard, "datetime", Clock)
     with closing(sqlite3.connect(market)) as connection, connection:
-        insert_master_rows(
-            connection,
-            [("2026-09-04", "2331", "保有企業", "プライム", "サービス業", "011")],
-        )
-        connection.execute(
-            "INSERT INTO jquants_master_snapshots VALUES ('2026-09-04','99990','{broken')"
-        )
         connection.execute("UPDATE jquants_daily_bars SET close=NULL WHERE traded_at='2026-07-01'")
         if missing:
             connection.execute(
                 "UPDATE jquants_daily_bars SET close=NULL WHERE traded_at='2026-09-04'"
             )
+    listing = CurrentListingMarket(
+        ListingSlice(
+            "JP",
+            NOW.date(),
+            (
+                ListingMasterRow(
+                    ("XTKS", "23310"),
+                    "保有企業",
+                    "common_stock",
+                    "listed",
+                    japan=JapanListingAttributes("011", "プライム", "サービス業"),
+                ),
+                # An unrelated row whose missing metadata must not hide the held issue.
+                ListingMasterRow(("XTKS", "99990"), None, "common_stock", "listed"),
+            ),
+        ),
+        source="jquants-equities-master",
+        received_at=NOW - timedelta(minutes=1),
+        received_count=2,
+    )
     before = db.read_bytes()
     view = build_dashboard(
         DbLedgerSource(db, market),
-        DbMarketSource(market),
+        CurrentJpMarketSource(market, listing=listing),
     )
     assert view.ledger_error is None
     assert view.valuation_error is None
@@ -267,7 +287,7 @@ def test_dashboard_uses_one_clock_across_market_close(holding_case, monkeypatch)
         )
     before = db.read_bytes(), market.read_bytes()
 
-    view = build_dashboard(DbLedgerSource(db, market), DbMarketSource(market))
+    view = build_dashboard(DbLedgerSource(db, market), CurrentJpMarketSource(market))
     assert view.generated_at == before_close
     assert view.valuation_as_of == date(2026, 9, 4)
     assert view.holdings[0].market_value_yen == 200_000
@@ -296,7 +316,7 @@ def test_dashboard_retains_realized_pnl_when_market_price_is_missing(holding_cas
             )
     view = build_dashboard(
         DbLedgerSource(db, market),
-        DbMarketSource(market),
+        CurrentJpMarketSource(market),
     )
     assert view.realized_gross_pnl_yen == 6_000
     assert view.holdings[0].market_value_yen == (None if missing else 100_000)
@@ -313,7 +333,7 @@ def test_cash_only_dashboard_keeps_ledger_facts_without_inventing_a_quote_date(t
         mocker.patch.object(module, "datetime").now.return_value = NOW
     before = app.read_bytes()
 
-    view = build_dashboard(DbLedgerSource(app, market), DbMarketSource(market))
+    view = build_dashboard(DbLedgerSource(app, market), CurrentJpMarketSource(market))
 
     assert view.ledger_exists is True
     assert view.ledger_error is None
@@ -353,7 +373,7 @@ def test_reported_full_sale_does_not_turn_unresolved_share_units_into_cash_only_
     for module in (db_sources, dashboard):
         mocker.patch.object(module, "datetime").now.return_value = NOW
     before = db.read_bytes(), market.read_bytes()
-    view = build_dashboard(DbLedgerSource(db, market), DbMarketSource(market))
+    view = build_dashboard(DbLedgerSource(db, market), CurrentJpMarketSource(market))
     assert view.ledger_exists
     assert view.ledger_error is None
     assert view.holdings == []  # Do not invent an unreported replacement quantity.
@@ -389,7 +409,7 @@ def test_dashboard_and_exact_ledger_bind_the_same_event_identity(
             return NOW if tz is None else NOW.astimezone(tz)
 
     monkeypatch.setattr(dashboard, "datetime", Clock)
-    baseline = build_dashboard(DbLedgerSource(db, market), DbMarketSource(market))
+    baseline = build_dashboard(DbLedgerSource(db, market), CurrentJpMarketSource(market))
     event = ContributionEvent(
         type="contribution",
         event_id="fixture-contribution",
@@ -419,7 +439,7 @@ def test_dashboard_and_exact_ledger_bind_the_same_event_identity(
             with pytest.raises(LedgerConflictError, match="ledger event identity differs"):
                 load_ledger_document(connection)
 
-    view = build_dashboard(DbLedgerSource(db, market), DbMarketSource(market))
+    view = build_dashboard(DbLedgerSource(db, market), CurrentJpMarketSource(market))
     assert view.ledger_exists
     if consistent:
         assert view.ledger_error is None

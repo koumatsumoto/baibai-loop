@@ -13,9 +13,6 @@ from baibai_engine.machine_analysis.observations.stocks.current_reader import (
     CurrentListingSection,
     read_current_jp_master,
 )
-from baibai_engine.machine_analysis.observations.stocks.reader import (
-    read_master_snapshot,
-)
 from baibai_engine.portfolio.holdings.valuation import (
     UnresolvedHoldingQuantityError,
     current_portfolio,
@@ -76,23 +73,12 @@ class DbLedgerSource:
         return PortfolioRead(snapshot)
 
 
-class DbMarketSource:
-    def __init__(self, market_db_path: Path) -> None:
-        self._path = market_db_path
-
-    def security_names(self, *, at: datetime, tickers: tuple[str, ...]) -> Mapping[str, str]:
-        snapshot = read_master_snapshot(
-            self._path, as_of=at.astimezone(JST).date(), tickers=tickers
-        )
-        if snapshot is None:
-            return {}
-        return {ticker: security.name for ticker, security in snapshot.securities.items()}
-
-
 class CurrentJpMarketSource:
     """Use one caller-pinned listing section; missing names do not read an older master."""
 
-    def __init__(self, market_db_path: Path, *, listing: CurrentListingSection | None) -> None:
+    def __init__(
+        self, market_db_path: Path, *, listing: CurrentListingSection | None = None
+    ) -> None:
         self._path = market_db_path
         self._listing = listing
 

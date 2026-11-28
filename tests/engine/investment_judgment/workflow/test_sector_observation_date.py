@@ -1,15 +1,15 @@
 """業種表の価格日・指標別母数を固定入力へ渡し、旧成果へ補完しない。"""
 
+import json
 from copy import deepcopy
 from datetime import UTC, date, datetime
 from hashlib import sha256
+from pathlib import Path
 
 import pytest
 import yaml
-from tests.helpers.master import insert_master_rows
 from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
-from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
@@ -28,73 +28,29 @@ from baibai_engine.investment_judgment.workflow.workspace.selected_prepare impor
     resume_selected_workspace,
 )
 from baibai_engine.machine_analysis.generation.contracts import (
-    GeneratedModel,
-    GenerationSubject,
-    InputSnapshot,
     ModelGeneration,
 )
 from baibai_engine.machine_analysis.generation.query import read_generation
-from baibai_engine.machine_analysis.generation.runners.market_snapshot import build_market_snapshot
 from baibai_engine.machine_analysis.generation.store import GenerationConflictError
 from baibai_engine.primitives.json import canonical_json
-from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 ASOF = date(2026, 10, 26)
 PRICE_DATE = date(2026, 10, 23)
 NOW = datetime(2026, 10, 27, tzinfo=UTC)
 
 
-def _generation(tmp_path, *, revision):
-    path = tmp_path / "market.sqlite"
-    insert_daily_bars_from_closes(path, "1234", [100.0] * 61, end_date=PRICE_DATE)
-    if revision == "v21":
-        insert_daily_bars_from_closes(path, "1235", [100.0] * 19 + [110.0], end_date=PRICE_DATE)
-    connection = open_connection(path)
-    try:
-        insert_master_rows(connection, [(str(ASOF), "1234", "合成企業", "Prime", "機械", "011")])
-        if revision == "v21":
-            insert_master_rows(
-                connection, [(str(ASOF), "1235", "新規合成企業", "Prime", "海運業", "011")]
-            )
-        connection.commit()
-    finally:
-        connection.close()
-    market = build_market_snapshot(sqlite_path=path, asof_date=ASOF, history_weeks=1)
-    if revision not in ("v17", "v21"):
-        for row in market["sectors"]:
-            row.pop("sample_sizes")
-    if revision == "v8":
-        for row in market["sectors"]:
-            row.pop("observation_date", None)
-    return ModelGeneration(
-        schema_version=2,
-        generation_id="sector-old" if revision == "v8" else f"sector-{revision}",
-        as_of=ASOF,
-        evaluation_time=NOW,
-        inputs={"market": InputSnapshot(kind="lake_release", reference="fixed", sha256="a" * 64)},
-        subject_plan={
-            "1234": GenerationSubject(scope="stock", model_ids=()),
-            "market": GenerationSubject(scope="market", model_ids=("market_context",)),
-        },
-        models=(
-            GeneratedModel(
-                model_id="market_context",
-                subject="market",
-                calculation_revision={
-                    "v8": "retained-v8",
-                    "v16": "shared-market-context-v16-calendar-volatility",
-                    "v17": "shared-market-context-v17-sector-sample-sizes",
-                    "v21": "shared-market-context-v21-independent-sector-metrics",
-                }[revision],
-                payload={"market": market},
-            ),
-        ),
+def _generation(*, revision):
+    # These are saved v52 outputs, not re-generated from a present-day listing.
+    fixture = (
+        Path(__file__).resolve().parents[3]
+        / "fixtures/research/fixed-market-sector-generations.json"
     )
+    return ModelGeneration.model_validate(json.loads(fixture.read_bytes())[revision])
 
 
 @pytest.mark.parametrize("revision", ["v8", "v16", "v17", "v21"])
 def test_sector_context_survives_fixed_selection_and_resume_without_backfill(tmp_path, revision):
-    generation = _generation(tmp_path, revision=revision)
+    generation = _generation(revision=revision)
     legacy = revision == "v8"
     market = generation.models[0].payload["market"]
     row = market["sectors"][0]
@@ -186,7 +142,6 @@ def test_sector_context_survives_fixed_selection_and_resume_without_backfill(tmp
     with pytest.raises(GenerationConflictError, match="different model content"):
         publish_generation(changed, path=runs)
     assert runs.read_bytes() == before
-    (tmp_path / "market.sqlite").unlink()
     runs.unlink()
     app_before = app.read_bytes()
     resumed = resume_selected_workspace(

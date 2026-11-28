@@ -424,7 +424,10 @@ def test_daily_reads_the_relevant_annual_archive_without_opening_holder_reports(
     from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
 
     store, _, _, lists, archives, _ = fixtures(tmp_path)
+    from tests.helpers.master_calendar_native import pinned_jp_listing, seed_listing_session
+
     db = market_store(tmp_path / "market.sqlite")
+    seed_listing_session(db, ASOF)
     materialize_lists(lists, db)
     identity = retain_edinet_input(store, lists, archives, selected_at=KNOWN)
     both = read_edinet_input(store, identity)
@@ -440,6 +443,7 @@ def test_daily_reads_the_relevant_annual_archive_without_opening_holder_reports(
         generation = materialize_generation(
             read_and_generate_models(
                 generation_id="document-scope",
+                current_master=pinned_jp_listing(as_of=ASOF),
                 financial_input=fixed_empty_financial_input(tmp_path / "financial-native", ASOF),
                 market_snapshot=sealed,
                 market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),

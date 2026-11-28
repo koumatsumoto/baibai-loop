@@ -142,7 +142,13 @@ def test_legacy_source_only_fixed_release_retains_raw_pages_without_projecting(
     assert len(received.calls) == 1
     with sqlite3.connect(original) as conn:
         expected_request = read_complete_request(conn, request_id)
-        assert conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone() == (0,)
+        if source == "master":
+            assert (
+                conn.execute("SELECT name FROM sqlite_schema WHERE name=?", (table,)).fetchone()
+                is None
+            )
+        else:
+            assert conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone() == (0,)
 
     mirror = tmp_path / "mirror"
     with sealed_sqlite_snapshot(sqlite_path=original, mirror_root=mirror) as snapshot:
@@ -187,7 +193,13 @@ def test_legacy_source_only_fixed_release_retains_raw_pages_without_projecting(
         )
     assert report.rows == {"jquants.source_pages": 1}
     with sqlite3.connect(rebuilt) as conn:
-        assert conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone() == (0,)
+        if source == "master":
+            assert (
+                conn.execute("SELECT name FROM sqlite_schema WHERE name=?", (table,)).fetchone()
+                is None
+            )
+        else:
+            assert conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone() == (0,)
         assert conn.execute(
             "SELECT COUNT(*) FROM source_coverage WHERE source = ?", (table,)
         ).fetchone() == (0,)

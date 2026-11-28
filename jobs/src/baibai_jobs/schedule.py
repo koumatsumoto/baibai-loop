@@ -123,21 +123,3 @@ def external_assessment_target_date(created_at: datetime, now: datetime) -> date
 def external_assessment_cycle_end(day: date) -> datetime:
     """19:13 JST starts the next current-only external-assessment cycle."""
     return datetime.combine(day + timedelta(days=1), EXTERNAL_ASSESSMENT_SCHEDULED_FIRE_TIME)
-
-
-def tradingview_cycle_date(now: datetime) -> date:
-    """09:00 JST starts a new acquisition cycle, not a provider observation date."""
-    if now.tzinfo is None or now.utcoffset() is None:
-        raise ValueError("timezone-aware observation clock required")
-    return (now.astimezone(_JST) - timedelta(hours=9)).date()
-
-
-def tradingview_observation_window(
-    day: date, *, is_business_day: bool
-) -> tuple[datetime, datetime]:
-    """Allow delayed post-close collection until the next cycle, retaining actual UTC."""
-    opening = time(15, 30) if is_business_day else time(9)
-    return (
-        datetime.combine(day, opening, _JST),
-        datetime.combine(day + timedelta(days=1), time(9), _JST),
-    )

@@ -52,9 +52,6 @@ from baibai_engine.machine_analysis.observations.prices.snapshot_contracts impor
     JQUANTS_DAILY_BARS,
     JQUANTS_MARKET_CALENDAR,
 )
-from baibai_engine.machine_analysis.observations.stocks.snapshot_contracts import (
-    JQUANTS_MASTER_SNAPSHOTS,
-)
 from baibai_engine.machine_analysis.observations.trading_activity.snapshot_contracts import (
     JQUANTS_ALL_ISSUES_DAILY_MARGIN,
     JQUANTS_MARGIN_ALERTS,
@@ -104,7 +101,6 @@ LAKE_DATASETS = MappingProxyType(
         JQUANTS_SHORT_SALE_REPORTS.name: JQUANTS_SHORT_SALE_REPORTS,
         JQUANTS_WEEKLY_MARGIN.name: JQUANTS_WEEKLY_MARGIN,
         JQUANTS_ALL_ISSUES_DAILY_MARGIN.name: JQUANTS_ALL_ISSUES_DAILY_MARGIN,
-        JQUANTS_MASTER_SNAPSHOTS.name: JQUANTS_MASTER_SNAPSHOTS,
         JQUANTS_FIN_SUMMARIES.name: JQUANTS_FIN_SUMMARIES,
         JQUANTS_MARKET_CALENDAR.name: JQUANTS_MARKET_CALENDAR,
         JPX_EARNINGS_CALENDAR.name: JPX_EARNINGS_CALENDAR,

@@ -62,9 +62,6 @@ from baibai_engine.machine_analysis.observations.prices.storage_contracts import
     JQUANTS_DAILY_BARS_DDL,
     JQUANTS_MARKET_CALENDAR_DDL,
 )
-from baibai_engine.machine_analysis.observations.stocks.storage_contracts import (
-    JQUANTS_MASTER_SNAPSHOTS_DDL,
-)
 from baibai_engine.machine_analysis.observations.trading_activity.storage_contracts import (
     JQUANTS_ALL_ISSUES_DAILY_MARGIN_DDL,
     JQUANTS_MARGIN_ALERTS_DDL,
@@ -76,7 +73,7 @@ from baibai_engine.storage.sqlite.source_cache.storage_contracts import (
     SOURCE_COVERAGE_DDL,
 )
 
-SQLITE_SCHEMA_VERSION = 52
+SQLITE_SCHEMA_VERSION = 53
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 # EDINET list projection reconstructs the current rows from retained source receipts.
@@ -93,7 +90,6 @@ _REQUIRED_INDEX_NAMES = (
 _SCHEMA_SQL = (
     JQUANTS_DAILY_BARS_DDL
     + JQUANTS_FIN_SUMMARIES_DDL
-    + JQUANTS_MASTER_SNAPSHOTS_DDL
     + JPX_EARNINGS_CALENDAR_DDL
     + JQUANTS_MARKET_CALENDAR_DDL
     + JQUANTS_WEEKLY_MARGIN_DDL

@@ -197,7 +197,6 @@ def calculate_market_snapshot(
     master: MasterSnapshot | None,
     masters_by_date: Mapping[date, MasterSnapshot | None],
     series_by_ticker: Mapping[str, _Series],
-    require_exact_sector_date: bool = False,
 ) -> dict[str, object]:
     """各評価点の市場breadthは価格日基準。現行マスターでの業種表も同じ価格日を要求する。"""
     point_dates = [
@@ -245,8 +244,6 @@ def calculate_market_snapshot(
             sector_by_ticker=sector_by_ticker,
             asof_date=asof_date,
             benchmark_ticker=benchmark_ticker,
-            required_observation_date=master.as_of
-            if require_exact_sector_date and master is not None
-            else None,
+            required_observation_date=None if master is None else master.as_of,
         ),
     }

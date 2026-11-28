@@ -1,6 +1,8 @@
 """Only bounded aggregate facts may leave an explicitly selected TradingView receipt copy."""
 
 import json
+import sqlite3
+from contextlib import closing
 from datetime import timedelta
 
 import pytest
@@ -169,3 +171,17 @@ def test_diagnosis_rejects_copy_with_outstanding_wal(tmp_path):
     path.with_name("copy.sqlite-wal").touch()
     with pytest.raises(ValueError, match="still has a journal"):
         diagnose_receipts(path, DAY, [rid])
+
+
+def test_archive_diagnosis_needs_only_the_sealed_receipt_table(tmp_path, capsys):
+    path = store(tmp_path / "archive-copy.sqlite", 1)
+    rid = retain_result(path, _sdk(payload(["TSE:1000"])))
+    # The removed Market schema version/table did not change the exact receipt contract.
+    with closing(sqlite3.connect(path)) as conn, conn:
+        conn.execute("PRAGMA user_version=52")
+        conn.execute("DROP TABLE IF EXISTS jquants_master_snapshots")
+    previous = path.read_bytes()
+    rc = main(["--sqlite", str(path), "--asof", DAY.isoformat(), "--diagnose-receipt", rid])
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out)["receipt_outcomes"] == {"complete_shape": 1}
+    assert path.read_bytes() == previous

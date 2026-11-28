@@ -11,12 +11,17 @@ from mcp.types import CallToolResult
 
 from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL
 from baibai_engine.data_collection.providers.tradingview.receipts import retain_tool_result
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview.contract import (
+    COLUMNS as TABLE_COLUMNS,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview.contract import (
+    TABLE,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
     COLUMNS,
+    normalize_batch,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.maintenance.tradingview_rebuild import rebuild_from_receipts
-from tests.helpers.master import insert_master_rows
 
 DAY = date(2026, 9, 18)
 NOW = datetime(2026, 9, 18, 7, tzinfo=UTC)
@@ -48,16 +53,9 @@ def _sdk(body: dict) -> CallToolResult:
     return CallToolResult(isError=False, structuredContent=body, content=[])
 
 
-def store(path: Path, count: int = 51) -> Path:
+def store(path: Path, _count: int = 51) -> Path:
     with closing(open_connection(path)) as conn, conn:
         conn.execute("INSERT INTO jquants_market_calendar VALUES (?,1)", (DAY.isoformat(),))
-        insert_master_rows(
-            conn,
-            [
-                (DAY.isoformat(), str(1000 + i), "IPO", "プライム", "機械", "011")
-                for i in range(count)
-            ],
-        )
     return path
 
 
@@ -110,74 +108,21 @@ def seed_snapshot(
     master: date = DAY,
     received: datetime = NOW,
     missing: tuple[str, ...] = (),
-) -> dict[str, object]:
-    """Seed finite provider-native fixtures and reparse explicitly retained receipts."""
+) -> None:
+    """Seed exact synthetic originals and their already-projected rows."""
+    body = payload(symbols, missing=list(missing))
     retain_result(
-        path,
-        _sdk(payload(symbols, missing=list(missing))),
-        day=day,
-        master=master,
-        received=received,
-        symbols=tuple(symbols),
+        path, _sdk(body), day=day, master=master, received=received, symbols=tuple(symbols)
     )
-    with closing(open_connection(path)) as conn:
-        ids = [
-            row[0]
-            for row in conn.execute(
-                "SELECT receipt_id FROM tradingview_source_receipts "
-                "WHERE snapshot_date=? ORDER BY rowid",
-                (day.isoformat(),),
-            )
-        ]
-    return rebuild_from_receipts(path, day, ids)
-
-
-def native_inputs(source: Path, directory: Path, *, day: date, remote=None):
-    """Freeze the fixture's real market rows; fillers outside the TV markets keep its small universe."""
-    import json
-
-    from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
-    from baibai_engine.data_collection.providers.jquants.master_native import (
-        HEAD_KEY,
-        MasterAttempt,
-        MasterL1,
-    )
-    from baibai_jobs.acquisition.calendar_dependencies import (
-        fix_calendar_dependency,
-        saved_calendar_context,
-    )
-    from baibai_jobs.integration.master_native import fixed_input
-    from tests.helpers.master_calendar_native import seed_calendar
-    from tests.helpers.r2_store import MemoryR2Store
-    from tests.helpers.screening_sqlite import make_master_records
-
-    if remote is None:
-        remote = MemoryR2Store()
-    seed_calendar(remote, source, directory / "tv-calendar", as_of=day)
-    calendar = fix_calendar_dependency(
-        remote, directory=directory / "tv-calendar", observation_date=day
-    )
-    basis, _ = saved_calendar_context(remote, calendar, observation_date=day)
-    owner = MasterL1(remote, directory / "tv-master")
-    if remote.head(HEAD_KEY) is None:
-        with closing(sqlite3.connect(source)) as conn:
-            rows = [
-                json.loads(row[0])
-                for row in conn.execute(
-                    "SELECT record_json FROM jquants_master_snapshots WHERE snapshot_date=?",
-                    (basis.isoformat(),),
+    rows = normalize_batch(body, symbols, received)
+    names = [name for name, *_ in TABLE_COLUMNS]
+    with closing(open_connection(path)) as conn, conn:
+        conn.executemany(
+            f"INSERT INTO {TABLE} ({','.join(names)}) VALUES ({','.join('?' for _ in names)})",
+            [
+                tuple(
+                    day.isoformat() if name == "snapshot_date" else row.get(name) for name in names
                 )
-            ]
-        held = {row["Code"] for row in rows}
-        rows.extend(
-            {**row, "MktNm": "OTHER"}
-            for row in make_master_records(basis)
-            if row["Code"] not in held
+                for row in rows
+            ],
         )
-        params = {"date": basis.isoformat()}
-        at = datetime.combine(basis, datetime.min.time(), tzinfo=UTC)
-        page = JQuantsPage("master", params, at, json.dumps({"data": rows}).encode())
-        owner.initialize()
-        owner.commit([MasterAttempt("fixture-master", basis, at, (page,))])
-    master = fixed_input(remote, owner.fixed(), as_of=basis, evaluated_at=NOW, days=[basis])
-    return remote, master, calendar

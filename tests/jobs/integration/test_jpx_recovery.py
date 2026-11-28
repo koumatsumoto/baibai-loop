@@ -7,7 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.jpx_earnings import FILE_A, FIXTURES, SOURCE_FILES, _workbook, earnings
-from tests.helpers.master_calendar_native import seed_calendar, seed_master
+from tests.helpers.master_calendar_native import seed_calendar
 from tests.helpers.r2_store import MemoryR2Store, seed_machine_current
 
 from baibai_engine.data_collection.providers.jpx.models import JPXResponse
@@ -122,7 +122,6 @@ def test_exact_jpx_plan_replays_and_seals_without_rewriting_original_failure(
     with closing(open_connection(market)):
         pass
     seed_calendar(store, market, tmp_path / "calendar", as_of=DAY)
-    seed_master(store, market, tmp_path / "master", as_of=DAY)
     for repeat in range(2):
         applied = sources.apply(store, work, market=market, asof=DAY)
         assert all(row["applied"] and not row["failed"] for row in applied["handoffs"]), applied[
@@ -222,7 +221,6 @@ def test_jpx_recovery_keeps_full_fixed_edinet_withdrawal_projection(tmp_path, fa
         )
     )
     seed_calendar(store, market, tmp_path / "calendar", as_of=DAY)
-    seed_master(store, market, tmp_path / "master", as_of=DAY)
     result = sources.apply(store, work, market=market, asof=DAY)
     assert all(row["applied"] and not row["failed"] for row in result["handoffs"])
     assert result["edinet_input"] == saved.model_dump(mode="json")

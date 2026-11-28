@@ -32,10 +32,6 @@ from baibai_engine.data_collection.providers.jquants.calendar_native import (
 from baibai_engine.data_collection.providers.jquants.full_day_native import FullDayObjectStore
 from baibai_engine.data_collection.providers.jquants.margin_alerts_native import MarginAlertsL1
 from baibai_engine.data_collection.providers.jquants.margin_interest_native import MarginInterestL1
-from baibai_engine.data_collection.providers.jquants.master_native import (
-    MasterL1,
-    MasterObjectStore,
-)
 from baibai_engine.data_collection.providers.jquants.price_native import PriceL1, PriceObjectStore
 from baibai_engine.data_collection.providers.jquants.short_sale_reports_native import (
     ShortSaleReportsL1,
@@ -52,6 +48,8 @@ from baibai_engine.storage.snapshots.identity import verified_git_commit as lake
 from baibai_engine.storage.snapshots.keys import dataset_manifest_key as lake_dataset_manifest_key
 from baibai_engine.storage.snapshots.models import ReleaseManifest as LakeReleaseManifest
 from baibai_engine.storage.snapshots.models import (
+    ReleasePolicyError,
+    ReleasePolicyReason,
     canonical_lake_model_bytes,
     load_lake_model_json,
 )
@@ -88,7 +86,6 @@ from baibai_jobs.integration.margin_alerts_native import model_input as native_a
 from baibai_jobs.integration.margin_interest_native import (
     model_input as native_interest_model_input,
 )
-from baibai_jobs.integration.master_native import model_input as native_master_model_input
 from baibai_jobs.integration.price_native import model_input as native_price_model_input
 from baibai_jobs.integration.short_sale_reports_native import (
     model_input as native_shorts_model_input,
@@ -99,7 +96,6 @@ from baibai_jobs.publication.l1_margin_alerts_export import export_margin_alerts
 from baibai_jobs.publication.l1_margin_interest_export import (
     export_margin_interest_from_native_input,
 )
-from baibai_jobs.publication.l1_master_export import export_master_from_native_input
 from baibai_jobs.publication.l1_price_export import export_prices_from_native_input
 from baibai_jobs.publication.l1_short_sale_reports_export import (
     export_short_sale_reports_from_native_input,
@@ -165,7 +161,6 @@ class PreparedMarketLake:
     release_create_seconds: float
     edinet_input: EdinetModelInput | None = None
     price_identity: InputSnapshot | None = None
-    master_identity: InputSnapshot | None = None
     calendar_identity: InputSnapshot | None = None
     margin_alerts_identity: InputSnapshot | None = None
     margin_interest_identity: InputSnapshot | None = None
@@ -185,7 +180,6 @@ def prepare_market_lake(
 ) -> Iterator[PreparedMarketLake]:
     """一回のseal/exportから新releaseを固定する。公開pointer/originは動かさない。"""
     as_of = _publication_day(as_of, datetime.now(UTC))
-    fixed_edinet = read_edinet_input(store, edinet_input) if edinet_input is not None else None
     policy = release_policy_for_profile("production")
     policy_names = {item.dataset for item in policy.datasets}
     native_alerts = "jquants.margin_alerts" in policy_names
@@ -193,43 +187,6 @@ def prepare_market_lake(
     native_interest = bool(
         {"jquants.weekly_margin", "jquants.all_issues_daily_margin"} & policy_names
     )
-    phase_started = _phase_progress("native_calendar")
-    fixed_calendar = CalendarL1(
-        cast(CalendarObjectStore, store), mirror_root / "calendar-native"
-    ).fixed()
-    evaluated_at = datetime.now(UTC)
-    prepared_calendar = native_calendar_model_input(
-        store,
-        fixed_calendar,
-        as_of=as_of,
-        evaluated_at=evaluated_at,
-        market=sqlite_path,
-    )
-    _phase_progress("native_calendar", phase_started)
-    phase_started = _phase_progress("native_master")
-    fixed_master = MasterL1(cast(MasterObjectStore, store), mirror_root / "master-native").fixed()
-    evaluated_at = datetime.now(UTC)
-    master_identity = native_master_model_input(
-        store,
-        fixed_master,
-        as_of=as_of,
-        evaluated_at=evaluated_at,
-        market=sqlite_path,
-    )
-    _phase_progress("native_master", phase_started)
-    phase_started = _phase_progress("native_price")
-    fixed = PriceL1(cast(PriceObjectStore, store), mirror_root / "price-native").fixed()
-    evaluated_at = datetime.now(UTC)
-    price_identity = native_price_model_input(
-        store,
-        fixed,
-        as_of=as_of,
-        evaluated_at=evaluated_at,
-        market=sqlite_path,
-        calendar_input=prepared_calendar,
-    )
-    calendar_identity = prepared_calendar.snapshot
-    _phase_progress("native_price", phase_started)
     started = time.perf_counter()
     phase_started = _phase_progress("base_resolve")
     serving = _serving_pointer(store) if base is None else base
@@ -246,7 +203,6 @@ def prepare_market_lake(
             not in {
                 "jquants.fin_summaries",
                 "jquants.daily_bars",
-                "jquants.master_snapshots",
                 "jquants.market_calendar",
             }
             and name != "edinet.list_responses"
@@ -258,6 +214,33 @@ def prepare_market_lake(
             )
         }
     _phase_progress("base_resolve", phase_started)
+    fixed_edinet = read_edinet_input(store, edinet_input) if edinet_input is not None else None
+    phase_started = _phase_progress("native_calendar")
+    fixed_calendar = CalendarL1(
+        cast(CalendarObjectStore, store), mirror_root / "calendar-native"
+    ).fixed()
+    evaluated_at = datetime.now(UTC)
+    prepared_calendar = native_calendar_model_input(
+        store,
+        fixed_calendar,
+        as_of=as_of,
+        evaluated_at=evaluated_at,
+        market=sqlite_path,
+    )
+    _phase_progress("native_calendar", phase_started)
+    phase_started = _phase_progress("native_price")
+    fixed = PriceL1(cast(PriceObjectStore, store), mirror_root / "price-native").fixed()
+    evaluated_at = datetime.now(UTC)
+    price_identity = native_price_model_input(
+        store,
+        fixed,
+        as_of=as_of,
+        evaluated_at=evaluated_at,
+        market=sqlite_path,
+        calendar_input=prepared_calendar,
+    )
+    calendar_identity = prepared_calendar.snapshot
+    _phase_progress("native_price", phase_started)
     kept_small_slack = False
     if fixed_edinet is not None:
         from baibai_jobs.integration.edinet_archive_native import prepare_archive_execution
@@ -354,7 +337,6 @@ def prepare_market_lake(
     base_finished = time.perf_counter()
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
         native_calendar_enabled = "jquants.market_calendar" in policy_names
-        native_master_enabled = "jquants.master_snapshots" in policy_names
         native_price_enabled = "jquants.daily_bars" in policy_names
         native_alerts_enabled = native_alerts and "jquants.margin_alerts" in policy_names
         native_shorts_enabled = native_shorts and "jquants.short_sale_reports" in policy_names
@@ -370,7 +352,6 @@ def prepare_market_lake(
                 ("jquants.short_sale_reports", native_shorts_enabled),
                 ("jquants.weekly_margin", native_interest_enabled),
                 ("jquants.all_issues_daily_margin", native_interest_enabled),
-                ("jquants.master_snapshots", native_master_enabled),
                 ("jquants.daily_bars", native_price_enabled),
             )
             if enabled
@@ -382,7 +363,6 @@ def prepare_market_lake(
             and name not in ARCHIVED_ARTICLE_DATASETS
             and name != "jquants.fin_summaries"
             and name != "jquants.daily_bars"
-            and name != "jquants.master_snapshots"
             and name != "jquants.market_calendar"
             and name != "edinet.list_responses"
             and not (fixed_edinet is not None and name == "edinet.source_archives")
@@ -396,7 +376,6 @@ def prepare_market_lake(
             catalog=catalog,
             previous=serving_release.dataset_manifests if serving_release is not None else None,
             allow_empty=native_calendar_enabled
-            or native_master_enabled
             or native_price_enabled
             or native_alerts_enabled
             or native_shorts_enabled
@@ -415,13 +394,6 @@ def prepare_market_lake(
                 datasets["jquants.market_calendar"] = export_calendar_from_native_input(
                     source_snapshot=snapshot,
                     saved=calendar_identity,
-                    mirror_root=mirror_root,
-                    producer_git_commit=git_commit,
-                )
-            if native_master_enabled:
-                datasets["jquants.master_snapshots"] = export_master_from_native_input(
-                    source_snapshot=snapshot,
-                    saved=master_identity,
                     mirror_root=mirror_root,
                     producer_git_commit=git_commit,
                 )
@@ -461,7 +433,6 @@ def prepare_market_lake(
             source
             for source, enabled in (
                 ("daily_bars", True),
-                ("master", True),
                 ("market_calendar", True),
                 ("margin_alerts", native_alerts),
                 ("short_sale_reports", native_shorts),
@@ -509,7 +480,6 @@ def prepare_market_lake(
                 release_create_seconds=time.perf_counter() - export_finished,
                 edinet_input=fixed_edinet,
                 price_identity=price_identity,
-                master_identity=master_identity,
                 calendar_identity=calendar_identity,
                 margin_alerts_identity=alerts_identity,
                 margin_interest_identity=interest_identity,
@@ -713,6 +683,13 @@ def _resolve_serving_release(
         raise LakePublishError(
             f"serving release manifest is invalid: {serving.manifest_key}"
         ) from None
+    if set(release.datasets) - {
+        item.dataset for item in release_policy_for_profile("production").datasets
+    }:
+        raise ReleasePolicyError(
+            "serving release contains a dataset outside the current profile",
+            reason=ReleasePolicyReason.UNKNOWN_RELEASE_DATASET,
+        )
     for dataset_name, entry in sorted(release.datasets.items()):
         _fetch(
             store,

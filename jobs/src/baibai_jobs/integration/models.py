@@ -87,10 +87,7 @@ from baibai_jobs.publication.machine_current import (
     require_runs_publication,
 )
 from baibai_jobs.publication.machine_origin import current_daily_run
-from baibai_jobs.publication.policy import (
-    edinet_metrics_contract_is_current,
-    release_policy_for_profile,
-)
+from baibai_jobs.publication.policy import edinet_metrics_contract_is_current
 from baibai_jobs.publication.snapshot_publication import (
     PreparedMarketLake,
     daily_external_readback_dir,
@@ -103,8 +100,6 @@ from baibai_jobs.publication.snapshot_release import (
     read_pointer_snapshot,
 )
 from baibai_jobs.publication.snapshot_write_cli import prepare_market_transfer
-
-_LEGACY_MASTER_DATASET = "jquants.master_snapshots"
 
 
 class ModelIntegrationStore(FinancialObjectStore, MachineWriteStore, Protocol):
@@ -265,7 +260,7 @@ def integrate_models(
     lease_handle: Path,
     growth_start: date | None,
     edinet_input: InputSnapshot | None = None,
-    current_master: PinnedGenerationMaster | None = None,
+    current_master: PinnedGenerationMaster,
     base: PointerSnapshot | None = None,
     machine_store: MachineWriteStore | None = None,
     bucket: str | None = None,
@@ -273,11 +268,6 @@ def integrate_models(
     external_partitions: frozenset[tuple[str, int, int]] = frozenset(),
 ) -> dict[str, object]:
     """Publish under the lease; take a closed, dedicated local working copy."""
-    if current_master is not None and any(
-        item.dataset == _LEGACY_MASTER_DATASET
-        for item in release_policy_for_profile("production").datasets
-    ):
-        raise ValueError("current listing master requires the no-master Market release policy")
     handle = _load_handle(lease_handle)
     machine_writer = store if machine_store is None else machine_store
 
@@ -329,11 +319,6 @@ def integrate_models(
                     base=snapshot,
                 )
             )
-        if current_master is not None and (
-            prepared.master_identity is not None
-            or _LEGACY_MASTER_DATASET in prepared.release.datasets
-        ):
-            raise ValueError("current listing master cannot accompany a legacy Market master")
         evaluation_time = max(evaluated_at, prepared.source_snapshot.sealed_at)
         phase_started = _phase_progress("economic_input")
         economic_requests = (
@@ -378,7 +363,6 @@ def integrate_models(
             if prepared.serving.pointer is not None
             else None,
             price_identity=prepared.price_identity,
-            master_identity=prepared.master_identity,
             current_master=current_master,
             calendar_identity=prepared.calendar_identity,
             margin_alerts_identity=prepared.margin_alerts_identity,
@@ -489,7 +473,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--current-listing-master",
         type=Path,
-        help="same-run pinned listing master; requires the no-master Market release",
+        required=True,
+        help="same-run pinned listing master",
     )
     return parser
 
@@ -497,11 +482,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        current_master = (
-            pin_current_jp_generation_master(args.current_listing_master)
-            if args.current_listing_master is not None
-            else None
-        )
+        current_master = pin_current_jp_generation_master(args.current_listing_master)
         publication_run = current_daily_run() if args.daily_origin else None
         bucket = os.environ.get("R2_STORES_BUCKET") or "baibai-stores"
         external_readback_dir = None

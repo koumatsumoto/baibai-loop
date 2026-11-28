@@ -335,8 +335,10 @@ def test_projection_uses_exact_formal_proof_no_hidden_body_or_legacy_change(
     [
         "current",
         "closed_jst",
+        "unprovided",
         "absent",
         "corrupt",
+        "corrupt_session",
         "stale",
         "late",
         "unverified",
@@ -374,21 +376,19 @@ def test_pinned_current_jp_master_changes_only_the_held_listing_display_name(
         target.parent.mkdir(parents=True)
         source.rename(target)
 
-    legacy = _export(tmp_path, tmp_path / "legacy")
-    expected = json.loads(legacy["portfolio-dashboard.json"])
-    assert expected["holdings"][0]["company_name"] == "合成企業"
+    # The fixture includes a valued holding and an old SQLite company name.
+    # Default export deliberately uses neither that name nor any unpinned current file.
+    baseline = _export(tmp_path, tmp_path / "unprovided")
+    expected = json.loads(baseline["portfolio-dashboard.json"])
+    assert expected["holdings"][0]["company_name"] is None
     assert expected["holdings"][0]["quantity"] == 100
     assert expected["holdings"][0]["market_value_yen"] == 110_000
-    assert json.loads(legacy["latest-proposal.json"])["proposal"]["proposal_id"] == jp.proposal_id
+    assert json.loads(baseline["latest-proposal.json"])["proposal"]["proposal_id"] == jp.proposal_id
     assert (
-        json.loads(legacy["latest-us-proposal.json"])["proposal"]["proposal_id"]
+        json.loads(baseline["latest-us-proposal.json"])["proposal"]["proposal_id"]
         == us.decision.proposal_id
     )
     untouched = app.read_bytes(), market.read_bytes()
-    # A stale legacy name exists in the same SQLite. The new path must never query it.
-    legacy_call = mocker.patch.object(
-        db_sources, "read_master_snapshot", side_effect=AssertionError("legacy name fallback")
-    )
     current_reader = mocker.spy(db_sources, "read_current_jp_master")
     row = ListingMasterRow(
         ("XTKS", "12340"),
@@ -416,25 +416,24 @@ def test_pinned_current_jp_master_changes_only_the_held_listing_display_name(
     if state == "corrupt":
         path.write_text("{SYNTHETIC_PRIVATE_BODY")
     elif state != "absent":
-        path.write_bytes(encode_current_listing_master({"JP": section}))
+        encoded = encode_current_listing_master({"JP": section})
+        if state == "corrupt_session":
+            body = json.loads(encoded)
+            body["JP"]["slice"]["session"] = "2026-10-0x/SYNTHETIC_PRIVATE_DAY"
+            encoded = json.dumps(body).encode()
+        path.write_bytes(encoded)
     (tmp_path / "pyproject.toml").touch()
     (tmp_path / "engine/src/baibai_engine").mkdir(parents=True)
     output = tmp_path / "current"
     read_file = mocker.spy(materialize, "read_local_listing_master")
-    assert (
-        materialize.main(
-            [
-                "--root",
-                str(tmp_path),
-                "--output-dir",
-                str(output),
-                "--current-listing-master",
-                str(path),
-            ]
-        )
-        == 0
-    )
-    read_file.assert_called_once_with(path)
+    argv = ["--root", str(tmp_path), "--output-dir", str(output)]
+    if state != "unprovided":
+        argv.extend(("--current-listing-master", str(path)))
+    assert materialize.main(argv) == 0
+    if state == "unprovided":
+        read_file.assert_not_called()
+    else:
+        read_file.assert_called_once_with(path)
     current = {view.name: view.read_bytes() for view in (output / "views").glob("*.json")}
     assert "SYNTHETIC_PRIVATE" not in caplog.text
 
@@ -443,11 +442,10 @@ def test_pinned_current_jp_master_changes_only_the_held_listing_display_name(
         row.security_name if state in {"current", "closed_jst"} else None
     )
     assert current_dashboard == expected
-    del legacy["portfolio-dashboard.json"]
-    assert current == legacy  # Both markets' saved proposal IDs/bodies and outcomes are exact.
+    del baseline["portfolio-dashboard.json"]
+    assert current == baseline  # Both markets' saved proposal IDs/bodies and outcomes are exact.
     assert (app.read_bytes(), market.read_bytes()) == untouched
-    legacy_call.assert_not_called()
-    if state in {"absent", "corrupt"}:
+    if state in {"unprovided", "absent", "corrupt", "corrupt_session"}:
         current_reader.assert_not_called()
     else:
         current_reader.assert_called_once()

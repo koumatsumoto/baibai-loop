@@ -7,7 +7,6 @@ from contextlib import closing
 from datetime import date
 from pathlib import Path
 
-from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import add_source_coverage
 
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
@@ -19,37 +18,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.write
     store_edinet_metrics,
 )
 from baibai_engine.machine_analysis.observations.prices.price_reader import read_daily_bars
-from baibai_engine.machine_analysis.observations.stocks.reader import (
-    read_master_snapshot,
-)
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
-
-
-class ReadMasterSnapshotTests(unittest.TestCase):
-    def test_master_reader_prefers_prior_and_never_reads_future_snapshot(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            with closing(open_connection(db)) as conn, conn:
-                insert_master_rows(
-                    conn,
-                    [
-                        ("2025-01-31", "1301", "Historical", "プライム", "水産", "011"),
-                        ("2025-02-28", "1302", "Future", "プライム", "水産", "011"),
-                    ],
-                )
-
-            prior = read_master_snapshot(db, as_of=date(2025, 2, 15))
-            assert prior is not None
-            self.assertEqual(prior.as_of, date(2025, 1, 31))
-            self.assertEqual(list(prior.securities), ["1301"])
-            self.assertIsNone(read_master_snapshot(db, as_of=date(2025, 1, 1)))
-
-    def test_master_reader_is_unavailable_without_any_snapshot(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            open_connection(db).close()
-
-            self.assertIsNone(read_master_snapshot(db, as_of=date(2025, 1, 1)))
 
 
 class ReadDailyBarsTests(unittest.TestCase):

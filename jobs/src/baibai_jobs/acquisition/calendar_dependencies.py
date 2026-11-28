@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import sqlite3
 from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -20,11 +18,8 @@ from baibai_engine.machine_analysis.generation.calendar_inputs import (
     read_calendar_input,
 )
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
-from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import ObjectStore
 from baibai_jobs.integration.calendar_native import (
-    materialize_prepared_input,
-    materialize_saved_input,
     prepare_input,
     saved_interval,
 )
@@ -82,38 +77,3 @@ def saved_calendar_context(
     assert saved.descriptor is not None
     selected = read_calendar_input(store, saved.descriptor, days=interval(first, observation_date))
     return _context(selected["scopes"], observation_date)
-
-
-def prepare_tradingview_calendar(
-    store: ObjectStore, *, directory: Path, market: Path, observation_date: date
-) -> bool:
-    """Hydrate native calendar before master selection, retaining no duplicate raw pages."""
-    report = json.loads((directory / "result.json").read_bytes())
-    retained = report.pop("calendar_native_input", None)
-    try:
-        if retained is None:
-            prepared = _prepare_dependency(
-                store, directory=directory / "calendar-native", observation_date=observation_date
-            )
-            saved = prepared.snapshot
-            materialize_prepared_input(prepared, market=market)
-        else:
-            # Recovery replays its saved edition; it does not choose a new master basis.
-            saved = InputSnapshot.model_validate(retained)
-            if (
-                saved.descriptor is None
-                or saved.descriptor.get("as_of") != observation_date.isoformat()
-            ):
-                raise CalendarDependencyUnavailable("fixed calendar observation date changed")
-            saved_calendar_context(store, saved, observation_date=observation_date)
-            materialize_saved_input(store, saved, market=market)
-    except CalendarDependencyUnavailable:
-        # This disposable input must not use an older release's holiday proof.
-        with sqlite3.connect(market) as connection:
-            connection.execute("DELETE FROM jquants_market_calendar")
-            connection.execute("DELETE FROM source_coverage WHERE source='jquants_market_calendar'")
-        write_json_atomic(directory / "result.json", report)
-        return False
-    report["calendar_native_input"] = saved.model_dump(mode="json")
-    write_json_atomic(directory / "result.json", report)
-    return True

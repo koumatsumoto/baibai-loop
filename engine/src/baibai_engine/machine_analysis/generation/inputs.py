@@ -88,7 +88,6 @@ from baibai_engine.machine_analysis.observations.stocks.current_reader import (
     CurrentListingSection,
     read_current_jp_master,
 )
-from baibai_engine.machine_analysis.observations.stocks.reader import read_master_snapshot
 from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.stocks import normalize_ticker
@@ -283,26 +282,6 @@ def _schedule_price_read(
     return pending
 
 
-def _legacy_generation_master(
-    path: Path, as_of: date, identity: InputSnapshot | None
-) -> MasterSnapshot | None:
-    master_as_of: date | None = as_of
-    if identity is not None and identity.kind == "current_listing_master":
-        raise ValueError("current listing master identity requires its pinned section")
-    if identity is not None and identity.descriptor is not None:
-        summary = identity.descriptor.get("summary")
-        basis = summary.get("master_basis_date") if isinstance(summary, dict) else None
-        if isinstance(basis, str):
-            assert isinstance(summary, dict)
-            selected = summary.get("snapshot_date")
-            master_as_of = date.fromisoformat(selected) if isinstance(selected, str) else None
-            if date.fromisoformat(basis) > as_of or (
-                master_as_of is not None and master_as_of > date.fromisoformat(basis)
-            ):
-                raise ValueError("master basis cannot be later than generation as-of")
-    return None if master_as_of is None else read_master_snapshot(path, as_of=master_as_of)
-
-
 def read_and_generate_models(
     *,
     generation_id: str,
@@ -313,13 +292,12 @@ def read_and_generate_models(
     as_of: date,
     evaluation_time: datetime,
     ttm_rules: TTMRules,
+    current_master: PinnedGenerationMaster,
     tickers: Sequence[str] | None = None,
     growth_start: date | None = None,
     edinet_input: EdinetModelInput | None = None,
     comparison_evidence: SavedComparisonEvidence | None = None,
     price_identity: InputSnapshot | None = None,
-    master_identity: InputSnapshot | None = None,
-    current_master: PinnedGenerationMaster | None = None,
     calendar_identity: InputSnapshot | None = None,
     margin_alerts_identity: InputSnapshot | None = None,
     margin_interest_identity: InputSnapshot | None = None,
@@ -341,25 +319,17 @@ def read_and_generate_models(
     ):
         raise ValueError("EDINET input was selected after the generation seal or clock")
     path = market_snapshot.path
-    if current_master is None:
-        master = _legacy_generation_master(path, as_of, master_identity)
-    else:
-        if master_identity is not None:
-            raise ValueError("generation requires one current listing master identity")
-        with closing(connect_read_only(path)) as connection:
-            connection.execute("BEGIN")
-            master = read_current_jp_master(
-                current_master.section,
-                calendar=connection,
-                as_of=as_of,
-                evaluation_time=min(evaluation_time, market_snapshot.sealed_at),
-            )
-        if master is None:
-            raise ValueError("current JP master does not match the generation seal and session")
-        master_identity = current_master.input_identity()
+    with closing(connect_read_only(path)) as connection:
+        connection.execute("BEGIN")
+        master = read_current_jp_master(
+            current_master.section,
+            calendar=connection,
+            as_of=as_of,
+            evaluation_time=min(evaluation_time, market_snapshot.sealed_at),
+        )
+    if master is None:
+        raise ValueError("current JP master does not match the generation seal and session")
     if tickers is None:
-        if master is None:
-            raise ValueError("all-company generation requires a master snapshot")
         subjects = tuple(
             sorted(
                 ticker
@@ -443,9 +413,7 @@ def read_and_generate_models(
             financial_documents=documents.get(ticker, ()),
             adjusted_bars=price_inputs.bars.get(ticker, ()),
             adjustment_events=price_inputs.adjustment_events.get(ticker, ()),
-            sector=master.securities[ticker].sector_33
-            if master is not None and ticker in master.securities
-            else None,
+            sector=master.securities[ticker].sector_33 if ticker in master.securities else None,
             edinet=edinet.get(ticker),
             comparisons=comparisons.get(ticker, ()),
             pdf_statements=pdf_statements.get(ticker, ()),
@@ -488,7 +456,7 @@ def read_and_generate_models(
                 if margin_interest_identity is not None
                 else {}
             ),
-            **({"master": master_identity} if master_identity is not None else {}),
+            "master": current_master.input_identity(),
             **({"price": price_identity} if price_identity is not None else {}),
             "financial": financial_input.identity,
         },
@@ -508,7 +476,6 @@ def read_and_generate_models(
                 sqlite_path=path,
                 asof_date=as_of,
                 prepared=price_inputs.prepared,
-                current_master_only=current_master is not None,
             ),
             "benchmark_trend": None
             if price_inputs.prepared.benchmark_trend is None
@@ -521,10 +488,6 @@ def read_and_generate_models(
         },
         securities_context=price_inputs.contexts,
         market_context_revision="shared-market-context-v20-classified-sector-peers",
-        shared_market_context_revision=(
-            "shared-market-context-v23-current-listing-breadth"
-            if current_master is not None
-            else "shared-market-context-v22-breadth-price-date-membership"
-        ),
+        shared_market_context_revision="shared-market-context-v23-current-listing-breadth",
         growth_start=growth_start,
     )

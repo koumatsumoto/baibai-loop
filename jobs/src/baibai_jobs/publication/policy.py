@@ -110,12 +110,6 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             require_complete_coverage=False,
         ),
         ReleaseDatasetPolicy(
-            dataset="jquants.master_snapshots",
-            required=True,
-            carries_history=True,
-            require_complete_coverage=False,
-        ),
-        ReleaseDatasetPolicy(
             dataset="jquants.fin_summaries",
             # Native financial inputs live outside the market release after cutover.
             # Readers accept absence; the old publisher still guards its history floor.

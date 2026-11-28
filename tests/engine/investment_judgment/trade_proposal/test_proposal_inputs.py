@@ -586,10 +586,10 @@ def test_holding_quantity_uses_share_units_not_the_price_adjustment(tmp_path, ki
 def test_classification_uses_native_product_not_sector(tmp_path, product_category, expected_common):
     case = backend_case(tmp_path)
     write_jp_proposal_listing(case.listing_path, product_category=product_category, sector="新業種")
-    with closing(sqlite3.connect(case.market)) as connection, connection:
-        connection.execute(
-            "INSERT INTO jquants_master_snapshots VALUES ('2026-10-14','99990','{broken')"
-        )
+    with closing(sqlite3.connect(case.market)) as connection:
+        assert not connection.execute(
+            "SELECT 1 FROM sqlite_schema WHERE name='jquants_master_snapshots'"
+        ).fetchone()
     classification = next(
         row for row in _collect(case).security_classification if row.ticker == "1234"
     )

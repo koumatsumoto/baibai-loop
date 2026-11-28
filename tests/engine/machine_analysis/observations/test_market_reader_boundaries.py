@@ -16,7 +16,6 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics impor
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.prices import calendar_reader
 from baibai_engine.machine_analysis.observations.prices.price_reader import read_daily_bars
-from baibai_engine.machine_analysis.observations.stocks import reader as stock_reader
 from baibai_engine.storage.sqlite.source_cache.coverage import (
     record_range_source_coverage,
     record_source_coverage,
@@ -98,17 +97,6 @@ def test_snapshot_query_failure_is_not_a_cache_miss(
     monkeypatch.setattr(module, "connect_current", lambda path: conn)
     with pytest.raises(sqlite3.OperationalError, match="no such table"):
         getattr(module, reader_name)(path, date(2026, 10, 15))
-
-
-def test_master_query_failure_propagates_and_closes_connection(tmp_path, monkeypatch):
-    path = tmp_path / "existing.sqlite"
-    open_connection(path).close()
-    conn = sqlite3.connect(":memory:")
-    monkeypatch.setattr(stock_reader, "connect_read_only", lambda path: conn)
-    with pytest.raises(sqlite3.OperationalError, match="no such table"):
-        stock_reader.read_master_snapshot(path, as_of=date(2026, 10, 15))
-    with pytest.raises(sqlite3.ProgrammingError, match="closed"):
-        conn.execute("SELECT 1")
 
 
 @pytest.mark.parametrize("reader_kind", ["all", "actions"])

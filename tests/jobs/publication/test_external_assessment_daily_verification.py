@@ -79,7 +79,7 @@ def other_dataset_digest(path):
     with closing(sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)) as connection:
         rows = {
             table: connection.execute(f'SELECT * FROM "{table}" ORDER BY 1,2').fetchall()
-            for table in ("jquants_master_snapshots", "source_coverage", "lake_store_origin")
+            for table in ("jquants_market_calendar", "source_coverage", "lake_store_origin")
         }
     return hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest()
 

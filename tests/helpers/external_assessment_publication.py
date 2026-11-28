@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import sqlite3
-from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -68,7 +66,6 @@ from tests.helpers.external_assessment_html import (
 from tests.helpers.external_assessment_responses import response
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
-from tests.helpers.master import insert_master_rows
 from tests.helpers.master_calendar_native import configure_master_calendar_publication
 from tests.helpers.price_native import configure_price_publication
 from tests.helpers.r2_store import MemoryR2Store
@@ -169,7 +166,6 @@ def publication(tmp_path, monkeypatch):
     configure_master_calendar_publication(monkeypatch)
     datasets = (
         "jquants.market_calendar",
-        "jquants.master_snapshots",
         "jquants.daily_bars",
         external_assessment.SOURCE_RESPONSES_DATASET,
         external_assessment.VALUATION_DATASET,
@@ -184,10 +180,6 @@ def publication(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(publisher, "lake_verified_git_commit", lambda: "a" * 40)
     database = market_store(tmp_path / "market.sqlite", short_sale_reports=())
-    with closing(sqlite3.connect(database)) as connection, connection:
-        insert_master_rows(
-            connection, [("2026-09-30", "7203", "合成会社", "PRIME", "輸送用機器", "011")]
-        )
     common = {
         "ticker": "7203",
         "fetched_at_utc": RECEIVED - timedelta(days=1),

@@ -9,7 +9,6 @@ from datetime import UTC, datetime
 import pytest
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
-from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import add_source_coverage
 
 from baibai_engine.storage.snapshots import writer
@@ -29,7 +28,7 @@ from baibai_jobs.publication.policy import release_policy_for_profile
 from baibai_jobs.publication.snapshot_write_cli import main
 
 METRICS = "edinet.metrics"
-PORTFOLIO = ("jquants.daily_bars", "jquants.market_calendar", "jquants.master_snapshots")
+PORTFOLIO = ("jquants.daily_bars", "jquants.market_calendar")
 AT = datetime(2026, 1, 6, tzinfo=UTC)
 DAY = "2026-01-05"
 
@@ -49,7 +48,6 @@ def _publish_fixture(tmp_path, monkeypatch, *, archived):
             "INSERT INTO edinet_metrics(asof_date,ticker,fcf_ttm) VALUES(?,'1301',7)", (DAY,)
         )
         connection.execute("INSERT INTO jquants_market_calendar VALUES(?,'1')", (DAY,))
-        insert_master_rows(connection, [(DAY, "1301", "fixture", "Prime", "fixture", "011")])
         add_source_coverage(
             connection,
             source="jquants_market_calendar",

@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
-from tests.helpers.master import insert_master_rows
+from tests.helpers.market_context import fixture_market_master
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.machine_analysis.generation.runners.market_snapshot import (
@@ -18,12 +18,22 @@ from baibai_engine.machine_analysis.generation.runners.security_context import (
 from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 from baibai_engine.machine_analysis.observations.prices.price_observation import price_calendar
-from baibai_engine.machine_analysis.observations.stocks.reader import (
-    read_master_snapshot,
-)
+from baibai_engine.machine_analysis.observations.stocks.contracts import MasterSnapshot
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 ASOF = date(2026, 5, 30)
+LATEST = date(2026, 5, 29)
+BASE_LISTINGS = (
+    *(
+        (ticker, ticker, "プライム", "機械", "011")
+        for ticker in ("AAAA", "BBBB", "NEW1", "OLD1", "NONE")
+    ),
+    ("PREF", "non-common security", "プライム", "機械", "014"),
+)
+
+
+def _master(*extra):
+    return fixture_market_master(LATEST, (*BASE_LISTINGS, *extra))
 
 
 @pytest.fixture
@@ -41,17 +51,6 @@ def context_store(tmp_path: Path) -> Path:
             path, ticker, [100 + index for index in range(count)], end_date=end
         )
     with closing(open_connection(path)) as connection:
-        insert_master_rows(
-            connection,
-            [
-                ("2026-05-28", ticker, ticker, "プライム", "機械", "011")
-                for ticker in ("AAAA", "BBBB", "NEW1", "OLD1", "NONE")
-            ],
-        )
-        # Non-common securities are not industry peers even when the sector label matches.
-        insert_master_rows(
-            connection, [("2026-05-28", "PREF", "non-common security", "プライム", "機械", "014")]
-        )
         # An observed split without a close must still normalize the previous price.
         connection.execute(
             "INSERT INTO jquants_daily_bars(ticker,traded_at,close,adjustment_factor) "
@@ -65,12 +64,12 @@ def context_store(tmp_path: Path) -> Path:
     return path
 
 
-def _shared_inputs(path: Path, tickers: tuple[str, ...]):
+def _shared_inputs(path: Path, tickers: tuple[str, ...], *, master: MasterSnapshot | None):
     bars = read_price_bars(path, start=date.min, end=ASOF)
     prepared = prepare_market_context_from_bars(
         sqlite_path=path,
         asof_date=ASOF,
-        master=read_master_snapshot(path, as_of=ASOF),
+        master=master,
         bars_by_ticker=bars,
         subjects=tickers,
     )
@@ -79,9 +78,9 @@ def _shared_inputs(path: Path, tickers: tuple[str, ...]):
 
 def test_shared_generation_preserves_cli_market_and_adjusted_security_facts(context_store):
     tickers = ("AAAA", "BBBB", "NEW1", "OLD1", "NONE", "ZZZZ")
-    bars, prepared = _shared_inputs(context_store, tickers)
+    bars, prepared = _shared_inputs(context_store, tickers, master=_master())
     assert build_market_snapshot(
-        sqlite_path=context_store, asof_date=ASOF
+        sqlite_path=context_store, asof_date=ASOF, read_current_master=lambda *_: _master()
     ) == build_market_snapshot(sqlite_path=context_store, asof_date=ASOF, prepared=prepared)
     batch = build_security_market_contexts(
         sqlite_path=context_store,
@@ -94,7 +93,7 @@ def test_shared_generation_preserves_cli_market_and_adjusted_security_facts(cont
     current = batch["AAAA"]
     assert current["price"]["resolved_date"] == "2026-05-29"
     assert current["price"]["close"] == 224.5
-    assert current["master"]["snapshot_date"] == "2026-05-28"
+    assert current["master"]["snapshot_date"] == LATEST.isoformat()
     assert current["relative"]["sector"] is None  # no complete other peer endpoints
     assert batch["NEW1"]["price"]["bar_count"] == 3
     assert batch["OLD1"]["price"]["bar_count"] == 80
@@ -120,18 +119,16 @@ def test_sector_candidates_keep_common_peers_and_each_tickers_exact_endpoints(
         [100 + index for index in range(80)],
         end_date=ASOF - timedelta(days=500),
     )
-    with closing(open_connection(context_store)) as connection:
-        insert_master_rows(
-            connection,
-            [
-                ("2026-05-28", "CCCC", "peer", "プライム", "機械", "011"),
-                ("2026-05-28", "DDDD", "other sector", "プライム", "情報・通信業", "011"),
-                ("2026-05-28", "OLD2", "old peer", "プライム", "機械", "011"),
-            ],
-        )
-        connection.commit()
     tickers = ("AAAA", "BBBB", "DDDD", "OLD1")
-    bars, prepared = _shared_inputs(context_store, tickers)
+    bars, prepared = _shared_inputs(
+        context_store,
+        tickers,
+        master=_master(
+            ("CCCC", "peer", "プライム", "機械", "011"),
+            ("DDDD", "other sector", "プライム", "情報・通信業", "011"),
+            ("OLD2", "old peer", "プライム", "機械", "011"),
+        ),
+    )
     assert "PREF" not in prepared.common_stock_tickers_by_sector["機械"]
     assert prepared.common_stock_tickers_by_sector["情報・通信業"] == ("DDDD",)
     batch = build_security_market_contexts(
@@ -157,7 +154,7 @@ def test_sector_candidates_keep_common_peers_and_each_tickers_exact_endpoints(
 
 
 def test_prepared_scope_cannot_change_dates(context_store: Path) -> None:
-    bars, prepared = _shared_inputs(context_store, ("AAAA",))
+    bars, prepared = _shared_inputs(context_store, ("AAAA",), master=_master())
     with pytest.raises(ValueError, match="scope"):
         build_security_market_contexts(
             sqlite_path=context_store,
@@ -174,7 +171,7 @@ def test_shared_unwritten_store_keeps_unknown_and_null(tmp_path: Path, create_em
     path = tmp_path / "unwritten.sqlite"
     if create_empty:
         path.touch()
-    bars, prepared = _shared_inputs(path, ("AAAA",))
+    bars, prepared = _shared_inputs(path, ("AAAA",), master=None)
     assert prepared.series_by_ticker == {}
     assert prepared.benchmark_trend is None
     assert build_security_market_contexts(
@@ -197,14 +194,9 @@ def test_shared_bar_input_never_requeries_sparse_benchmark_or_peers(context_stor
         [100 + index for index in range(80)],
         end_date=ASOF - timedelta(days=500),
     )
-    with closing(open_connection(context_store)) as connection:
-        insert_master_rows(
-            connection, [("2026-05-28", "OLD2", "old peer", "プライム", "機械", "011")]
-        )
-        connection.commit()
     tickers = ("AAAA", "OLD1", "NEW1", "NONE")
     bars = read_price_bars(context_store, start=date.min, end=ASOF)
-    master = read_master_snapshot(context_store, as_of=ASOF)
+    master = _master(("OLD2", "old peer", "プライム", "機械", "011"))
 
     def forbidden(*args, **kwargs):
         raise AssertionError("generation must reuse its shared price and master input")
@@ -237,7 +229,7 @@ def test_shared_bar_input_never_requeries_sparse_benchmark_or_peers(context_stor
 def test_common_market_window_does_not_expand_with_sparse_selected_subjects(context_store):
     old = [PriceBar(ASOF - timedelta(days=600 - i), 100.0 + i, None) for i in range(80)]
     bars = {"1321": old, "OLD1": old}
-    master = read_master_snapshot(context_store, as_of=ASOF)
+    master = _master()
     snapshots = []
     for subjects in ((), ("OLD1",)):
         prepared = prepare_market_context_from_bars(
@@ -256,7 +248,7 @@ def test_common_market_window_does_not_expand_with_sparse_selected_subjects(cont
 
 @pytest.mark.parametrize("mismatch", ["store", "history_weeks", "benchmark_ticker"])
 def test_prepared_market_scope_rejects_a_different_request(context_store, mismatch):
-    _, prepared = _shared_inputs(context_store, ("AAAA",))
+    _, prepared = _shared_inputs(context_store, ("AAAA",), master=_master())
     arguments = {"sqlite_path": context_store, "asof_date": ASOF, "prepared": prepared}
     if mismatch == "store":
         arguments["sqlite_path"] = context_store.with_name("another.sqlite")
@@ -270,7 +262,7 @@ def test_prepared_market_scope_rejects_a_different_request(context_store, mismat
 
 def test_preparation_resolves_store_scope_once(context_store, monkeypatch):
     bars = read_price_bars(context_store, start=date.min, end=ASOF)
-    master = read_master_snapshot(context_store, as_of=ASOF)
+    master = _master()
     monkeypatch.chdir(context_store.parent)
     prepared = prepare_market_context_from_bars(
         sqlite_path=Path(context_store.name),
@@ -282,11 +274,13 @@ def test_preparation_resolves_store_scope_once(context_store, monkeypatch):
     assert prepared.sqlite_path == context_store.resolve()
     assert build_market_snapshot(
         sqlite_path=context_store, asof_date=ASOF, prepared=prepared
-    ) == build_market_snapshot(sqlite_path=context_store, asof_date=ASOF)
+    ) == build_market_snapshot(
+        sqlite_path=context_store, asof_date=ASOF, read_current_master=lambda *_: master
+    )
 
 
 def test_prepared_security_rejects_calendar_from_another_asof(context_store):
-    bars, prepared = _shared_inputs(context_store, ("AAAA",))
+    bars, prepared = _shared_inputs(context_store, ("AAAA",), master=_master())
     with pytest.raises(ValueError, match="scope"):
         build_security_market_contexts(
             sqlite_path=context_store,

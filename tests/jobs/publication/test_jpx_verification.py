@@ -10,7 +10,7 @@ from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.jpx_earnings import DAY, STAMP, earnings, regulations
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
-from tests.helpers.master_calendar_native import seed_calendar, seed_master
+from tests.helpers.master_calendar_native import seed_calendar
 from tests.helpers.r2_store import MemoryR2Store, seed_machine_current
 
 from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
@@ -274,7 +274,6 @@ def test_delayed_earnings_seal_requires_the_newer_selected_original(
 
     edinet = empty_edinet_input(store, tmp_path)
     seed_calendar(store, database, tmp_path / "calendar", as_of=DAY)
-    seed_master(store, database, tmp_path / "master", as_of=DAY)
     apply_work = tmp_path / "apply"
     apply_work.mkdir()
     (apply_work / "plan.json").write_text(

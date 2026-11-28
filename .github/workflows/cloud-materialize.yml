@@ -62,18 +62,37 @@ jobs:
         run: |
           jobs/scripts/r2_transfer.sh pull-portfolio-market
 
+      # Only verified Market supplies the calendar used to read the current Japanese names.
+      - name: Pin the current listing master
+        id: listing-master
+        if: ${{ steps.market.outcome == 'success' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          umask 077
+          uv run python -m baibai_jobs.integration.listing_master_current --output "$RUNNER_TEMP/current-listing-master.json"
+
       - name: Materialize read models
         id: materialize
         if: ${{ !cancelled() && steps.lease-acquire.outputs.acquired == 'true' && steps.pull-app.outcome == 'success' }}
         env:
           MARKET_OUTCOME: ${{ steps.market.outcome }}
+          LISTING_MASTER_OUTCOME: ${{ steps.listing-master.outcome }}
         run: |
           umask 077
           {
             if [[ "$MARKET_OUTCOME" != "success" && -d stores/market ]]; then
               mv stores/market "$RUNNER_TEMP/unverified-market"
             fi
-            uv run python -m baibai_web.materialize --output-dir "$RUNNER_TEMP/serving"
+            listing_master="$RUNNER_TEMP/current-listing-master.json"
+            if [[ "${LISTING_MASTER_OUTCOME:-}" != "success" ]]; then
+              # Keep verified App and prices, but never use bytes from a failed pin.
+              listing_master="$(mktemp -d "$RUNNER_TEMP/unavailable-listing-master.XXXXXX")/current.json"
+            fi
+            uv run python -m baibai_web.materialize --output-dir "$RUNNER_TEMP/serving" \
+              --current-listing-master "$listing_master"
           } > "$RUNNER_TEMP/materialize-private.log" 2>&1
 
       - name: Upload serving objects

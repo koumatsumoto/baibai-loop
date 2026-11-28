@@ -6,6 +6,9 @@ import argparse
 import logging
 from pathlib import Path
 
+from baibai_engine.machine_analysis.observations.stocks.current_reader import (
+    CurrentListingSection,
+)
 from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
     read_local_listing_master,
 )
@@ -17,21 +20,19 @@ from baibai_engine.storage.paths import (
 )
 from baibai_web.readmodel.builders.dashboard import build_dashboard
 from baibai_web.readmodel.builders.outcomes import build_outcomes
-from baibai_web.sources.db_sources import CurrentJpMarketSource, DbLedgerSource, DbMarketSource
+from baibai_web.sources.db_sources import CurrentJpMarketSource, DbLedgerSource
 from baibai_web.sources.proposal import read_serving_proposal_views
-from baibai_web.sources.protocols import MarketSource
 
 _LOGGER = logging.getLogger(__name__)
 
 
 def export_read_models(
-    root: Path, output_dir: Path, *, market_names: MarketSource | None = None
+    root: Path, output_dir: Path, *, current_jp_listing: CurrentListingSection | None = None
 ) -> list[Path]:
     app = root / APPLICATION_DB_PATH
     market_path = root / MARKET_DB_PATH
     ledger = DbLedgerSource(app, market_path)
-    # Existing CLI callers still own their Market snapshot until the jobs cutover.
-    market = DbMarketSource(market_path) if market_names is None else market_names
+    market = CurrentJpMarketSource(market_path, listing=current_jp_listing)
     # Build every view before replacing artifacts. Optional display sources may be
     # unavailable; builders retain the independent facts and expose missing sections.
     dashboard = build_dashboard(ledger, market)
@@ -61,7 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--current-listing-master",
         type=Path,
-        help="同じ実行で固定された現行銘柄マスター。銘柄名にだけ使用する。",
+        help="同じ実行で固定された現行銘柄マスター。未指定なら銘柄コードのみ表示。",
     )
     return parser
 
@@ -69,7 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     reject_noncanonical_store_paths(args.root)
-    market_names: MarketSource | None = None
+    listing: CurrentListingSection | None = None
     if args.current_listing_master is not None:
         try:
             listing = read_local_listing_master(args.current_listing_master).get("JP")
@@ -78,9 +79,7 @@ def main(argv: list[str] | None = None) -> int:
                 "現行の銘柄マスターを読み取れないためtickerで表示します (%s)",
                 type(error).__name__,
             )
-            listing = None
-        market_names = CurrentJpMarketSource(args.root / MARKET_DB_PATH, listing=listing)
-    for path in export_read_models(args.root, args.output_dir, market_names=market_names):
+    for path in export_read_models(args.root, args.output_dir, current_jp_listing=listing):
         print(path)
     return 0
 

@@ -7,6 +7,7 @@ import pytest
 from tests.helpers.edinet_saved_inputs import BASE, RECORDED, TARGET, _seed
 from tests.helpers.financial_native import fixed_empty_financial_input
 from tests.helpers.lake_release import market_store
+from tests.helpers.master_calendar_native import pinned_jp_listing, seed_listing_session
 from tests.helpers.model_generation import materialize_generation
 
 import baibai_engine.machine_analysis.generation.inputs as generation_reader
@@ -42,6 +43,7 @@ def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(
         else None
     )
     path = market_store(tmp_path / "market.sqlite", daily_bars=(("1234", "2026-01-05", 10.0, 1.0),))
+    seed_listing_session(path, date(2026, 1, 5))
     spies = [
         mocker.spy(generation_reader, name)
         for name in (
@@ -63,6 +65,7 @@ def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(
     with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=tmp_path / "lake") as snapshot:
         result = generation_reader.read_and_generate_models(
             generation_id="generated-from-new-release",
+            current_master=pinned_jp_listing(as_of=date(2026, 1, 5), tickers=("1234", "5678")),
             financial_input=financial,
             margin_interest_identity=margin_identity,
             market_snapshot=snapshot,
@@ -171,6 +174,7 @@ def test_shared_price_path_matches_single_query_and_keeps_old_mc_and_adv(
     with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=tmp_path / "lake") as snapshot:
         stream = generation_reader.read_and_generate_models(
             generation_id="price-path-fixture",
+            current_master=pinned_jp_listing(as_of=as_of, tickers=("7800",)),
             financial_input=fixed_empty_financial_input(tmp_path / "financial-native", as_of),
             market_snapshot=snapshot,
             market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),
@@ -290,9 +294,11 @@ def test_edinet_uses_one_fixed_shared_read_and_preserves_delayed_source_contract
 
     mocker.patch.object(sqlite3, "connect", traced_connect)
     mocker.patch("requests.Session", side_effect=AssertionError("must not fetch EDINET"))
+    seed_listing_session(path, TARGET)
     with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=tmp_path / "lake") as snapshot:
         arguments = dict(
             generation_id="fixed-edinet",
+            current_master=pinned_jp_listing(as_of=TARGET, tickers=("7203", "8306")),
             financial_input=fixed_empty_financial_input(tmp_path / "financial-native", TARGET),
             market_snapshot=snapshot,
             market_release=InputRelease(release_id="new-release", manifest_sha256="a" * 64),
@@ -355,6 +361,7 @@ def test_optional_provider_capital_preserves_the_expected_price_basis(tmp_path, 
     with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=tmp_path / "lake") as snapshot:
         stream = generation_reader.read_and_generate_models(
             generation_id="provider-capital",
+            current_master=pinned_jp_listing(as_of=date(2026, 1, 5), tickers=("1234",)),
             financial_input=fixed_empty_financial_input(
                 tmp_path / "financial-native", date(2026, 1, 5)
             ),
@@ -409,9 +416,11 @@ def test_shared_market_model_contains_retained_tradingview_observations(tmp_path
     identity = retain_economic_input(
         store, economic, as_of=date(2026, 1, 5), evaluation_time=CLOCK + timedelta(hours=1)
     )
+    seed_listing_session(market, date(2026, 1, 5))
     with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "lake") as snapshot:
         stream = generation_reader.read_and_generate_models(
             generation_id="with-tv",
+            current_master=pinned_jp_listing(as_of=date(2026, 1, 5), tickers=("1234",)),
             financial_input=fixed_empty_financial_input(
                 tmp_path / "financial-native", date(2026, 1, 5)
             ),
@@ -454,6 +463,7 @@ def test_saved_economic_clocks_must_match_generation(tmp_path, changed):
     ):
         generation_reader.read_and_generate_models(
             generation_id="clock-mismatch",
+            current_master=pinned_jp_listing(as_of=day, tickers=("1301",)),
             financial_input=fixed_empty_financial_input(tmp_path / "financial-native", day),
             market_snapshot=snapshot,
             market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),
@@ -490,6 +500,8 @@ def test_generation_binds_edinet_clock_and_passes_fixed_comparison_archives(tmp_
         },
     )
     market = market_store(tmp_path / "market.sqlite")
+    as_of = datetime.now(UTC).date()
+    seed_listing_session(market, as_of)
     before = market.read_bytes()
     with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "lake") as snapshot:
         at = snapshot.sealed_at
@@ -501,12 +513,13 @@ def test_generation_binds_edinet_clock_and_passes_fixed_comparison_archives(tmp_
             snapshot = replace(snapshot, sealed_at=at - timedelta(microseconds=1))
         arguments = dict(
             generation_id="native-edinet",
+            current_master=pinned_jp_listing(as_of=as_of, tickers=("1301",)),
             financial_input=fixed_empty_financial_input(tmp_path / "financial-native", at.date()),
             market_snapshot=snapshot,
             market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),
             economic_input=None,
             edinet_input=fixed,
-            as_of=at.date(),
+            as_of=as_of,
             evaluation_time=at - timedelta(microseconds=1) if late == "evaluation" else at,
             ttm_rules=DEFAULT_TTM_RULES,
             tickers=("1301",),
