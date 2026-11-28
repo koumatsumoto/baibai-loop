@@ -4,7 +4,7 @@
 
 ### 1. WSL / Linux で作業コピーを作る
 
-Windowsでは PowerShell で `wsl -l -v` を実行し、Ubuntu が WSL 2 で動いていることを確認する。未導入なら `wsl --install -d Ubuntu` を実行し、再起動を求められたら再起動する。以降は **Ubuntu の Bash** で実行し、作業コピーは `~/baibai-loop` に置く（`/mnt/c` ではない）。Ubuntu 24.04 なら `sudo apt install git python3 curl` で基本ツールを用意できる。別途 [uv](https://docs.astral.sh/uv/getting-started/installation/) を入れておく。
+Windowsでは PowerShell で `wsl -l -v` を実行し、Ubuntu が WSL 2 で動いていることを確認する。未導入なら `wsl --install -d Ubuntu` を実行し、再起動を求められたら再起動する。以降は **Ubuntu の Bash** で実行し、作業コピーは `~/baibai-loop` に置く（`/mnt/c` ではない）。Ubuntu 24.04 なら `sudo apt install git python3 curl nano` で基本ツールを用意できる。別途 [uv](https://docs.astral.sh/uv/getting-started/installation/) を入れておく。
 
 初回は `main` の先端だけを取得する。既に作業コピーがあればクローンは不要。
 
@@ -36,8 +36,8 @@ shellを開き直したらenv.shをsourceする。checkoutを移動したらsetu
 **パスワードマネージャーで管理する。** このプロジェクトの `.env` 全文をパスワードマネージャーの保護されたノートに保存する。別の端末では、WSL内の作業コピーで `.env` を用意し、そこに必要な設定を貼り付ける。
 
 ```bash
-cd ~/baibai-loop
-git check-ignore -- .env &&
+cd ~/baibai-loop &&
+  git check-ignore -- .env &&
   (umask 077; touch .env && chmod 600 .env && nano .env)
 ```
 
