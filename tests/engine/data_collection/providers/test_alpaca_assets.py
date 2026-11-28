@@ -91,6 +91,8 @@ def test_decodes_exact_native_fields_without_classifying_product_or_dropping_non
         {"symbol": ""},
         {"symbol": "\nAAPL"},
         {"name": "  "},
+        {"name": 123},
+        {"name": "Company\nShares"},
         {"tradable": 1},
         {"tradable": "false"},
         {"attributes": ["has_options", False]},
@@ -99,6 +101,32 @@ def test_decodes_exact_native_fields_without_classifying_product_or_dropping_non
 def test_bad_row_invalidates_the_full_universe(changes):
     with pytest.raises(ValueError, match="Alpaca Assets"):
         parse_alpaca_us_assets(_native(_asset(id=_OTHER_ID), _asset(**changes)))
+
+
+@pytest.mark.parametrize("present", [False, True], ids=["absent", "null"])
+def test_missing_or_null_name_is_neither_required_nor_invented(present):
+    row = _asset(name=None)
+    if not present:
+        del row["name"]
+    body = _native(row)
+    receipt = AlpacaAssetsReceipt(_AT, body)
+    assert receipt.assets[0].name is None
+    assert receipt.assets[0].symbol == "AAPL"
+    assert receipt.body == body
+
+
+def test_name_preserves_legitimate_unicode_spacing():
+    name = "Müller\u00a0Holdings\u202fSociété"
+    (asset,) = parse_alpaca_us_assets(_native(_asset(name=name)))
+    assert asset.name == name
+
+
+@pytest.mark.parametrize("field", ["id", "class", "status", "symbol", "exchange", "tradable"])
+def test_provider_identity_scope_and_tradability_cannot_be_missing(field):
+    row = _asset()
+    del row[field]
+    with pytest.raises(ValueError, match="invalid active US equity row"):
+        parse_alpaca_us_assets(_native(row))
 
 
 def test_duplicate_uuid_even_under_a_different_symbol_or_case_is_rejected():

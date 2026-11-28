@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Literal
+from unicodedata import category
 from uuid import UUID
 
 from baibai_engine.data_collection.providers.alpaca import decode_alpaca_json
@@ -21,7 +22,7 @@ class AlpacaAsset:
     id: UUID
     symbol: str
     exchange: str
-    name: str
+    name: str | None
     status: Literal["active"]
     tradable: bool
     attributes: tuple[str, ...]
@@ -53,13 +54,17 @@ def parse_alpaca_us_assets(body: bytes) -> tuple[AlpacaAsset, ...]:
             or not isinstance(exchange := row.get("exchange"), str)
             or not exchange.isprintable()
             or not exchange.strip()
-            or not isinstance(name := row.get("name"), str)
-            or not name.strip()
-            or not name.isprintable()
             or type(tradable := row.get("tradable")) is not bool
             or not isinstance(raw_id := row.get("id"), str)
         ):
             raise ValueError("Alpaca Assets contains an invalid active US equity row")
+        name = row.get("name")
+        if name is not None and (
+            not isinstance(name, str)
+            or not name.strip()
+            or any(not char.isprintable() and category(char) != "Zs" for char in name)
+        ):
+            raise ValueError("Alpaca Assets contains an invalid asset name")
         try:
             asset_id = UUID(raw_id)
         except ValueError:
