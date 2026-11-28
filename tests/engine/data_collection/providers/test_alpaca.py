@@ -75,6 +75,35 @@ def test_request_encodes_only_the_pinned_daily_scope():
     assert split["asof"] == ["-"]
 
 
+def test_historical_sip_remains_explicit_on_all_pages_and_has_distinct_receipts():
+    sip_query = replace(QUERY, feed="sip")
+    first = _page({"META": [{}]}, next_token="next")
+    last = _page({"BRK.B": [{}]})
+    sip, calls = _capture(first, last, query=sip_query)
+    iex, _ = _capture(first, last)
+
+    assert sip.complete
+    assert iex.complete
+    assert len(calls) == 2
+    for i, (url, sip_page, iex_page) in enumerate(zip(calls, sip.pages, iex.pages, strict=True)):
+        target = urlsplit(url)
+        assert target.geturl() == sip_query.url(page_token="next" if i else None)
+        params = parse_qs(target.query)
+        assert params["feed"] == ["sip"]
+        assert params["currency"] == ["USD"]
+        assert params["timeframe"] == ["1Day"]
+        assert sip_page.body_sha256 == iex_page.body_sha256
+        assert sip_page.receipt_id != iex_page.receipt_id
+
+
+def test_historical_sip_denial_does_not_fall_back_to_iex():
+    sip_query = replace(QUERY, feed="sip")
+    result, calls = _capture(BarsResponse(403, AT, b"{}"), query=sip_query)
+    assert not result.complete
+    assert result.failure == "http_status"
+    assert calls == [sip_query.url()]
+
+
 def test_short_or_empty_pages_follow_the_opaque_cursor_and_keep_native_symbol_labels():
     first = BarsResponse(
         200,
@@ -269,6 +298,9 @@ def test_cycle_and_page_bound_do_not_issue_extra_requests():
         {"end": date(2025, 11, 22)},
         {"symbol_asof": None},
         {"adjustment": "all"},
+        {"feed": None},
+        {"feed": "SIP"},
+        {"feed": "delayed_sip"},
     ],
 )
 def test_invalid_request_fields_are_not_coerced(change):
