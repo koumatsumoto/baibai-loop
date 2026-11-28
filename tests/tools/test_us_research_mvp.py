@@ -215,6 +215,59 @@ def test_iex_session_acceptance_compares_exact_latest_date_without_sec(
     assert "売買判断は確認しない" in report
 
 
+@pytest.fixture
+def four_symbol_iex_receipt():
+    bundle, files = _fixture()
+    symbols = ("AAPL", "GOOG", "GOOGL", "NVDA")
+    bundle["subjects"] = [{"symbol": symbol} for symbol in symbols]
+    spec = bundle["alpaca"]
+    (page,) = spec["pages"]
+    expected = date.fromisoformat(spec["end"])
+    following = expected + timedelta(days=1)
+    spec.update(start=expected.isoformat(), end=following.isoformat())
+    url = DailyBarsQuery(symbols, expected, following, "-", "split").url()
+    page.update(request_url=url, response_url=url)
+    native = json.loads(files[page["file"]])
+    native["bars"] = dict.fromkeys(symbols, native["bars"]["NVDA"])
+    _replace_body(page, files, native)
+    return bundle, files
+
+
+@pytest.mark.parametrize("missing", [None, "GOOG", "GOOGL"])
+def test_fixed_iex_session_checks_all_four_classes(
+    tmp_path, capsys, four_symbol_iex_receipt, missing
+):
+    bundle, files = four_symbol_iex_receipt
+    if missing is not None:
+        (page,) = bundle["alpaca"]["pages"]
+        native = json.loads(files[page["file"]])
+        del native["bars"][missing]
+        _replace_body(page, files, native)
+    manifest = _write_iex_only_bundle(tmp_path, bundle, files)
+    assert main(["--bundle", manifest, "--accept-iex-session", "2026-11-20"]) == int(
+        missing is not None
+    )
+    lines = capsys.readouterr().out.splitlines()
+    for subject in bundle["subjects"]:
+        symbol = subject["symbol"]
+        result = (
+            "不一致（採用最終日: なし）" if symbol == missing else "一致（採用最終日: 2026-11-20）"
+        )
+        assert f"- {symbol}: {result}" in lines
+
+
+def test_four_ticker_scope_is_not_a_research_or_three_ticker_receipt(
+    tmp_path, capsys, four_symbol_iex_receipt
+):
+    bundle, files = four_symbol_iex_receipt
+    with pytest.raises(ValueError, match="fixed research subjects"):
+        render_research(bundle, files.__getitem__, synthetic=True)
+    bundle["subjects"].pop()
+    manifest = _write_iex_only_bundle(tmp_path, bundle, files)
+    assert main(["--bundle", manifest, "--accept-iex-session", "2026-11-20"]) == 1
+    assert "alpaca_invalid_fixed_receipt" in capsys.readouterr().out
+
+
 @pytest.mark.parametrize("old_or_missing", ["2026-11-19", "なし"])
 def test_iex_session_acceptance_cannot_use_another_symbols_date(tmp_path, capsys, old_or_missing):
     bundle, files = _fixture()
