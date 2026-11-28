@@ -22,6 +22,7 @@ from baibai_engine.machine_analysis.observations.stocks.us_universe import (
     RakutenRestrictionRow,
     cover_current_rakuten_catalog_targets,
     parse_rakuten_ordinary_snapshot,
+    rakuten_exchange_name,
     rakuten_listing_key,
     reconcile_rakuten_catalog_venues,
 )
@@ -35,9 +36,6 @@ from baibai_jobs.integration.us_listing_refresh import (
     USListingInputs,
     prepare_us_listing_update,
 )
-
-# Broker cash product scope, not a claim of ordinary shares or matching support for each venue.
-_REQUESTED_EXCHANGES = RAKUTEN_LISTING_EXCHANGES | {"NYSE American", "NYSE Arca", "Cboe"}
 
 
 class VenueCounts(TypedDict):
@@ -55,10 +53,10 @@ def _venue_report(
 ) -> dict[str, VenueCounts]:
     catalog_status = Counter((row.exchange, row.buy_status) for row in snapshot.rows)
     restriction_only = Counter((row.exchange, row.restriction) for row in snapshot.restriction_only)
-    venues = _REQUESTED_EXCHANGES | totals.keys() | {venue for venue, _ in restriction_only}
+    venues = RAKUTEN_LISTING_EXCHANGES | totals.keys() | {venue for venue, _ in restriction_only}
     return {
         venue: VenueCounts(
-            requested=venue in _REQUESTED_EXCHANGES,
+            requested=venue in RAKUTEN_LISTING_EXCHANGES,
             listing_supported=venue in RAKUTEN_LISTING_EXCHANGES,
             catalog_count=totals.get(venue),
             catalog_targets=catalog_status[venue, "buyable"] if venue in totals else None,
@@ -84,7 +82,7 @@ def _venue_count(value: str) -> tuple[str, int]:
     venue, equals, count = value.rpartition("=")
     if not equals or not venue or venue != venue.strip() or not venue.isprintable():
         raise argparse.ArgumentTypeError("use EXCHANGE=COUNT")
-    return venue, _count(count)
+    return rakuten_exchange_name(venue), _count(count)
 
 
 def _session(value: str) -> date:
@@ -243,7 +241,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {error}", file=sys.stderr)
         return 2
 
-    missing = sorted(_REQUESTED_EXCHANGES - totals.keys())
+    missing = sorted(missing_supported)
     unsupported = sum(
         value["catalog_targets"] or 0 for value in venues.values() if not value["listing_supported"]
     )

@@ -28,7 +28,13 @@ _BW = ObservedListing(("XNYS", "BW"), "Synthetic BW", "not_flagged_fund")
 _CLASS = ObservedListing(("XNYS", "BRK.B"), "Synthetic separate Class B", "not_flagged_fund")
 _CATALOG = "ticker,exchange\nAAA,NASDAQ\nBRK B,NYSE\n"
 _RESTRICTIONS = "ticker,exchange,restriction\n"
-_CATALOG_VENUE_COUNTS = {"NASDAQ": 1, "NYSE": 1}
+_CATALOG_VENUE_COUNTS = {
+    "NASDAQ": 1,
+    "NYSE": 1,
+    "NYSE American": 0,
+    "NYSE Arca": 0,
+    "Cboe": 0,
+}
 _EXCLUDED = _RESTRICTIONS + "AAA,NASDAQ,buy_suspended\nBW,NYSE,sell_only\n"
 _CATALOG_AT = _AT + timedelta(minutes=5)
 _EXCLUSIONS_AT = _AT + timedelta(minutes=10)
@@ -180,7 +186,10 @@ def test_authoritative_new_empty_exclusions_can_clear_known_restrictions():
 @pytest.mark.parametrize(
     ("venue_counts", "reason"),
     [
-        ({"NASDAQ": 1}, "missing Rakuten catalog venue totals: NYSE"),
+        (
+            {k: v for k, v in _CATALOG_VENUE_COUNTS.items() if k != "NYSE"},
+            "missing Rakuten catalog venue totals: NYSE",
+        ),
         (_CATALOG_VENUE_COUNTS, "independently reported venue totals"),
     ],
 )
@@ -216,7 +225,7 @@ def test_verified_zero_is_distinct_from_missing_catalog_venue():
         exclusions_received_at=_EXCLUSIONS_AT,
         exclusions_reported_count=0,
     )
-    assert _attach(store, capture, venue_counts={"NASDAQ": 1, "NYSE": 0}) == "updated"
+    assert _attach(store, capture, venue_counts={**_CATALOG_VENUE_COUNTS, "NYSE": 0}) == "updated"
     scope = _read(store)
     assert scope is not None
     assert [row.listing_key for row in scope.rows if row.state == "catalog_target"] == [_US.key]
@@ -375,7 +384,10 @@ def test_existing_broker_scope_does_not_authorize_a_newly_active_same_day_listin
         exclusions_reported_count=2,
     )
     bound = _bindings(store, initial)
-    assert _attach(store, capture, bound, venue_counts={"NASDAQ": 2, "NYSE": 1}) == "updated"
+    assert (
+        _attach(store, capture, bound, venue_counts={**_CATALOG_VENUE_COUNTS, "NASDAQ": 2})
+        == "updated"
+    )
     previous = _read(store)
     assert previous is not None
     assert previous.catalog_count == 3
@@ -392,7 +404,12 @@ def test_existing_broker_scope_does_not_authorize_a_newly_active_same_day_listin
     new_pair = replace(capture, catalog_received_at=_AT + timedelta(minutes=21))
     newly_bound = RakutenListingBinding(announced.key, current_id, capture.rows[-1])
     assert (
-        _attach(store, new_pair, (*bound, newly_bound), venue_counts={"NASDAQ": 2, "NYSE": 1})
+        _attach(
+            store,
+            new_pair,
+            (*bound, newly_bound),
+            venue_counts={**_CATALOG_VENUE_COUNTS, "NASDAQ": 2},
+        )
         == "updated"
     )
     current = _read(store)
@@ -408,7 +425,7 @@ def test_refresh_without_supported_active_identity_change_keeps_scope_current():
     store = _store()
     assert _attach(store, _snapshot()) == "updated"
     previous = _read(store)
-    unrelated = ObservedListing(("XASE", "OTHER"), "Outside US broker matching", "not_flagged_fund")
+    unrelated = ObservedListing(("IEXG", "OTHER"), "Outside US broker matching", "not_flagged_fund")
     notice = VerifiedListingEvent(
         "listed", ("XNAS", "FUTURE"), _DAY + timedelta(days=3), "official fixture"
     )

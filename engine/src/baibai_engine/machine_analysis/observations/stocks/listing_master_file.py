@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 from pydantic import Field, TypeAdapter
 
 from baibai_engine.data_collection.providers.nasdaq_symbols import (
+    US_PRIMARY_VENUES,
     DirectoryFile,
     directory_creation_minute,
 )
@@ -154,7 +155,7 @@ def active_us_listing_ids(current: CurrentListingMarket) -> dict[ListingKey, str
     return {
         row.key: row.instrument_id
         for row in current.slice.rows
-        if row.key[0] in ("XNAS", "XNYS")
+        if row.key[0] in US_PRIMARY_VENUES
         and row.listing_state == "listed"
         and row.instrument_id is not None
     }

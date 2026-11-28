@@ -73,7 +73,13 @@ def _attach(store, *, catalog=None, venue_counts=None, restrictions=None, clock=
         "BAD P,NYSE\nMISSING,NASDAQ\nBOTH,NASDAQ\nBRK A,NYSE American\n"
     )
     if venue_counts is None:
-        venue_counts = {"NASDAQ": 2 * MAX_SYMBOLS + 8, "NYSE": 2, "NYSE American": 1}
+        venue_counts = {
+            "NASDAQ": 2 * MAX_SYMBOLS + 8,
+            "NYSE": 2,
+            "NYSE American": 1,
+            "NYSE Arca": 0,
+            "Cboe": 0,
+        }
     restrictions = restrictions or (
         "ticker,exchange,restriction\nSELL,NASDAQ,sell_only\nSTOP,NASDAQ,buy_suspended\n"
     )
@@ -167,7 +173,7 @@ def test_absent_stale_wrong_identity_or_only_restricted_scope_is_not_an_empty_su
     current = _attach(
         store,
         catalog="ticker,exchange\nSELL,NASDAQ\n",
-        venue_counts={"NASDAQ": 1, "NYSE": 0},
+        venue_counts={"NASDAQ": 1, "NYSE": 0, "NYSE American": 0, "NYSE Arca": 0, "Cboe": 0},
         restrictions="ticker,exchange,restriction\nSELL,NASDAQ,sell_only\n",
     )
     assert _plan(current) is None

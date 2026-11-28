@@ -286,11 +286,11 @@ schemaが合わない・台帳を読めない場合に初期化や変換はし�
 <a id="rakuten-us-universe-intake"></a>
 ### 楽天証券の米国普通株の取込確認
 
-[楽天証券のPCウェブ](https://www.rakuten-sec.co.jp/web/us/stock/lineup/)の許可済み画面で、**米国株の現物、普通株、取引可能銘柄のみ**を確認する。銘柄・価格・指数・業種などの追加フィルターは使わない。[CSV出力がある画面](https://www.rakuten-sec.co.jp/web/us/pdf/us_margin_guidebook.pdf)でも、信用取引や情報閲覧用の検索結果で代用しない。実際に選べた市場・画面の総件数・市場別件数と、全ページまたはCSV全体の行数を突き合わせる。1ページ分・上限付き出力・不明な市場は完全とみなさない。ETF、ADR、保有・口座情報、価格は持ち込まない。
+[楽天証券のPCウェブ](https://www.rakuten-sec.co.jp/web/us/stock/lineup/)の許可済み画面で、**米国株の現物、普通株、取引可能銘柄のみ**を確認する。銘柄・価格・指数・業種などの追加フィルターは使わない。[CSV出力がある画面](https://www.rakuten-sec.co.jp/web/us/pdf/us_margin_guidebook.pdf)でも、信用取引や情報閲覧用の検索結果で代用しない。実際に選べた市場・画面の総件数・市場別件数と、全ページまたはCSV全体の行数を突き合わせる。1ページ分・上限付き出力・不明な市場は完全とみなさない。ETF・ADRは別の商品一覧とし、この普通株の入力に含めない。保有・口座情報・価格も不要。
 
-受領した一覧を私有のUTF-8 CSV `ticker,exchange` にする。[売付のみの一覧](https://www.rakuten-sec.co.jp/web/us/stock/lineup/sell.html)と別に掲示される買付停止案内の有効分を確認し、独立した `ticker,exchange,restriction`（`sell_only` または `buy_suspended`）を作る。制限は一覧にない銘柄も含める。同じ銘柄・市場の重複は元資料で解消し、合計は照合済みの一意な制限件数。全制限を確認し実際に0件なら、ヘッダーだけと `--restrictions-count 0` を渡す。未取得は0としない。市場名は `NASDAQ`、`NYSE`、`NYSE American`、`NYSE Arca`、`Cboe` にそろえる。NYSEのA/B株の区切りは既存の照合に任せ、それ以外の記号を推測で変えない。
+受領した一覧を私有のUTF-8 CSV `ticker,exchange` にする。[売付のみの一覧](https://www.rakuten-sec.co.jp/web/us/stock/lineup/sell.html)と別に掲示される買付停止案内の有効分を確認し、独立した `ticker,exchange,restriction`（`sell_only` または `buy_suspended`）を作る。制限は一覧にない銘柄も含める。同じ銘柄・市場の重複は元資料で解消し、合計は照合済みの一意な制限件数。全制限を確認し実際に0件なら、ヘッダーだけと `--restrictions-count 0` を渡す。未取得は0としない。市場名は `NASDAQ`、`NYSE`、`NYSE American`、`NYSE Arca`、`Cboe` にそろえる。楽天の制限一覧にある `AMEX` と `CBOE` はそれぞれ `NYSE American` と `Cboe` として照合する。NYSEのA/B株の区切りは既存の照合に任せ、それ以外の記号を推測で変えない。
 
-対象の立会日と一覧・制限の有効範囲を確かめ、別々の実受領時刻を時差付きで記録する。一覧の総数・市場別件数には、整形後のCSVから数え直した値ではなく、同じ範囲で楽天側に表示された件数を使う。確認できなかった市場に0を入れない。NASDAQまたはNYSEの件数が未確認、もしくは件数がCSVと合わない場合は、現行マスターの買付対象を更新しない。下はこの2市場を照合した例。
+対象の立会日と一覧・制限の有効範囲を確かめ、別々の実受領時刻を時差付きで記録する。一覧の総数・市場別件数には、整形後のCSVから数え直した値ではなく、同じ範囲で楽天側に表示された件数を使う。確認できなかった市場に0を入れない。対象5市場すべての件数を確認し、CSVと合わない場合は買付対象を作らない。
 
 ```bash
 uv run --offline baibai-jobs rakuten-universe-check \
@@ -298,20 +298,22 @@ uv run --offline baibai-jobs rakuten-universe-check \
   --catalog "$PRIVATE/catalog.csv" --catalog-count "$BROKER_TOTAL" \
   --catalog-received-at "$CATALOG_RECEIVED_AT" \
   --venue-count "NASDAQ=$NASDAQ_TOTAL" --venue-count "NYSE=$NYSE_TOTAL" \
+  --venue-count "NYSE American=$AMERICAN_TOTAL" --venue-count "NYSE Arca=$ARCA_TOTAL" \
+  --venue-count "Cboe=$CBOE_TOTAL" \
   --restrictions "$PRIVATE/restrictions.csv" --restrictions-count "$RESTRICTIONS_TOTAL" \
   --restrictions-received-at "$RESTRICTIONS_RECEIVED_AT"
 ```
 
-[楽天証券の現物の取扱市場](https://www.rakuten-sec.co.jp/web/us/stock/rule/ground_rules.html)にはNYSE American、NYSE Arca、Cboeも含まれる。確認できた市場は `--venue-count "市場名=件数"` を追加する。出力の `catalog_count: null` は市場未確認、0は確認済み0件。後者3市場など上場照合の未対応は `listing_supported: false` で表示し、候補に数えない。終了0はNASDAQとNYSEの入力件数が合い、制限を除いた取込対象があることだけ。終了1は入力は読めたが初期対象が不足、2は件数・日時・CSV不整合や読取失敗。照合結果は指定日だけに有効で、過去日の通過は最新の取込根拠にならない。全市場取得・上場との結合・Alpaca取込・注文可否を証明しない。通常は集計だけを出す。
+[楽天証券の現物の取扱市場](https://www.rakuten-sec.co.jp/web/us/stock/rule/ground_rules.html)は5市場。出力の `catalog_count: null` は市場未確認、0は確認済み0件。未対応市場は `listing_supported: false` とし、候補に数えない。終了0は5市場の入力件数が合い、制限を除いた取込対象があることだけ。終了1は入力は読めたが取込対象が不足、2は件数・日時・CSV不整合や読取失敗。照合結果は指定日だけに有効で、過去日の通過は最新の取込根拠にならない。全市場取得・上場との結合・Alpaca取込・注文可否を証明しない。通常は集計だけを出す。
 
-同じNY立会日の検証済みのNasdaq Trader原本2ファイル（`nasdaqlisted.txt`、`otherlisted.txt`）があれば、上のコマンドへ次を追加し、1回の取得に使う私有のマスターを組み立てられる。両ファイルは対象立会を覆う全件であることを取得側で確認し、別々の実受領時刻を渡す。ヘッダーと作成日だけでは全件性を証明しない。
+同じNY立会日の検証済みのNasdaq Trader原本2ファイル（`nasdaqlisted.txt`、`otherlisted.txt`）があれば、上のコマンドへ次を追加し、1回の取得に使う私有のマスターを組み立てられる。両ファイルは対象立会を覆う全件であることを取得側で確認し、別々の実受領時刻を渡す。ヘッダーと作成日だけでは全件性を証明しない。[Nasdaq Traderの定義](https://www.nasdaqtrader.com/Trader.aspx?id=SymbolDirDefs) に従い、Cboeは主上場コードZのBZX、NYSE AmericanとNYSE Arcaは別の上場市場として、CQSの銘柄表記と照合する。ETFフラグの不在は普通株の証明ではない。
 
 ```text
 --listing-directory "$PRIVATE/nasdaq" --output-master "$PRIVATE/current.json"
 --nasdaqlisted-received-at "$NASDAQ_RECEIVED_AT" --otherlisted-received-at "$OTHERLISTED_RECEIVED_AT"
 ```
 
-NY日付が変わる前に実行し、出力先は未作成の私有ファイルとする。既に固定した前回のマスターがある場合だけ `--previous-master` で指定し、継続が確認できる銘柄のIDとJP区画を残す。初回のIDに当日より前の価格を結び付けない。SIPに渡せる楽天買付対象数は `listing_sip_targets`。照合で0件ならファイルを作らない。ネット接続・DB/R2更新は行わず、[無調整SIPの取得](../docs/reference/us-research-mvp.md#現行対象の日足を作業用に取得する)に同じファイルを渡す。
+NY日付が変わる前に実行し、出力先は未作成の私有ファイルとする。既に固定した前回のマスターがある場合だけ `--previous-master` で指定し、継続が確認できる銘柄のIDとJP区画を残す。初回のIDに当日より前の価格を結び付けない。SIPの取得計画に渡す楽天普通株数は `listing_sip_targets`。Alpacaの銘柄同一性、受領できた価格、全銘柄カバレッジの証明ではない。照合で0件ならファイルを作らない。ネット接続・DB/R2更新は行わず、[無調整SIPの取得](../docs/reference/us-research-mvp.md#現行対象の日足を作業用に取得する)に同じファイルを渡す。
 
 <a id="economic-acquisition"></a>
 ### 経済原本

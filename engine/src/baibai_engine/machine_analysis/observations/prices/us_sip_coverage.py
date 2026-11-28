@@ -14,6 +14,7 @@ from baibai_engine.data_collection.providers.alpaca import (
     BarsFailure,
     DailyBarsQuery,
 )
+from baibai_engine.data_collection.providers.nasdaq_symbols import US_PRIMARY_VENUES
 from baibai_engine.machine_analysis.observations.prices.alpaca_normalization import (
     AlpacaDailyObservation,
     normalize_alpaca_daily_bars,
@@ -86,7 +87,7 @@ def plan_alpaca_sip_daily_batches(
         if row.state != "eligible":
             continue
         symbol = row.alpaca_symbol
-        if row.venue not in ("XNAS", "XNYS") or symbol is None or symbol in symbols:
+        if row.venue not in US_PRIMARY_VENUES or symbol is None or symbol in symbols:
             raise ValueError("ambiguous or unqualified US symbol in SIP scope")
         symbols.add(symbol)
     if not symbols:

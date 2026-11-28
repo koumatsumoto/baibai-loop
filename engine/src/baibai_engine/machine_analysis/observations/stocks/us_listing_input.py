@@ -5,15 +5,16 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from baibai_engine.data_collection.providers.nasdaq_symbols import (
+    US_PRIMARY_VENUES,
     DirectoryFile,
     PrimaryUSVenue,
     USSymbolDirectory,
 )
 from baibai_engine.machine_analysis.observations.stocks.listing_master import ObservedListing
 
-_VENUES: dict[DirectoryFile, PrimaryUSVenue] = {
-    "nasdaqlisted.txt": "XNAS",
-    "otherlisted.txt": "XNYS",
+_VENUES: dict[DirectoryFile, frozenset[PrimaryUSVenue]] = {
+    "nasdaqlisted.txt": frozenset({"XNAS"}),
+    "otherlisted.txt": US_PRIMARY_VENUES - {"XNAS"},
 }
 
 
@@ -30,7 +31,8 @@ def normalize_us_listings(
         raise ValueError("current US slice requires both complete symbol directories")
     rows: list[ObservedListing] = []
     for source in sources:
-        if not source.listings or any(row.venue != _VENUES[source.file] for row in source.listings):
+        venues = _VENUES[source.file]
+        if not source.listings or any(row.venue not in venues for row in source.listings):
             raise ValueError("US listing directory is empty or has the wrong venue")
         rows.extend(
             ObservedListing(

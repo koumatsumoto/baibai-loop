@@ -1,4 +1,4 @@
-"""Current Rakuten buyable ordinary shares joined to XNAS/XNYS listing identity."""
+"""Current Rakuten buyable ordinary shares joined to primary US listings."""
 
 from __future__ import annotations
 
@@ -24,8 +24,16 @@ from baibai_engine.machine_analysis.observations.stocks.listing_master import (
 )
 
 _NY = ZoneInfo("America/New_York")
-_BUYABLE_VENUES: dict[str, PrimaryUSVenue] = {"NASDAQ": "XNAS", "NYSE": "XNYS"}
+_BUYABLE_VENUES: dict[str, PrimaryUSVenue] = {
+    "NASDAQ": "XNAS",
+    "NYSE": "XNYS",
+    "NYSE American": "XASE",
+    "NYSE Arca": "ARCX",
+    "Cboe": "BATS",
+}
 RAKUTEN_LISTING_EXCHANGES = frozenset(_BUYABLE_VENUES)
+# These spellings appear in the broker's separate restriction list.
+_RAKUTEN_EXCHANGE_ALIASES = {"AMEX": "NYSE American", "CBOE": "Cboe"}
 _BROKER_EXCHANGE_BY_MIC: dict[str, str] = {venue: name for name, venue in _BUYABLE_VENUES.items()}
 # NYSE CQS .A/.B are regular classes; preferred and warrant suffixes are distinct.
 # The primary native name is display text and can omit "Common Stock" (e.g. LEN.B).
@@ -42,6 +50,7 @@ type CoverageState = Literal[
     "no_matching_listing",
     "ambiguous_primary_listing",
     "exchange_fund",
+    "exchange_depositary",
 ]
 
 
@@ -78,16 +87,23 @@ class RakutenOrdinarySnapshot:
     restriction_only: tuple[RakutenRestrictionRow, ...]
 
 
+def rakuten_exchange_name(raw: str) -> str:
+    return _RAKUTEN_EXCHANGE_ALIASES.get(raw, raw)
+
+
 def reconcile_rakuten_catalog_venues(
     snapshot: RakutenOrdinarySnapshot, reported: Mapping[str, int]
 ) -> frozenset[str]:
     """Match independent broker totals and return supported venues not yet confirmed."""
     observed = Counter(row.exchange for row in snapshot.rows)
-    if observed.keys() - reported.keys() or any(
-        type(count) is not int or observed[venue] != count for venue, count in reported.items()
+    totals = {rakuten_exchange_name(venue): count for venue, count in reported.items()}
+    if len(totals) != len(reported):
+        raise ValueError("repeated Rakuten venue count")
+    if observed.keys() - totals.keys() or any(
+        type(count) is not int or observed[venue] != count for venue, count in totals.items()
     ):
         raise ValueError("catalog rows do not match the independently reported venue totals")
-    return RAKUTEN_LISTING_EXCHANGES.difference(reported)
+    return RAKUTEN_LISTING_EXCHANGES.difference(totals)
 
 
 def _received_on_session(stamp: object, effective_session: date) -> datetime:
@@ -189,6 +205,9 @@ def _read_rakuten_snapshot_csv(
         for row in rows
     ):
         raise ValueError("invalid Rakuten snapshot CSV row")
+    rows = tuple(
+        (ticker, rakuten_exchange_name(exchange), *rest) for ticker, exchange, *rest in rows
+    )
     if len({_rakuten_broker_key(row[0], row[1]) for row in rows}) != len(rows):
         raise ValueError("duplicate Rakuten snapshot CSV row")
     return rows
@@ -196,7 +215,7 @@ def _read_rakuten_snapshot_csv(
 
 def rakuten_listing_key(ticker: str, exchange: str) -> tuple[PrimaryUSVenue, str] | None:
     """Return the exact native listing lookup key, not proof of listing or eligibility."""
-    venue = _BUYABLE_VENUES.get(exchange)
+    venue = _BUYABLE_VENUES.get(rakuten_exchange_name(exchange))
     if venue is None:
         return None
     market_class = _NYSE_BROKER_CLASS.fullmatch(ticker) if venue == "XNYS" else None
@@ -230,8 +249,10 @@ def cover_rakuten_us_ordinary_shares(
 
     The provider's "tradable" filter alone is not a buyability proof. The current official
     catalog and restrictions establish screening scope, not order acceptance.
-    NYSE class notation is mapped only with a matching native CQS listing. Eligibility here
-    establishes neither availability of Alpaca observations nor execution readiness.
+    Ordinary classification comes from the broker capture, not from the absence of the ETF flag.
+    Explicitly named depositary securities and flagged funds do not qualify. NYSE class notation
+    is matched against the native CQS listing. Eligibility here establishes neither Alpaca
+    asset identity or observations nor execution readiness.
     """
     rows = tuple(broker_rows)
     if type(reported_count) is not int or reported_count < 1 or len(rows) != reported_count:
@@ -281,7 +302,7 @@ def _cover_rakuten_listings(
     seen: set[tuple[str, str]] = set()
     results: list[RakutenUSCoverageRow] = []
     for row in rows:
-        ticker, exchange = row.ticker.strip(), row.exchange.strip()
+        ticker, exchange = row.ticker.strip(), rakuten_exchange_name(row.exchange.strip())
         if not ticker or not ticker.isprintable() or not exchange or not exchange.isprintable():
             raise ValueError("incomplete Rakuten ordinary-share row")
         if row.buy_status not in ("buyable", "sell_only", "buy_suspended", "unknown"):
@@ -314,6 +335,8 @@ def _cover_rakuten_listings(
             state = "no_matching_listing"
         elif listing.fund_flag:
             state = "exchange_fund"
+        elif listing.declared_depositary:
+            state = "exchange_depositary"
         else:
             state = "eligible"
         results.append(

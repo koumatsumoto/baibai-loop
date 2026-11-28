@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from tests.jobs.integration.test_listing_master_rakuten import (
+    _CATALOG_VENUE_COUNTS,
     _CUTOFF,
     _DAY,
     _bindings,
@@ -36,7 +37,7 @@ def _mixed() -> _Store:
         refresh_current_us_rakuten_scope(
             store,
             snapshot=snapshot,
-            catalog_venue_counts={"NASDAQ": 1, "NYSE": 1},
+            catalog_venue_counts=_CATALOG_VENUE_COUNTS,
             bindings=_bindings(store, snapshot),
             expected_session=_DAY,
             cutoff=_CUTOFF,

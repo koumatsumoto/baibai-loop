@@ -25,6 +25,12 @@ _OTHER = b"""ACT Symbol|Security Name|Exchange|CQS Symbol|ETF|Round Lot Size|Tes
 ACTP|Prairie Inc. Common Stock|N|PR.B|N|100|N|PRB
 CT|Capital Technologies, Inc.|N|CT|N|100|N|CT
 ARC|Plains ETF|P|ARC|Y|100|N|ARC
+UNIQCTRL|Synthetic American Common Stock|A|QUALA|N|100|N|ACTLA
+QUALP|Synthetic Arca Common Stock|P|QUALP|N|100|N|QUALP
+QUALZ|Synthetic BZX Common Stock|Z|QUALZ|N|100|N|QUALZ
+RDEPO|Synthetic American Depositary Shares|Z|RDEPO|N|100|N|RDEPO
+ATST|Test Issue|A|ATST|N|100|Y|ATST
+OUT|Unsupported equity listing|V|OUT|N|100|N|OUT
 NTST|Test Issue|N|NTST|N|100|Y|NTST
 File Creation Time: 1127202618:01||||||
 """
@@ -38,7 +44,12 @@ File Creation Time: 1127202618:01||||||
         ("BRK.B", "NYSE", ("XNYS", "BRK.B")),
         ("BRK B", "NASDAQ", ("XNAS", "BRK B")),
         ("LEN P", "NYSE", ("XNYS", "LEN P")),
-        ("BW", "NYSE American", None),
+        ("BW", "NYSE American", ("XASE", "BW")),
+        ("BW", "AMEX", ("XASE", "BW")),
+        ("QUALZ", "CBOE", ("BATS", "QUALZ")),
+        ("BRK A", "NYSE American", ("XASE", "BRK A")),
+        ("ARC", "NYSE Arca", ("ARCX", "ARC")),
+        ("QUALZ", "Cboe", ("BATS", "QUALZ")),
         ("BW", "OTC", None),
     ],
 )
@@ -57,7 +68,27 @@ def test_native_directories_keep_separate_share_classes_and_choose_the_nyse_quot
     nasdaq, nyse = _directories()
     assert nasdaq.creation_stamp == nyse.creation_stamp == "1127202618:01"
     listings = {row.ticker: row for row in (*nasdaq.listings, *nyse.listings)}
-    assert set(listings) == {"MSTA", "MSTB", "FUND", "PMF", "PR.B", "CT"}
+    assert set(listings) == {
+        "MSTA",
+        "MSTB",
+        "FUND",
+        "PMF",
+        "PR.B",
+        "CT",
+        "QUALA",
+        "QUALP",
+        "QUALZ",
+        "ARC",
+        "RDEPO",
+    }
+    assert (listings["QUALA"].venue, listings["QUALP"].venue, listings["QUALZ"].venue) == (
+        "XASE",
+        "ARCX",
+        "BATS",
+    )
+    assert listings["ARC"].fund_flag
+    assert not listings["RDEPO"].fund_flag
+    assert listings["RDEPO"].declared_depositary
     assert listings["MSTA"].security_name.endswith("Class A Common Stock")
     assert listings["MSTB"].security_name.endswith("Class B Common Stock")
     assert listings["PR.B"].venue == "XNYS"
@@ -95,13 +126,25 @@ def test_only_exact_current_cash_listings_enter_the_existing_alpaca_observation_
         RakutenOrdinaryRow("FUND", "NASDAQ", "buyable"),
         RakutenOrdinaryRow("PMF", "NASDAQ", "buyable"),
         RakutenOrdinaryRow("OTHER", "Cboe", "buyable"),
+        RakutenOrdinaryRow("QUALA", "NYSE American", "buyable"),
+        RakutenOrdinaryRow("QUALP", "NYSE Arca", "buyable"),
+        RakutenOrdinaryRow("QUALZ", "Cboe", "buyable"),
+        RakutenOrdinaryRow("ARC", "NYSE Arca", "buyable"),
+        RakutenOrdinaryRow("RDEPO", "Cboe", "buyable"),
+        RakutenOrdinaryRow("OUT", "IEX", "buyable"),
     )
     results = cover_rakuten_us_ordinary_shares(
         reversed(rows), reported_count=len(rows), directories=_directories()
     )
     assert len(results) == len(rows)
     assert {(r.broker_exchange, r.ticker): r.state for r in results} == {
-        ("Cboe", "OTHER"): "unsupported_venue",
+        ("Cboe", "OTHER"): "no_matching_listing",
+        ("Cboe", "RDEPO"): "exchange_depositary",
+        ("Cboe", "QUALZ"): "eligible",
+        ("NYSE American", "QUALA"): "eligible",
+        ("NYSE Arca", "QUALP"): "eligible",
+        ("NYSE Arca", "ARC"): "exchange_fund",
+        ("IEX", "OUT"): "unsupported_venue",
         ("NASDAQ", "FUND"): "exchange_fund",
         ("NASDAQ", "PMF"): "exchange_fund",
         ("NASDAQ", "MSTA"): "eligible",
@@ -119,7 +162,7 @@ def test_only_exact_current_cash_listings_enter_the_existing_alpaca_observation_
     symbols = tuple(row.alpaca_symbol for row in results if row.alpaca_symbol is not None)
     day = date(2026, 11, 27)
     params = parse_qs(urlsplit(DailyBarsQuery(symbols, day, day, "-", "split").url()).query)
-    assert symbols == ("MSTA", "MSTB", "CT", "PR.B")
+    assert symbols == ("QUALZ", "MSTA", "MSTB", "CT", "PR.B", "QUALA", "QUALP")
     assert params["symbols"] == [",".join(symbols)]
     assert params["feed"] == ["iex"]
 
@@ -173,6 +216,28 @@ def test_exchange_transfer_overlap_is_not_a_unique_match():
     )
     assert result[0].state == "ambiguous_primary_listing"
     assert result[0].security_name is None
+
+
+def test_multiple_otherlisted_venues_do_not_alias_a_dual_primary_symbol():
+    nasdaq, _ = _directories()
+    row = b"CT|Fixture Other Company|P|CT|N|100|N|OTHERCT\n"
+    overlap = read_us_symbol_directory(
+        _OTHER.replace(b"File Creation Time:", row + b"File Creation Time:"),
+        file="otherlisted.txt",
+    )
+    assert {entry.venue for entry in overlap.listings if entry.ticker == "CT"} == {"XNYS", "ARCX"}
+    results = cover_rakuten_us_ordinary_shares(
+        (RakutenOrdinaryRow("CT", "NYSE", "buyable"),),
+        reported_count=1,
+        directories=(nasdaq, overlap),
+    )
+    assert results[0].state == "ambiguous_primary_listing"
+    assert results[0].alpaca_symbol is None
+    with pytest.raises(ValueError, match="duplicate Nasdaq Trader"):
+        read_us_symbol_directory(
+            _OTHER.replace(b"File Creation Time:", row + row + b"File Creation Time:"),
+            file="otherlisted.txt",
+        )
 
 
 def test_unknown_literal_is_not_mistaken_for_an_explicit_buyable_row():

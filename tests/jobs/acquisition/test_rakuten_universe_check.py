@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -17,6 +17,7 @@ from baibai_engine.machine_analysis.observations.stocks.listing_master_file impo
 from baibai_jobs.acquisition import rakuten_universe_check
 from baibai_jobs.cli import main
 from baibai_jobs.integration import source_handoff, us_daily_handoff
+from baibai_jobs.integration.us_daily_plan import plan_current_us_daily_prices
 
 _CATALOG = "ticker,exchange\nBRK B,NYSE\nKO,NYSE\nNVDA,NASDAQ\nHYP,NYSE American\n"
 _RESTRICTIONS = (
@@ -63,19 +64,19 @@ def _args(
 def test_reports_missing_and_known_empty_separately_without_identifiers(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert main(_args(tmp_path)) == 0
+    assert main(_args(tmp_path)) == 1
     output = capsys.readouterr()
     assert not output.err
     assert all(ticker not in output.out for ticker in ("BRK B", "BRK.B", "NVDA", "SYNQ"))
     result = json.loads(output.out)
-    assert result["status"] == "supported_intake_validated"
+    assert result["status"] == "incomplete_supported_intake"
     assert result["effective_session"] == "2026-11-27"
     assert result["catalog_received_at"] == "2026-11-27T16:00:00+00:00"
     assert result["restrictions_received_at"] == "2026-11-27T16:10:00+00:00"
     assert result["catalog_count"] == 4
     assert result["restrictions_count"] == 3
     assert result["missing_requested_venue_counts"] == ["Cboe"]
-    assert result["unsupported_catalog_targets"] == 1
+    assert result["unsupported_catalog_targets"] == 0
     venues = result["venues"]
     assert venues["NYSE"] == {
         "requested": True,
@@ -88,7 +89,7 @@ def test_reports_missing_and_known_empty_separately_without_identifiers(
     }
     assert venues["Cboe"]["catalog_targets"] is None
     assert venues["NYSE Arca"]["catalog_targets"] == 0
-    assert not venues["NYSE American"]["listing_supported"]
+    assert venues["NYSE American"]["listing_supported"]
     assert not venues["OTC"]["requested"]
     assert venues["OTC"]["catalog_count"] is None
     assert venues["OTC"]["restriction_only"] == 1
@@ -124,7 +125,7 @@ def test_confirmed_zero_restrictions_and_zero_ordinary_in_two_unlisted_venues(
     assert main(argv) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["missing_requested_venue_counts"] == []
-    assert result["unsupported_catalog_targets"] == 1
+    assert result["unsupported_catalog_targets"] == 0
     assert result["restrictions_count"] == 0
     assert result["venues"]["NYSE"]["catalog_targets"] == 2
 
@@ -134,9 +135,9 @@ def test_no_valid_supported_targets_even_with_all_venue_counts(
 ) -> None:
     argv = _args(
         tmp_path,
-        catalog="ticker,exchange\nBW,NYSE\nHYP,NYSE American\n",
+        catalog="ticker,exchange\nBW,NYSE\nHYP,OTC\n",
         catalog_count=2,
-        counts=("NASDAQ=0", "NYSE=1", "NYSE American=1", "NYSE Arca=0", "Cboe=0"),
+        counts=("NASDAQ=0", "NYSE=1", "NYSE American=0", "NYSE Arca=0", "Cboe=0", "OTC=1"),
     )
     assert main(argv) == 1
     result = json.loads(capsys.readouterr().out)
@@ -152,6 +153,7 @@ def test_no_valid_supported_targets_even_with_all_venue_counts(
         ({"counts": ("NASDAQ=0", "NYSE=3", "NYSE American=1")}, "venue totals"),
         ({"counts": ("NASDAQ=1", "NYSE=2")}, "venue totals"),
         ({"counts": ("NASDAQ=1", "NASDAQ=1", "NYSE=2", "NYSE American=1")}, "repeated"),
+        ({"counts": ("NASDAQ=1", "NYSE=2", "NYSE American=1", "AMEX=1")}, "repeated"),
         (
             {
                 "catalog": "ticker,exchange\nBRK B,NYSE\nBRK.B,NYSE\nNVDA,NASDAQ\nHYP,NYSE American\n"
@@ -195,7 +197,7 @@ def _assemble_args(
             root,
             catalog="ticker,exchange\nGOOG,NASDAQ\nBRK B,NYSE\nQQEX,Cboe\n",
             restrictions="ticker,exchange,restriction\nGOOG,NASDAQ,buy_suspended\n",
-            counts=("NASDAQ=1", "NYSE=1", "Cboe=1"),
+            counts=("NASDAQ=1", "NYSE=1", "NYSE American=0", "NYSE Arca=0", "Cboe=1"),
             catalog_count=3,
             restrictions_count=1,
         ),
@@ -210,6 +212,24 @@ def _assemble_args(
     ]
 
 
+def test_old_two_venue_counts_cannot_create_a_five_venue_pin(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    output = tmp_path / "must-not-exist.json"
+    args = _assemble_args(tmp_path, output=output)
+    for count in ("NYSE American=0", "NYSE Arca=0", "Cboe=1"):
+        index = args.index(count)
+        del args[index - 1 : index + 1]
+    (tmp_path / "catalog.csv").write_text("ticker,exchange\nGOOG,NASDAQ\nBRK B,NYSE\n")
+    args[args.index("--catalog-count") + 1] = "2"
+
+    assert main(args) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["missing_requested_venue_counts"] == ["Cboe", "NYSE American", "NYSE Arca"]
+    assert "listing_sip_targets" not in report
+    assert not output.exists()
+
+
 def test_operator_assembles_a_master_the_raw_sip_entrypoint_reads(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -220,7 +240,7 @@ def test_operator_assembles_a_master_the_raw_sip_entrypoint_reads(
     assert main(args) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["listing_sip_targets"] == 1
-    assert report["unsupported_catalog_targets"] == 1
+    assert report["unsupported_catalog_targets"] == 0
     assert not output.stat().st_mode & 0o077
     before = output.read_bytes()
     current = read_local_listing_master(output)["US"]
@@ -326,3 +346,66 @@ def test_mismatched_inputs_create_no_private_master(
     assert main(args) == 2
     assert reason in capsys.readouterr().err
     assert not output.exists()
+
+
+def test_three_other_primary_venues_reach_the_existing_private_sip_plan(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = datetime(2026, 11, 27, 19, tzinfo=UTC)
+    monkeypatch.setattr(rakuten_universe_check, "_now", lambda: now)
+    output = tmp_path / "current.json"
+    args = _assemble_args(tmp_path, output=output)
+    more_listings = (
+        b"ACTA|Fixture American Common Stock|A|QAMAC|N|100|N|ROUTA\n"
+        b"ACTP|Fixture Arca Common Stock|P|QARP|N|100|N|ROUTP\n"
+        b"ACTZ|Fixture BZX Common Stock|Z|QCBZ|N|100|N|ROUTZ\n"
+        b"QETF|Fixture ETF|P|QETF|Y|100|N|QETF\n"
+        b"QADR|Fixture Ltd. - Sponsored ADR|Z|QADR|N|100|N|QADR\n"
+        b"QOUT|Fixture IEX Listed|V|QOUT|N|100|N|QOUT\n"
+        b"QAMST|Fixture Suspended Common Stock|A|QAMST|N|100|N|QAMST\n"
+        b"QZST|Fixture Sell-Only Common Stock|Z|QZST|N|100|N|QZST\n"
+    )
+    (tmp_path / "verified-nasdaq" / "otherlisted.txt").write_bytes(
+        _NYSE.replace(b"File Creation Time:", more_listings + b"File Creation Time:")
+    )
+    (tmp_path / "catalog.csv").write_text(
+        "ticker,exchange\nBRK B,NYSE\nQAMAC,NYSE American\nQARP,NYSE Arca\nQETF,NYSE Arca\n"
+        "QCBZ,Cboe\nQADR,Cboe\nQOUT,Cboe\nQZST,Cboe\nQAMST,NYSE American\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "restrictions.csv").write_text(
+        "ticker,exchange,restriction\nQAMST,AMEX,buy_suspended\nQZST,CBOE,sell_only\n",
+        encoding="utf-8",
+    )
+    args[args.index("--catalog-count") + 1] = "9"
+    args[args.index("--restrictions-count") + 1] = "2"
+    for old, new in (
+        ("NASDAQ=1", "NASDAQ=0"),
+        ("NYSE American=0", "AMEX=2"),
+        ("NYSE Arca=0", "NYSE Arca=2"),
+        ("Cboe=1", "CBOE=4"),
+    ):
+        args[args.index(old)] = new
+
+    assert main(args) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["listing_sip_targets"] == 4
+    assert report["missing_requested_venue_counts"] == []
+    assert report["venues"]["NYSE American"]["buy_suspended"] == 1
+    assert report["venues"]["Cboe"]["sell_only"] == 1
+    current = read_local_listing_master(output)["US"]
+    expected = {
+        ("XNYS", "BRK.B"),
+        ("XASE", "QAMAC"),
+        ("ARCX", "QARP"),
+        ("BATS", "QCBZ"),
+    }
+    plan = plan_current_us_daily_prices(
+        current, today_open=True, price_session=date(2026, 11, 27), cutoff=now, adjustment="raw"
+    )
+    assert plan is not None
+    assert {target.listing_key for target in plan.targets} == expected
+    assert len({target.instrument_id for target in plan.targets}) == len(expected)
+    assert [batch.query.symbols for batch in plan.batches] == [("BRK.B", "QAMAC", "QARP", "QCBZ")]
+    assert plan.batches[0].query.feed == "sip"
+    assert plan.batches[0].query.symbol_asof == "-"
