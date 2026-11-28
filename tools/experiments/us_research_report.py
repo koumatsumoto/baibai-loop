@@ -15,11 +15,15 @@ from pathlib import Path
 from typing import Never
 from urllib.parse import parse_qsl, urlsplit
 
+from tools.experiments.us_research_mvp import _adjacent_loader, _fixed_alpaca_capture
+
+from baibai_engine.data_collection.providers.alpaca import BarsCapture
 from baibai_engine.data_collection.providers.alpaca_auctions import (
     NasdaqOfficialCloseQuery,
     SipAuctionReceipt,
 )
 from baibai_engine.investment_judgment.us_proposal import (
+    CloseProof,
     ReportDraft,
     ReportReview,
     ReviewedReport,
@@ -107,8 +111,31 @@ def _sip_proof(draft: ReportDraft, paths: list[Path] | None) -> SipCloseProof | 
     )
 
 
+def _daily_close_proof(draft: ReportDraft, manifest: Path) -> BarsCapture:
+    spec = _read(manifest)
+    if not isinstance(spec, dict) or not isinstance(symbols := spec.get("symbols"), list):
+        raise ValueError("daily close manifest requires the fixed request symbols")
+    capture = _fixed_alpaca_capture(
+        spec,
+        tuple(symbols),
+        _adjacent_loader(manifest),
+        draft.cutoff_at,
+        feed="sip",
+        adjustment="raw",
+    )
+    if isinstance(capture, str):
+        raise ValueError("daily close manifest is not a complete raw SIP capture")
+    return capture
+
+
+def _proof(draft: ReportDraft, args: argparse.Namespace) -> CloseProof | None:
+    if args.daily_close_proof is not None:
+        return _daily_close_proof(draft, args.daily_close_proof)
+    return _sip_proof(draft, args.sip_proof)
+
+
 def _save(
-    path: Path, draft: ReportDraft, review: ReportReview, *, sip_proof: SipCloseProof | None
+    path: Path, draft: ReportDraft, review: ReportReview, *, sip_proof: CloseProof | None
 ) -> None:
     saved = reviewed_report(draft, review, sip_proof=sip_proof)
     content = canonical_json(saved.model_dump(mode="json")).encode() + b"\n"
@@ -146,12 +173,19 @@ def build_parser() -> _Parser:
     show.add_argument("--db", type=Path, required=True)
     show.add_argument("--proposal-id")
     for authoring in (draft_digest_command, save, digest, publish):
-        authoring.add_argument(
+        sources = authoring.add_mutually_exclusive_group()
+        sources.add_argument(
             "--sip-proof",
             nargs=2,
             type=Path,
             metavar=("RECEIPT", "ORIGINAL"),
-            help="private authorized SIP transfer metadata and original bytes for a relayed close",
+            help="private authorized SIP auction receipt for a relayed official close",
+        )
+        sources.add_argument(
+            "--daily-close-proof",
+            type=Path,
+            metavar="CAPTURE",
+            help="private fixed receipt manifest for the raw SIP daily close",
         )
     return parser
 
@@ -162,7 +196,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command in {"draft-digest", "save"}:
             draft = ReportDraft.model_validate(_read(args.draft))
-            proof = _sip_proof(draft, args.sip_proof)
+            proof = _proof(draft, args)
             if args.command == "save":
                 stage = "review/save"
                 _save(
@@ -203,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
             stage = "US proposal draft"
             analysis = ReviewedReport.model_validate(_read(args.saved_analysis))
             decision = USProposalDraft.model_validate(_read(args.decision))
-            proof = _sip_proof(analysis.draft, args.sip_proof)
+            proof = _proof(analysis.draft, args)
             if args.command == "proposal-digest":
                 digest_value = prepare_us_proposal(decision, analysis, sip_proof=proof)
             else:

@@ -19,7 +19,7 @@ const previous: USProposalView = {
   draft_sha256: 'b'.repeat(64),
   action: 'defer',
   reason: '過去の保存判断。追加資料を待つ。',
-  official_close: { price_usd: '100.50', origin: 'alpaca_sip_nasdaq_official_close', observed_at: '2026-11-28T08:15:30.123456Z' },
+  comparison_price: { price_usd: '100.50', origin: 'alpaca_sip_nasdaq_official_close', observed_at: '2026-11-28T08:15:30.123456Z' },
   published_at: '2026-11-29T02:10:00.000001+09:00',
   session_et: '2026-11-27',
 }
@@ -138,16 +138,16 @@ it('explains which comparison input is missing on the selected deferred report, 
   const unknown = { action: 'defer', comparison: null, comparison_horizon_et: null } as const
   const data: LatestUSProposalView = {
     ...snapshot,
-    proposal: { ...current, ...unknown, official_close: null },
+    proposal: { ...current, ...unknown, comparison_price: null },
     history: { ...snapshot.history, proposals: [{ ...previous, ...unknown }] },
   }
   const missingClose = combined(data, 'proposal=' + current.proposal_id)
   const recordedClose = combined(data, previousQuery)
-  expect(missingClose).toContain('比較の起点となる公式終値は未確認です。')
-  expect(missingClose).not.toContain('公式終値は確認済みです。')
-  expect(recordedClose).toContain('公式終値は確認済みです。')
+  expect(missingClose).toContain('比較の基準価格は未確認です。')
+  expect(missingClose).not.toContain('比較の基準価格は確認済みです。')
+  expect(recordedClose).toContain('比較の基準価格は確認済みです。')
   expect(recordedClose).toContain('基本・下方ケースとUSD現金を同じ終期で比べた結果は、この判断にはありません。')
-  expect(recordedClose).not.toContain('比較の起点となる公式終値は未確認です。')
+  expect(recordedClose).not.toContain('比較の基準価格は未確認です。')
   for (const html of [missingClose, recordedClose]) {
     expect(html).toContain('判断保留')
     expect(html).toContain('比較未確定')
@@ -299,7 +299,7 @@ it('keeps independently readable siblings and refuses an ambiguous or malformed 
 it.each<[string, LatestUSProposalView['history']]>([
   ['duplicate current', { ...fixture.history, proposals: [current] }],
   ['the same ID with a contradictory decision', { ...fixture.history, proposals: [{
-    ...current, action: 'defer', official_close: null, comparison: null, comparison_horizon_et: null,
+    ...current, action: 'defer', comparison_price: null, comparison: null, comparison_horizon_et: null,
   }] }],
   ['the same ID on another ticker', { ...fixture.history, proposals: [{ ...current, ticker: 'GOOG' }] }],
   ['a malformed body carrying the current ID', { ...fixture.history, proposals: [{ ...current, published_at: 'unknown' }] }],

@@ -748,7 +748,7 @@ def test_cash_comparison_keeps_exact_admitted_usd_delta_and_rejects_reversed_cas
             "proposal"
         ]
         assert view["currency"] == "USD"
-        assert view["official_close"]["price_usd"] == principal
+        assert view["comparison_price"]["price_usd"] == principal
         assert view["comparison_horizon_et"] == comparison["horizon_et"]
         assert Decimal(view["comparison"]["base"]["difference_from_cash_usd_per_share"]) == Decimal(
             distribution
@@ -874,7 +874,7 @@ def test_formal_us_perspectives_are_independently_bound_before_web_materializati
     served = json.loads(payload)["proposal"]
     assert served["draft_sha256"] == binding["draft_sha256"]
     assert served["action"] == "defer"
-    assert served["official_close"] is None
+    assert served["comparison_price"] is None
     # No unsupplied row or direction is inferred, even though the IEX band exists.
     assert served["model_perspectives"] == expected
     assert "market_context" not in {row["model"] for row in served["model_perspectives"]}

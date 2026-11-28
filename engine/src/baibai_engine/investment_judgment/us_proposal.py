@@ -30,6 +30,7 @@ from pydantic import (
     model_validator,
 )
 
+from baibai_engine.data_collection.providers.alpaca import BARS_URL, BarsCapture
 from baibai_engine.data_collection.providers.alpaca_auctions import (
     NasdaqOfficialClose,
     NasdaqOfficialCloseQuery,
@@ -37,6 +38,9 @@ from baibai_engine.data_collection.providers.alpaca_auctions import (
     read_nasdaq_official_close,
 )
 from baibai_engine.investment_judgment.contracts import PerspectiveAssessment, PerspectiveModel
+from baibai_engine.machine_analysis.observations.prices.alpaca_normalization import (
+    normalize_alpaca_daily_bars,
+)
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.numbers import finite_decimal
 from baibai_engine.storage.sqlite.application.write import connect_existing
@@ -176,6 +180,17 @@ class _NasdaqSipClose(_UnadjustedClose):
     sale_condition: Literal["M"]
 
 
+class _AlpacaSipDailyClose(_Record):
+    origin: Literal["alpaca_sip_daily_close"]
+    basis: Literal["vendor_daily_aggregate_unadjusted"]
+    symbol: Text
+    session_et: date
+    price_usd: Price
+    observed_at: _ReportClock
+    native_response_sha256: Digest
+    source_json_pointer: Text
+
+
 class _FinancialEvidence(_Record):
     source_url: HttpUrl
     period_end: date
@@ -228,8 +243,11 @@ class ReportDraft(_Record):
     expected_session_et: date
     session_close_at: _ReportClock
     calendar_source_url: HttpUrl
-    iex_band: _IEXBand | None
-    official_close: _OfficialClose | _NasdaqSipClose | None
+    iex_band: _IEXBand | None = None
+    official_close: _OfficialClose | _NasdaqSipClose | None = None
+    daily_close: _AlpacaSipDailyClose | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     financial_evidence: Annotated[tuple[_FinancialEvidence, ...], Field(min_length=1)]
     thesis: Text
     strongest_countercase: Text
@@ -258,7 +276,15 @@ class ReportDraft(_Record):
             band.last_session_et != self.expected_session_et or band.received_at > self.cutoff_at
         ):
             raise ValueError("IEX window does not establish the expected session at cutoff")
+        daily = self.daily_close
         close = self.official_close
+        if daily is not None and (
+            close is not None
+            or daily.symbol != self.ticker
+            or daily.session_et != self.expected_session_et
+            or not self.session_close_at <= daily.observed_at <= self.cutoff_at
+        ):
+            raise ValueError("daily price requires one matching closed session at cutoff")
         if close is not None:
             if (
                 close.session_et != self.expected_session_et
@@ -282,14 +308,19 @@ class ReportDraft(_Record):
                 )
         comparison = self.comparison
         if comparison is not None and (
-            close is None
+            self.comparison_price is None
             or comparison.horizon_et <= cutoff_et
             or comparison.downside.total > comparison.base.total
         ):
-            raise ValueError("cash comparison requires an official close and coherent scenarios")
-        if (band is None or comparison is None) and not self.unresolved:
+            raise ValueError("cash comparison requires a price basis and coherent scenarios")
+        if comparison is None and not self.unresolved:
             raise ValueError("missing price or comparison requires an explicit limitation")
         return self
+
+    @property
+    def comparison_price(self) -> _OfficialClose | _NasdaqSipClose | _AlpacaSipDailyClose | None:
+        """The single observed, non-execution price used in the scenario comparison."""
+        return self.daily_close or self.official_close
 
 
 @dataclass(frozen=True, slots=True)
@@ -303,6 +334,50 @@ class SipCloseProof:
 def sip_official_close_fields(observation: NasdaqOfficialClose) -> dict[str, object]:
     """Project the validated provider observation without altering its precision or source."""
     return _NasdaqSipClose.model_validate(observation, from_attributes=True).model_dump(mode="json")
+
+
+type CloseProof = SipCloseProof | BarsCapture
+
+
+def sip_daily_close_fields(
+    capture: BarsCapture,
+    *,
+    ticker: str,
+    session_et: date,
+    session_close_at: datetime,
+    cutoff_at: datetime,
+) -> dict[str, object]:
+    """Project the fixed current-session SIP daily close, never a listing-exchange price."""
+    query = capture.query
+    if (
+        query.feed != "sip"
+        or query.adjustment != "raw"
+        or query.symbol_asof != "-"
+        or ticker not in query.symbols
+        or not capture.complete
+        or any(page.response.received_at > cutoff_at for page in capture.pages)
+    ):
+        raise ValueError(
+            "daily close requires complete literal raw SIP capture available at cutoff"
+        )
+    for row in normalize_alpaca_daily_bars(capture):
+        if row.requested_symbol == ticker and row.trade_date == session_et:
+            source = row.sources[0]
+            if source.received_at < session_close_at:
+                break
+            if row.volume == 0:
+                raise ValueError("raw SIP close requires nonzero observed volume")
+            return _AlpacaSipDailyClose(
+                origin="alpaca_sip_daily_close",
+                basis="vendor_daily_aggregate_unadjusted",
+                symbol=ticker,
+                session_et=session_et,
+                price_usd=row.close,
+                observed_at=source.received_at,
+                native_response_sha256=source.body_sha256,
+                source_json_pointer=source.json_pointer,
+            ).model_dump(mode="json")
+    raise ValueError("daily close requires the target bar received after the session close")
 
 
 def _require_matching_direct_nasdaq_link(draft: ReportDraft, close: _OfficialClose) -> None:
@@ -328,8 +403,22 @@ def _require_matching_direct_nasdaq_link(draft: ReportDraft, close: _OfficialClo
         raise ValueError("direct Nasdaq stock link does not match the report ticker")
 
 
-def require_close_receipt(draft: ReportDraft, sip_proof: SipCloseProof | None = None) -> None:
-    """Check attached official-close evidence before new report or decision admission."""
+def require_close_receipt(draft: ReportDraft, sip_proof: CloseProof | None = None) -> None:
+    """Revalidate the chosen price evidence before new report or decision admission."""
+    daily = draft.daily_close
+    if daily is not None:
+        if not isinstance(sip_proof, BarsCapture):
+            raise ValueError("daily close requires its fixed SIP bars capture")
+        observation = sip_daily_close_fields(
+            sip_proof,
+            ticker=draft.ticker,
+            session_et=draft.expected_session_et,
+            session_close_at=draft.session_close_at,
+            cutoff_at=draft.cutoff_at,
+        )
+        if observation != daily.model_dump(mode="json"):
+            raise ValueError("daily close differs from the fixed SIP bars capture")
+        return
     close = draft.official_close
     if not isinstance(close, _NasdaqSipClose):
         if sip_proof is not None:
@@ -337,8 +426,8 @@ def require_close_receipt(draft: ReportDraft, sip_proof: SipCloseProof | None = 
         if isinstance(close, _OfficialClose):
             _require_matching_direct_nasdaq_link(draft, close)
         return
-    if sip_proof is None:
-        raise ValueError("relayed close requires its original SIP receipt")
+    if not isinstance(sip_proof, SipCloseProof):
+        raise ValueError("relayed close requires its original SIP auction receipt")
     if sip_proof.query.symbol != draft.ticker:
         raise ValueError("SIP receipt requires the report's literal ticker")
     observed = read_nasdaq_official_close(
@@ -415,7 +504,8 @@ def render(draft: ReportDraft, review: ReportReview) -> bytes:
     ]
     band = draft.iex_band
     if band is None:
-        lines.append("- IEX観測帯: 未確認。")
+        if draft.daily_close is None:
+            lines.append("- IEX観測帯: 未確認。")
     else:
         lines.extend(
             [
@@ -428,9 +518,23 @@ def render(draft: ReportDraft, review: ReportReview) -> bytes:
                 f"- 受領manifest SHA-256: {band.manifest_sha256}",
             ]
         )
-    close = draft.official_close
+    close = draft.comparison_price
     if close is None:
         lines.append("- 上場取引所の無調整終値: 未確認。IEXで代用していません。")
+    elif isinstance(close, _AlpacaSipDailyClose):
+        lines.extend(
+            [
+                (
+                    f"- Alpaca SIPの無調整日足終値: USD {close.price_usd} / 株 "
+                    f"（{close.session_et} ET、受領 {close.observed_at.isoformat()}）: {BARS_URL}"
+                ),
+                (
+                    f"- 取引所の公式終値・約定値ではありません。"
+                    f"原本SHA-256: {close.native_response_sha256}、"
+                    f"該当箇所: {close.source_json_pointer}"
+                ),
+            ]
+        )
     elif isinstance(close, _NasdaqSipClose):
         lines.extend(
             [
@@ -495,7 +599,7 @@ def render(draft: ReportDraft, review: ReportReview) -> bytes:
 
 
 def reviewed_report(
-    draft: ReportDraft, review: ReportReview, *, sip_proof: SipCloseProof | None = None
+    draft: ReportDraft, review: ReportReview, *, sip_proof: CloseProof | None = None
 ) -> ReviewedReport:
     require_close_receipt(draft, sip_proof)
     return ReviewedReport(
@@ -587,7 +691,7 @@ def _validate_decision(draft: USProposalDraft, analysis: ReviewedReport) -> None
     if draft.prepared_at < analysis.review.reviewed_at:
         raise ValueError("decision must follow the analysis review")
     if draft.action == "no_action" and analysis.draft.comparison is None:
-        raise ValueError("no_action requires a comparison based on the exchange close")
+        raise ValueError("no_action requires a comparison with observed price evidence")
 
 
 def _require_future_horizon(
@@ -614,7 +718,7 @@ def _decision_digest(draft: USProposalDraft, analysis: ReviewedReport) -> str:
 
 
 def prepare_us_proposal(
-    draft: USProposalDraft, analysis: ReviewedReport, *, sip_proof: SipCloseProof | None = None
+    draft: USProposalDraft, analysis: ReviewedReport, *, sip_proof: CloseProof | None = None
 ) -> str:
     require_close_receipt(analysis.draft, sip_proof)
     _validate_decision(draft, analysis)
@@ -657,7 +761,7 @@ def save_us_proposal(
     review: USProposalReview,
     *,
     published_at: datetime,
-    sip_proof: SipCloseProof | None = None,
+    sip_proof: CloseProof | None = None,
 ) -> USProposal:
     # The reviewed analysis is an admission input, not a renderer dependency on App reads.
     require_close_receipt(analysis.draft, sip_proof)

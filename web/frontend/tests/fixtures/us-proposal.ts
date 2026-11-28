@@ -18,7 +18,7 @@ export const usProposalFixture: LatestUSProposalView = {
     action: 'no_action',
     reason: '現金に比べ下振れの根拠が薄い。',
     revisit_when: '次回決算の確認後に見直す。',
-    official_close: { price_usd: '100.50', origin: 'listing_exchange', observed_at: '2026-11-27T18:05:00Z' },
+    comparison_price: { price_usd: '100.50', origin: 'listing_exchange', observed_at: '2026-11-27T18:05:00Z' },
     iex_band: { first_session_et: '2026-11-02', last_session_et: '2026-11-27', observations: 19, low_usd: '90.900', high_usd: '125.03', last_usd: '101.03' },
     comparison_horizon_et: '2027-02-15',
     comparison: {

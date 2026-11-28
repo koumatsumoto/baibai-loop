@@ -3919,6 +3919,36 @@
       "pattern": "^-?\\d+(?:\\.\\d+)?(?:E[+-]?\\d+)?$",
       "type": "string"
     },
+    "USProposalComparisonPriceView": {
+      "properties": {
+        "price_usd": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Price Usd",
+          "type": "string"
+        },
+        "origin": {
+          "enum": [
+            "listing_exchange",
+            "alpaca_sip_nasdaq_official_close",
+            "alpaca_sip_daily_close"
+          ],
+          "title": "Origin",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "price_usd",
+        "origin",
+        "observed_at"
+      ],
+      "title": "USProposalComparisonPriceView",
+      "type": "object"
+    },
     "USProposalComparisonScenarioView": {
       "properties": {
         "terminal_value_usd_per_share": {
@@ -4064,35 +4094,6 @@
       "title": "USProposalIexBandView",
       "type": "object"
     },
-    "USProposalOfficialCloseView": {
-      "properties": {
-        "price_usd": {
-          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-          "title": "Price Usd",
-          "type": "string"
-        },
-        "origin": {
-          "enum": [
-            "listing_exchange",
-            "alpaca_sip_nasdaq_official_close"
-          ],
-          "title": "Origin",
-          "type": "string"
-        },
-        "observed_at": {
-          "format": "date-time",
-          "title": "Observed At",
-          "type": "string"
-        }
-      },
-      "required": [
-        "price_usd",
-        "origin",
-        "observed_at"
-      ],
-      "title": "USProposalOfficialCloseView",
-      "type": "object"
-    },
     "USProposalPerspectiveSourceView": {
       "properties": {
         "label": {
@@ -4234,10 +4235,10 @@
           "title": "Model Perspectives",
           "type": "array"
         },
-        "official_close": {
+        "comparison_price": {
           "anyOf": [
             {
-              "$ref": "#/$defs/USProposalOfficialCloseView"
+              "$ref": "#/$defs/USProposalComparisonPriceView"
             },
             {
               "type": "null"
@@ -4299,7 +4300,7 @@
         "reason",
         "revisit_when",
         "model_perspectives",
-        "official_close",
+        "comparison_price",
         "iex_band",
         "comparison_horizon_et",
         "comparison",

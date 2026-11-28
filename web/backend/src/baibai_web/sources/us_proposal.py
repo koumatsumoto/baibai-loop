@@ -11,11 +11,11 @@ from baibai_engine.investment_judgment.us_proposal import (
 )
 from baibai_web.readmodel.us_proposal_models import (
     LatestUSProposalView,
+    USProposalComparisonPriceView,
     USProposalComparisonScenarioView,
     USProposalComparisonView,
     USProposalHistoryView,
     USProposalIexBandView,
-    USProposalOfficialCloseView,
     USProposalPerspectiveView,
     USProposalView,
 )
@@ -28,7 +28,7 @@ _HISTORY_ERROR = "保存済みの米国株判断の履歴を読み取れませ�
 
 def _project(record: USProposal) -> USProposalView:
     decision, analysis = record.decision, record.analysis.draft
-    close, band, comparison = analysis.official_close, analysis.iex_band, analysis.comparison
+    close, band, comparison = analysis.comparison_price, analysis.iex_band, analysis.comparison
     comparison_view = None
     if comparison is not None:
         assert close is not None
@@ -61,9 +61,9 @@ def _project(record: USProposal) -> USProposalView:
             USProposalPerspectiveView.model_validate(row, from_attributes=True)
             for row in decision.model_perspectives
         ],
-        official_close=None
+        comparison_price=None
         if close is None
-        else USProposalOfficialCloseView(
+        else USProposalComparisonPriceView(
             price_usd=close.price_usd, origin=close.origin, observed_at=close.observed_at
         ),
         iex_band=None
