@@ -27,6 +27,7 @@ from baibai_engine.machine_analysis.observations.stocks.us_universe import Rakut
 from baibai_engine.primitives.json import encode_json
 
 NASDAQ_DIRECTORY_SOURCE = "nasdaq-trader"
+ALPACA_ASSETS_SOURCE = "alpaca-assets"
 # This one object contains both complete name lists, not a small marker.
 LISTING_MASTER_MAX_BYTES = 8_000_000
 RAKUTEN_SCOPE_ZONE = ZoneInfo("America/New_York")
@@ -102,6 +103,10 @@ def checked_nasdaq_directory_versions(
         if versions is not None:
             raise ValueError("Nasdaq directory versions require the US market")
         return None
+    if source == ALPACA_ASSETS_SOURCE:
+        if versions is not None:
+            raise ValueError("Alpaca listing scope cannot claim Nasdaq captures")
+        return None
     if (
         source != NASDAQ_DIRECTORY_SOURCE
         or versions is None
@@ -128,6 +133,9 @@ class CurrentListingMarket:
     rakuten: Annotated[
         CurrentRakutenScope | None, Field(exclude_if=lambda scope: scope is None)
     ] = None
+    alpaca_assets_sha256: Annotated[str | None, Field(exclude_if=lambda value: value is None)] = (
+        None
+    )
 
     def __post_init__(self) -> None:
         if (
@@ -138,6 +146,25 @@ class CurrentListingMarket:
             raise ValueError("invalid current listing master source, receipt or count")
         if self.rakuten is not None and self.slice.market != "US":
             raise ValueError("Rakuten scope belongs to US listings only")
+        if self.source == ALPACA_ASSETS_SOURCE:
+            if (
+                self.slice.market != "US"
+                or self.rakuten is not None
+                or self.alpaca_assets_sha256 is None
+                or re.fullmatch(r"[0-9a-f]{64}", self.alpaca_assets_sha256) is None
+            ):
+                raise ValueError("Alpaca scope requires one US asset receipt and no broker scope")
+            for row in self.slice.rows:
+                seen = row.identity_observed_at
+                if (
+                    seen is None
+                    or seen.utcoffset() is None
+                    or seen > self.received_at
+                    or row.identity_since != seen.astimezone(RAKUTEN_SCOPE_ZONE).date()
+                ):
+                    raise ValueError("Alpaca listing requires an observed identity clock")
+        elif self.alpaca_assets_sha256 is not None:
+            raise ValueError("Alpaca receipt requires the Alpaca source")
         object.__setattr__(self, "received_at", self.received_at.astimezone(UTC))
         object.__setattr__(
             self,

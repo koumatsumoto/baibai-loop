@@ -82,6 +82,23 @@ uv run --offline python -m tools.experiments.us_research_report proposal-show \
 新規の隔離検証は現行コードで `baibai-engine db init --db "$APP_COPY"` を実行し、空のAppを使う。v31への本番切替は完了済み（[#3012](https://github.com/koumatsumoto/baibai-loop/issues/3012)）。通常の調査や表示のために旧DBを取得・移行する必要はない。
 
 <a id="us-iex-live-acceptance"></a>
+## Alpaca Assetsを調査母集団にする（移行準備）
+
+同じPaper口座の active US equity 全件受領を起点に、既存の現行マスターのUS区分を作る。銘柄IDはAlpacaのUUIDを使い、日足には上場市場とリテラルのティッカーが一意でSIP要求できる行だけを渡す。OTCは別feed、TXSEなど未対応市場・記号・重複は射影から外し、原本と集計に残す。これらは日足未取得と分ける。Nasdaqの別取り込みや楽天の取扱有無は調査母集団の条件ではない。取得可否・商品種別・注文可否はこの一覧から推定しない。
+
+同じUUIDでもティッカーや市場が変われば、そのキーの過去足との連続性を引き継がない。初回またはキー変更時は、取引暦で確認した引けまでにそのキーとUUIDを観測できた立会以降だけ取得する。短縮日も同じで、引け後に初めて取得した銘柄を、その日の終値に結び付けない。この入口は私有の現行マスターと無調整SIP日足の取得までで、既存の定期取得・調査承認・保存済み提案は変更しない。
+
+```sh
+uv run --offline python -m baibai_jobs.integration.source_handoff acquire \
+  --source alpaca-us-assets --directory "$PRIVATE_ASSETS" \
+  --current-listing-master "$PREVIOUS_PRIVATE_MASTER"
+uv run --offline python -m baibai_jobs.integration.source_handoff acquire \
+  --source alpaca-us-daily --directory "$PRIVATE_DAILY" --asof "$NY_PRICE_SESSION" \
+  --current-listing-master "$PRIVATE_ASSETS/listing-master.json"
+```
+
+出力先は未使用の私有ディレクトリを指定する。初回で既存マスターがなければ1つ目の `--current-listing-master` を外せる。前回のファイルを指定した場合も上書きしない。`assets.json` は全件の未加工原本、`listing-master.json` は日足対象だけを含むUS射影（JP区分があれば維持）。`result.json` には受領時刻・SHA-256・集計だけを記録する。原本と射影はいずれもコミット・公開artifact・共有ログに載せない。
+
 ## Alpaca Paperの実接続を確認する
 
 1. [GitHub ActionsのリポジトリSecrets](https://github.com/koumatsumoto/baibai-loop/settings/secrets/actions) に、Alpacaの同じPaper口座の鍵を `APCA_API_KEY_ID` と `APCA_API_SECRET_KEY` として登録する。Variables、実行入力、チャット、コミットには入れない。Live鍵やURLの設定は不要。

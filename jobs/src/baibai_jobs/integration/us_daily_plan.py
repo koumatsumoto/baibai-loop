@@ -1,4 +1,4 @@
-"""Plan Alpaca daily inputs from one pinned current US listing and broker scope."""
+"""Plan Alpaca daily inputs from an explicitly selected current US listing scope."""
 
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ from baibai_engine.machine_analysis.observations.prices.us_sip_coverage import (
 )
 from baibai_engine.machine_analysis.observations.stocks.listing_master import ListingKey
 from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
+    ALPACA_ASSETS_SOURCE,
     CurrentListingMarket,
     read_bound_rakuten_scope,
 )
@@ -58,12 +59,22 @@ def plan_current_us_daily_prices(
     price_session: date,
     cutoff: datetime,
     adjustment: Literal["raw", "split"],
+    price_close_at: datetime | None = None,
 ) -> USDailyPricePlan | None:
     """Use today's scope on an open NY day, even before its close.
 
-    Only a verified market closure permits the latest completed session's scope.
-    A weekend does not create a new listing, eligibility decision or price.
+    Use the explicitly supplied pin's source, not an automatic provider fallback.
+    A weekend does not create a retroactive listing, broker decision or price.
     """
+    if current is not None and current.source == ALPACA_ASSETS_SOURCE:
+        return plan_current_alpaca_research_prices(
+            current,
+            today_open=today_open,
+            price_session=price_session,
+            cutoff=cutoff,
+            adjustment=adjustment,
+            price_close_at=price_close_at,
+        )
     if cutoff.utcoffset() is None:
         raise ValueError("US daily price plan requires a timezone")
     today = cutoff.astimezone(_NY).date()
@@ -81,7 +92,6 @@ def plan_current_us_daily_prices(
         ((key, row.broker_symbol) for key, row in targets.items()),
         listings=listed.values(),
     )
-    eligible = []
     price_targets: list[USPriceTarget] = []
     for row in coverage:
         if row.state != "eligible" or row.venue is None or row.alpaca_symbol is None:
@@ -94,18 +104,65 @@ def plan_current_us_daily_prices(
             or (listing.effective_session is not None and listing.effective_session > price_session)
         ):
             continue
-        eligible.append(row)
         price_targets.append(USPriceTarget(key, targets[key].instrument_id))
-    if not eligible:
+    return _daily_plan(scope.effective_session, price_session, price_targets, adjustment)
+
+
+def plan_current_alpaca_research_prices(
+    current: CurrentListingMarket | None,
+    *,
+    today_open: bool,
+    price_session: date,
+    cutoff: datetime,
+    adjustment: Literal["raw", "split"],
+    price_close_at: datetime | None = None,
+) -> USDailyPricePlan | None:
+    """Plan explicit current research coverage without making broker-order claims."""
+    if cutoff.utcoffset() is None:
+        raise ValueError("US daily price plan requires a timezone")
+    today = cutoff.astimezone(_NY).date()
+    if type(price_session) is not date or price_session > today:
+        raise ValueError("price session cannot follow the current NY date")
+    if (
+        current is None
+        or current.source != ALPACA_ASSETS_SOURCE
+        or current.received_at > cutoff
+        or current.slice.session not in ((today,) if today_open else (today, price_session))
+        or price_close_at is None
+        or price_close_at.utcoffset() is None
+        or price_close_at > cutoff
+        or price_close_at.astimezone(_NY).date() != price_session
+    ):
         return None
-    batches = plan_alpaca_sip_daily_batches(
-        eligible, session_dates=(price_session,), adjustment=adjustment
-    )
+    targets = [
+        USPriceTarget(row.key, row.instrument_id)
+        for row in current.slice.rows
+        if row.listing_state == "listed"
+        and row.instrument_id is not None
+        and row.identity_observed_at is not None
+        and row.identity_observed_at <= price_close_at
+    ]
+    return _daily_plan(current.slice.session, price_session, targets, adjustment)
+
+
+def _daily_plan(
+    listing_session: date,
+    price_session: date,
+    targets: list[USPriceTarget],
+    adjustment: Literal["raw", "split"],
+) -> USDailyPricePlan | None:
+    if not targets:
+        return None
+    ordered = tuple(sorted(targets, key=lambda target: target.listing_key[1]))
     return USDailyPricePlan(
-        scope.effective_session,
+        listing_session,
         price_session,
-        tuple(sorted(price_targets, key=lambda target: target.listing_key[1])),
-        batches,
+        ordered,
+        plan_alpaca_sip_daily_batches(
+            (target.listing_key for target in ordered),
+            session_dates=(price_session,),
+            adjustment=adjustment,
+        ),
     )
 
 

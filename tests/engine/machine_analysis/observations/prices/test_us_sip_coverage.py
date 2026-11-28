@@ -21,7 +21,6 @@ from baibai_engine.machine_analysis.observations.prices.us_sip_coverage import (
 )
 from baibai_engine.machine_analysis.observations.stocks.us_universe import (
     RakutenOrdinaryRow,
-    RakutenUSCoverageRow,
     cover_rakuten_us_ordinary_shares,
 )
 
@@ -32,7 +31,7 @@ _RECEIVED = datetime(2026, 11, 28, 8, tzinfo=UTC)
 _NEW_YORK = ZoneInfo("America/New_York")
 
 
-def _universe(extra: int = 0) -> tuple[RakutenUSCoverageRow, ...]:
+def _universe(extra: int = 0) -> tuple[tuple[str, str], ...]:
     names = {
         "GOOG": "Class C Capital Stock",
         "GOOGL": "Class A Common Stock",
@@ -72,13 +71,18 @@ def _universe(extra: int = 0) -> tuple[RakutenUSCoverageRow, ...]:
             for symbol in names
         ),
     ]
-    return cover_rakuten_us_ordinary_shares(
+    coverage = cover_rakuten_us_ordinary_shares(
         rows,
         reported_count=len(rows),
         directories=(
             read_us_symbol_directory(nasdaq, file="nasdaqlisted.txt"),
             read_us_symbol_directory(nyse, file="otherlisted.txt"),
         ),
+    )
+    return tuple(
+        (row.venue, row.alpaca_symbol)
+        for row in coverage
+        if row.state == "eligible" and row.venue is not None and row.alpaca_symbol is not None
     )
 
 
@@ -247,9 +251,10 @@ def test_no_calendar_or_no_qualified_symbols_does_not_create_an_empty_success():
     for days in ((), (_WED, _WED)):
         with pytest.raises(ValueError, match="distinct US session dates"):
             plan_alpaca_sip_daily_batches(universe, session_dates=days, adjustment="raw")
-    jp_only = tuple(row for row in universe if row.broker_exchange == "TSE")
     with pytest.raises(ValueError, match="no eligible US symbols"):
-        plan_alpaca_sip_daily_batches(jp_only, session_dates=(_FRI,), adjustment="raw")
+        plan_alpaca_sip_daily_batches((), session_dates=(_FRI,), adjustment="raw")
+    with pytest.raises(ValueError, match="ambiguous or unqualified"):
+        plan_alpaca_sip_daily_batches((("XTKS", "7203"),), session_dates=(_FRI,), adjustment="raw")
     with pytest.raises(ValueError, match="ambiguous or unqualified"):
         plan_alpaca_sip_daily_batches(universe + universe, session_dates=(_FRI,), adjustment="raw")
 

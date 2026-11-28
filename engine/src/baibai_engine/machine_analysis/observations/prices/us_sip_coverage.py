@@ -19,7 +19,7 @@ from baibai_engine.machine_analysis.observations.prices.alpaca_normalization imp
     AlpacaDailyObservation,
     normalize_alpaca_daily_bars,
 )
-from baibai_engine.machine_analysis.observations.stocks.us_universe import RakutenUSCoverageRow
+from baibai_engine.machine_analysis.observations.stocks.listing_master import ListingKey
 
 type SIPSymbolDay = tuple[str, date]
 type SIPCoverageFailure = (
@@ -72,22 +72,19 @@ class AlpacaSIPDailyCoverage:
 
 
 def plan_alpaca_sip_daily_batches(
-    universe: Iterable[RakutenUSCoverageRow],
+    listings: Iterable[ListingKey],
     *,
     session_dates: Iterable[date],
     adjustment: Literal["raw", "split"],
 ) -> tuple[AlpacaSIPDailyBatch, ...]:
-    """Batch all eligible symbols; the caller supplies the applicable NY sessions."""
+    """Batch qualified literal listing keys and the applicable NY sessions."""
     days = tuple(session_dates)
     if not days or any(type(day) is not date for day in days):
         raise ValueError("SIP coverage requires distinct US session dates")
     days = tuple(sorted(days))
     symbols: set[str] = set()
-    for row in universe:
-        if row.state != "eligible":
-            continue
-        symbol = row.alpaca_symbol
-        if row.venue not in US_PRIMARY_VENUES or symbol is None or symbol in symbols:
+    for venue, symbol in listings:
+        if venue not in US_PRIMARY_VENUES or symbol in symbols:
             raise ValueError("ambiguous or unqualified US symbol in SIP scope")
         symbols.add(symbol)
     if not symbols:
