@@ -110,7 +110,7 @@ ParquetのSQLite由来をコードでは `sqlite_snapshot` と呼ぶ。公開済
 1. 検証CLIのcommitと日次runのcommitを別々に記録し、日次の同一run/attempt、[現行ポインタ](#machine-publication)のETag・Lake release ID・manifest SHA・Machine UUIDとMarket/Runsの各SHAを固定する。同じポインタに合うMarketのorigin、RunsのGenerationとSelectionを確認する。現行が進んで元の組を取得できない場合は、元runの再現とはみなさない。Appは別正本なので、[取得元・取得版・時刻を固定した作業copy](#application-db-を反映する)を使う。保存先は隔離Appのみ。必要な入力を同じ出所で読めない場合は、別日や最新のデータで補わず、そこで止める。
 2. 隔離Appを指定して `operation --db <APP_DB> --format json show --status active` を先に確認する。同じ案件は[保存したOperation IDで再開](../.agents/skills/investment-judgment/SKILL.md#完了と再開)し、別案件なら新規の `prepare` は止める。受入のためだけに別案件を閉じず、本番Appも変更しない。
    新規案件は `selection-context` にそのGeneration・Selection・研究基準日・情報締切を明示し、`selection-context` と `prepare` には同じ `--runs-path` を渡して[選定と調査・評価の保存](../.agents/skills/investment-judgment/SKILL.md#開始と固定対象)へ進む。正式終値と一次資料は別に照合し、終値の価格日と資料の公表時刻を記録する。選定・prepare・評価保存・Operation操作にも同じ隔離Appを `--db` で明示する。価値と価格の差、市場・同業との比較、欠測、判断を変える条件を確認し、評価を独立査読する。買いを件数目標にしない。
-3. [提案の手順](../.agents/skills/investment-judgment/SKILL.md#trade-proposal)に沿って `trade-proposal-context` → `trade-proposal-check` → 提案本文の独立査読 → `trade-proposal-check` で `valid=true` と `review_binding=match` を確認 → `trade-proposal-publish` → [`operation complete`](../.agents/skills/investment-judgment/SKILL.md#完了と再開)（同じ提案ID、結果、次の手を指定）。3つの提案コマンドには同じ `--db` と `--sqlite-path` を明示する。正式保存された同じ提案IDを読戻す。ここでのpublishは隔離Appへの保存であり、R2や実配信への公開・発注ではない。
+3. [Appの反映手順](#application-db-を反映する)の「作成・査読・App保存」の日本株の列に従い、`--db` には隔離Appを指定する。[`operation complete`](../.agents/skills/investment-judgment/SKILL.md#完了と再開)に同じ提案ID・結果・次の手を渡し、保存された同じ提案IDを読戻す。ここでは本番に反映しない。
 4. 隔離checkoutでローカル表示を生成し、同じAppと提案IDで照合する。複数ケースは各提案がそのAppのlatestのうちに照合する。同じIDで保存・Operation完了・表示を確認できても、売買や資金配分の判断の有無までは分からない。
    発行した提案の `research_scope.outcomes[].status` と `items[].action` を銘柄コードで照合する。買い・売り・保有継続・根拠のある見送り（`no_action`）と、査読後も判断を保留した対象（`reviewed` / `defer`）、調査未完の対象（`unfinished` / `defer`）を分けて報告する。表示側の未完理由と参照は `items[].unfinished` を確認する。調査未完は評価済みに数えず、発行した提案の全項目が保留なら「経路は確認済み、売買判断は未確認」とする。対象0件で提案なしのOperation完了は、正式提案の受入には数えない。
    受入で見つけた問題は、根拠と再現条件を残して修正後に同じ入力で再確認する。実配信まで確認する場合だけ [Webの照合](#web-serving) を別に行う。
@@ -219,8 +219,15 @@ FRED確認state自体の欠落は[通常recheck-source](#経済原本)へ。他s
 日米とも、提案の作成・査読とWebへの反映は別です。この手順での `r2_transfer.sh` は取得用。本番反映には `publish.sh` を使う。内部のDB転送だけではWeb更新は起動しない。
 
 1. **取得**: `R2_STORES_BUCKET=baibai-stores jobs/scripts/r2_transfer.sh pull-app`。この段階は読み取り鍵で足りる。
-2. **作成・査読・App保存**: 日本株は[提案手順](../.agents/skills/investment-judgment/SKILL.md#trade-proposal)の `trade-proposal-context` → `trade-proposal-check` → 査読 → `trade-proposal-publish`。米国株は[米国株CLI](../docs/reference/us-research-mvp.md#隔離appに米国株の見送り判断保留を保存する)の `draft-digest` → 分析査読 → `save` → `proposal-digest` → 判断査読 → `proposal-save` → `proposal-show`。保存先は取得した `stores/application/baibai.sqlite`（例: `APP_COPY=stores/application/baibai.sqlite`）。保存コマンドはAppを更新するだけで、R2や発注は行わない。
-3. **反映**: 今保存した提案のIDを `PROPOSAL_ID` に設定する。任意の `--check` は読み取り鍵でも使える。対象バケット、確認時点のR2の版、一時Appスナップショット中の提案IDを確認し、PUTもActions起動もしない。実反映では版を改めて照合する。Web反映の起動には、このリポジトリのActionsを実行できるGitHub CLIの認証も必要（`--check` の対象外）。
+2. **作成・査読・App保存**: `--db`（米国株手順の `$APP_COPY`）には取得した `stores/application/baibai.sqlite` を指定する。起動方法と引数は各市場の手順を参照。
+
+   | 作業 | [日本株の手順](../.agents/skills/investment-judgment/SKILL.md#trade-proposal) | [米国株の手順](../docs/reference/us-research-mvp.md) |
+   | --- | --- | --- |
+   | 原稿と独立査読 | `trade-proposal-context` → `trade-proposal-check` → 提案査読 → 再度 `trade-proposal-check`（`valid=true`、`review_binding=match`） | `draft-digest` → 分析査読 → `save`（私有の分析ファイルだけ）→ `proposal-digest` → 判断査読 |
+   | App保存 | `trade-proposal-publish` | `proposal-save`。出力されたIDは `proposal-show` の `--proposal-id` に指定して読戻す。 |
+
+   日本株は準備済みのOperationから始め、3コマンドには同じApp・Market作業コピー（`--db`、`--sqlite-path`）を渡す。どちらのApp保存もR2への反映や発注は行わない。
+3. **本番反映（日米共通）**: App保存が返した `proposal_id` を `PROPOSAL_ID` に設定する。任意の `--check` は読み取り鍵で対象バケット・R2の版・一時Appスナップショット中の提案IDを確認し、PUTもActions起動もしない。実反映は版を改めて照合し、R2書き込み鍵とこのリポジトリのActionsを実行できるGitHub CLI認証を使う。
 
 ```bash
 jobs/scripts/publish.sh --bucket baibai-stores --proposal-id "$PROPOSAL_ID" --check
