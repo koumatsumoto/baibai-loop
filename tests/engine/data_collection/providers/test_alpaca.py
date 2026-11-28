@@ -14,9 +14,11 @@ from baibai_engine.data_collection.providers.alpaca import (
     BARS_URL,
     MAX_PAGES,
     PAGE_LIMIT,
+    BarsPage,
     BarsResponse,
     DailyBarsQuery,
     capture_daily_bars,
+    read_complete_daily_bar_pages,
 )
 
 QUERY = DailyBarsQuery(
@@ -73,6 +75,35 @@ def test_request_encodes_only_the_pinned_daily_scope():
     split = parse_qs(urlsplit(different.url()).query)
     assert split["adjustment"] == ["split"]
     assert split["asof"] == ["-"]
+
+
+def test_historical_sip_remains_explicit_on_all_pages_and_has_distinct_receipts():
+    sip_query = replace(QUERY, feed="sip")
+    first = _page({"META": [{}]}, next_token="next")
+    last = _page({"BRK.B": [{}]})
+    sip, calls = _capture(first, last, query=sip_query)
+    iex, _ = _capture(first, last)
+
+    assert sip.complete
+    assert iex.complete
+    assert len(calls) == 2
+    for i, (url, sip_page, iex_page) in enumerate(zip(calls, sip.pages, iex.pages, strict=True)):
+        target = urlsplit(url)
+        assert target.geturl() == sip_query.url(page_token="next" if i else None)
+        params = parse_qs(target.query)
+        assert params["feed"] == ["sip"]
+        assert params["currency"] == ["USD"]
+        assert params["timeframe"] == ["1Day"]
+        assert sip_page.body_sha256 == iex_page.body_sha256
+        assert sip_page.receipt_id != iex_page.receipt_id
+
+
+def test_historical_sip_denial_does_not_fall_back_to_iex():
+    sip_query = replace(QUERY, feed="sip")
+    result, calls = _capture(BarsResponse(403, AT, b"{}"), query=sip_query)
+    assert not result.complete
+    assert result.failure == "http_status"
+    assert calls == [sip_query.url()]
 
 
 def test_short_or_empty_pages_follow_the_opaque_cursor_and_keep_native_symbol_labels():
@@ -133,6 +164,38 @@ def test_empty_final_page_is_wire_complete_not_proof_of_a_market_day():
     assert result.complete
     assert result.pages[0].returned_symbols == ()
     assert calls == [QUERY.url()]
+
+
+def test_optional_response_currency_can_be_omitted_or_match_usd():
+    first = _page(next_token="next")
+    last = BarsResponse(200, AT, b'{"bars":{},"currency":"USD","next_page_token":null}')
+    result, _ = _capture(first, last)
+
+    assert result.complete
+    assert [page.response for page, _ in read_complete_daily_bar_pages(result)] == [first, last]
+
+
+@pytest.mark.parametrize("currency", ["EUR", "usd", None, 840])
+def test_conflicting_currency_fails_capture_and_replay(currency):
+    first = _page(next_token="next")
+    original = json.dumps({"bars": {}, "currency": currency, "next_page_token": "more"}).encode()
+    wrong = BarsResponse(200, AT, original)
+    terminal = _page()
+    result, calls = _capture(first, wrong, terminal)
+
+    assert not result.complete
+    assert result.failure == "invalid_envelope"
+    assert [page.response for page in result.pages] == [first, wrong]
+    assert calls == [QUERY.url(), QUERY.url(page_token="next")]
+
+    # Simulate a complete capture recorded before the currency check.
+    legacy = (
+        result.pages[0],
+        BarsPage(result.request_id, 2, calls[-1], wrong, ()),
+        BarsPage(result.request_id, 3, QUERY.url(page_token="more"), terminal, ()),
+    )
+    with pytest.raises(ValueError, match="invalid_envelope"):
+        read_complete_daily_bar_pages(replace(result, pages=legacy, failure=None))
 
 
 def test_equal_body_and_receipt_identity_are_distinct():
@@ -269,6 +332,9 @@ def test_cycle_and_page_bound_do_not_issue_extra_requests():
         {"end": date(2025, 11, 22)},
         {"symbol_asof": None},
         {"adjustment": "all"},
+        {"feed": None},
+        {"feed": "SIP"},
+        {"feed": "delayed_sip"},
     ],
 )
 def test_invalid_request_fields_are_not_coerced(change):

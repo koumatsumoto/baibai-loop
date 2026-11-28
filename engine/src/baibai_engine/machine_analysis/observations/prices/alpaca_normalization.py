@@ -1,4 +1,4 @@
-"""Interpret fixed Alpaca IEX daily aggregates without adopting a price for a decision."""
+"""Interpret fixed Alpaca daily aggregates without adopting a price for a decision."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from baibai_engine.data_collection.providers.alpaca import (
+    AlpacaBarsFeed,
     BarsCapture,
     read_complete_daily_bar_pages,
 )
@@ -47,7 +48,7 @@ class AlpacaDailyObservation:
     close: Decimal
     volume: Decimal  # Provider-reported share quantity at this adjustment basis, not turnover.
     sources: tuple[AlpacaBarSource, ...]
-    feed: Literal["iex"] = "iex"
+    feed: AlpacaBarsFeed = "iex"
     price_unit: Literal["USD_per_share"] = "USD_per_share"
     price_basis: Literal["vendor_daily_aggregate"] = "vendor_daily_aggregate"
 
@@ -94,6 +95,7 @@ def normalize_alpaca_daily_bars(capture: BarsCapture) -> tuple[AlpacaDailyObserv
                     c,
                     volume,
                     (),
+                    feed=query.feed,
                 )
                 key = (symbol, trade_date)
                 previous, references = rows.setdefault(key, (row, []))

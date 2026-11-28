@@ -737,14 +737,20 @@ def test_simultaneous_native_concepts_do_not_become_a_sales_measure(changed):
 
 
 @pytest.mark.parametrize(
-    "defect", ["request", "response", "redirect", "incomplete", "partial-range", "unknown"]
+    "defect", ["request", "response", "both", "redirect", "incomplete", "partial-range", "unknown"]
 )
 def test_unbound_alpaca_page_preserves_financials_but_cannot_supply_iex_prices(defect):
     bundle, files = _fixture()
     page = bundle["alpaca"]["pages"][0]
     actual = page["request_url"]
-    if defect in {"request", "response"}:
-        page[f"{defect}_url"] = actual.replace("feed=iex", "feed=sip")
+    if defect in {"request", "response", "both"}:
+        # Even two internally consistent SIP URLs cannot replay into IEX Research.
+        assert "feed=iex" in actual
+        wrong = actual.replace("feed=iex", "feed=sip")
+        if defect in {"request", "both"}:
+            page["request_url"] = wrong
+        if defect in {"response", "both"}:
+            page["response_url"] = wrong
     elif defect == "redirect":
         page["redirected"] = True
     elif defect == "incomplete":
