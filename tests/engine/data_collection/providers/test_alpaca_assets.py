@@ -93,6 +93,7 @@ def test_decodes_exact_native_fields_without_classifying_product_or_dropping_non
         {"name": "  "},
         {"name": 123},
         {"name": "Company\nShares"},
+        {"name": "Company\u200b\nShares"},
         {"tradable": 1},
         {"tradable": "false"},
         {"attributes": ["has_options", False]},
@@ -119,6 +120,22 @@ def test_name_preserves_legitimate_unicode_spacing():
     name = "Müller\u00a0Holdings\u202fSociété"
     (asset,) = parse_alpaca_us_assets(_native(_asset(name=name)))
     assert asset.name == name
+
+
+@pytest.mark.parametrize(
+    ("raw", "display"),
+    [
+        ("Example\u200b Company\u2060", "Example Company"),
+        ("Ordinary Company", "Ordinary Company"),
+        ("\u200b \u2060", None),
+    ],
+)
+def test_name_format_characters_do_not_change_the_original_receipt(raw, display):
+    body = _native(_asset(name=raw))
+    receipt = AlpacaAssetsReceipt(_AT, body)
+    assert receipt.assets[0].name == display
+    assert receipt.body == body
+    assert receipt.body_sha256 == sha256(body).hexdigest()
 
 
 @pytest.mark.parametrize("field", ["id", "class", "status", "symbol", "exchange", "tradable"])
