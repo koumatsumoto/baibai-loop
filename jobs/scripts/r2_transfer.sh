@@ -371,8 +371,8 @@ upload_portfolio_views() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine [--daily-preflight]|hydrate-market-for-daily|pull-portfolio-market|pull-app|pull-indicators|push-indicators [--recheck-source SOURCE]...|upload-portfolio-views DIR}\n' "$0" >&2
-  printf 'App publication: jobs/scripts/publish.sh --help\n' >&2
+  printf 'usage: %s {pull-machine [--daily-preflight]|hydrate-market-for-daily|pull-portfolio-market|pull-app|pull-indicators|push-indicators [--recheck-source SOURCE]...|upload-portfolio-views DIR}\n' "$0"
+  printf 'App publication: jobs/scripts/publish.sh --help\n'
 }
 
 validate_command() {
@@ -414,8 +414,13 @@ validate_command() {
   esac
 }
 
+if [[ $# -eq 1 && ( "$1" == "-h" || "$1" == "--help" ) ]]; then
+  usage
+  exit 0
+fi
+
 # A mistyped or removed command must stop before helpers or credentials.
-validate_command "$@" || { usage; exit 2; }
+validate_command "$@" || { usage >&2; exit 2; }
 (cd "${repo_root}" && uv run python -m baibai_jobs.observability.repository_layout)
 load_credentials
 stores_bucket="${R2_STORES_BUCKET:-baibai-stores}"
@@ -484,7 +489,7 @@ case "${1:-}" in
     upload_portfolio_views "$2"
     ;;
   *)
-    usage
+    usage >&2
     exit 2
     ;;
 esac
