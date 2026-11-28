@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 _JST = timezone(timedelta(hours=9))
 
 # `cloud-daily-batch`'s cron in UTC (22:43 JST). A contract test pins this
 # constant against the workflow so both execution and observation use one clock.
 BATCH_SCHEDULED_FIRE_TIME = time(13, 43, tzinfo=UTC)
+# The separate cloud-market-sources US master slot, not a JST integration trigger.
+US_MASTER_SCHEDULED_FIRE_TIME = time(13, 43, tzinfo=UTC)
 ECONOMIC_SCHEDULED_FIRE_TIME = time(7, 43, tzinfo=UTC)
 EXTERNAL_ASSESSMENT_SCHEDULED_FIRE_TIME = time(10, 13, tzinfo=UTC)
 MARKET_SOURCE_SCHEDULES = {
@@ -64,6 +68,42 @@ def market_source_target_date(created_at: datetime, *, schedule: str, asof: str 
     if fire_time is not None:
         return acquisition_target_date(created_at, fire_time)
     return created_at.astimezone(_JST).date()
+
+
+def us_master_refresh_date(
+    created_at: datetime,
+    now: datetime,
+    *,
+    scheduled: bool,
+    is_open: Callable[[date], bool | None],
+) -> date | None:
+    """Plan the current NY session; None means independently verified market closure.
+
+    The caller owns the verified US calendar (including short sessions) and input freshness.
+    Scheduled runs use the last eligible slot at run creation, not at attempt start.
+    GitHub can delay run creation itself; this policy never reconstructs an old run.
+    Manual runs select their original NY date, never an arbitrary historical as-of.
+    """
+    if any(clock.utcoffset() is None for clock in (created_at, now)):
+        raise ValueError("US master refresh requires timezone-aware clocks")
+    created = created_at.astimezone(UTC)
+    if now.astimezone(UTC) < created:
+        raise ValueError("US master run creation clock is in the future")
+    pinned = created
+    if scheduled:
+        pinned = datetime.combine(created.date(), US_MASTER_SCHEDULED_FIRE_TIME)
+        if pinned > created:
+            pinned -= timedelta(days=1)
+    new_york = ZoneInfo("America/New_York")
+    target = pinned.astimezone(new_york).date()
+    if target != now.astimezone(new_york).date():
+        raise ValueError("US master run is no longer for the current New York date")
+    status = is_open(target)
+    if status is True:
+        return target
+    if status is False:
+        return None
+    raise ValueError("US master refresh requires a verified US market calendar")
 
 
 def external_assessment_target_date(created_at: datetime, now: datetime) -> date:

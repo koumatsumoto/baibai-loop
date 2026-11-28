@@ -100,9 +100,24 @@ def validate_master_snapshot(
     records: Sequence[Mapping[str, Any]], requested_asof: date
 ) -> ValidatedMasterSnapshot:
     """Validate native identities/date before atomically replacing the snapshot."""
+    codes = validate_master_codes(records, requested_asof)
+    day = requested_asof.isoformat()
+    return ValidatedMasterSnapshot(
+        requested_asof,
+        tuple(
+            (day, code, provider_record_payload(record))
+            for code, record in zip(codes, records, strict=True)
+        ),
+    )
+
+
+def validate_master_codes(
+    records: Sequence[Mapping[str, Any]], requested_asof: date
+) -> tuple[str, ...]:
+    """Validate one whole dated population, returning keys in native row order."""
     if not records:
         raise JQuantsProviderError("empty J-Quants master response")
-    rows: list[tuple[str, str, str]] = []
+    codes: list[str] = []
     seen_codes: set[str] = set()
     common_count = 0
     for index, record in enumerate(records):
@@ -126,13 +141,13 @@ def validate_master_snapshot(
             raise JQuantsProviderError(f"duplicate J-Quants master security code: {code}")
         seen_codes.add(code)
         common_count += int(primary_issue and record["ProdCat"] == "011")
-        rows.append((snapshot_date.isoformat(), code, provider_record_payload(record)))
+        codes.append(code)
     if common_count < MIN_COMMON_STOCK_MASTER_ROWS:
         raise JQuantsProviderError(
             "J-Quants master common-stock population is below the production floor: "
             f"{common_count} < {MIN_COMMON_STOCK_MASTER_ROWS}"
         )
-    return ValidatedMasterSnapshot(requested_asof, tuple(rows))
+    return tuple(codes)
 
 
 def _nonempty(value: object) -> bool:
