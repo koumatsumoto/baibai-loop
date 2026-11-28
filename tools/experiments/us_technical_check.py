@@ -184,11 +184,15 @@ def check_packet(directory: Path, listing: Path) -> USTechnicalInput | None:
     return result
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--packet", type=Path, required=True)
     parser.add_argument("--current-listing-master", type=Path, required=True)
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     try:
         result = check_packet(args.packet, args.current_listing_master)
     except (

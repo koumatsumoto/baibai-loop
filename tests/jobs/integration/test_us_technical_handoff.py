@@ -121,6 +121,8 @@ def _provider(
         bars_requests.append((symbols, start, end, first))
         if failure == "bars_denied":
             return _body(request, {}, status=403)
+        if failure == "later_group_rate_limited" and symbols == ("EXT",):
+            return _body(request, {}, status=429)
         expected = [
             (symbol, day)
             for symbol in symbols
@@ -254,6 +256,18 @@ def test_no_packet_when_an_authoritative_chain_is_not_complete(run, failure):
     else:
         assert len(bars) == (2 if failure == "missing_latest" else 1)
         assert json.loads(output.out)["status"] == "incomplete"
+
+
+def test_later_group_rate_limit_does_not_publish_earlier_completed_group(run):
+    status, output, directory, listing, _, bars, _ = run(failure="later_group_rate_limited")
+    assert [(symbols, first_page) for symbols, _, _, first_page in bars] == [
+        (("BRK.B", "GOOGL"), True),
+        (("BRK.B", "GOOGL"), False),
+        (("EXT",), True),
+    ]
+    assert status == 1
+    assert json.loads(output.out)["status"] == "incomplete"
+    assert set(directory.parent.iterdir()) == {listing}
 
 
 def test_mismatched_session_and_known_insufficient_calendar_never_request_prices(run):

@@ -253,6 +253,29 @@ def test_documented_command_gate_accepts_a_complete_command(tmp_path: Path) -> N
     assert check_documented_commands.check(tmp_path) == []
 
 
+@pytest.mark.parametrize(
+    ("flags", "master", "diagnostic"),
+    [
+        ("--offline --no-sync", "--current-listing-master master", None),
+        ("--no-sync --offline", "--current-listing-master master", None),
+        ("--no-sync", "", "omits required --current-listing-master"),
+        ("--offline --unknown", "", "unrecognised entry point: --unknown python -m"),
+        ("--no-sync --no-sync", "", "unrecognised entry point: --no-sync python -m"),
+    ],
+)
+def test_documented_technical_command_checks_uv_flags_and_real_arguments(
+    tmp_path: Path, flags: str, master: str, diagnostic: str | None
+) -> None:
+    command = f"uv run {flags} python -m tools.experiments.us_technical_check --packet receipt"
+    _skill(tmp_path, f"```bash\n{command} {master}\n```\n")
+    errors = check_documented_commands.check(tmp_path)
+    if diagnostic is None:
+        assert errors == []
+    else:
+        assert len(errors) == 1
+        assert errors[0].endswith(diagnostic)
+
+
 @pytest.mark.parametrize("options", ["--asof", "--asof --lookback-days 540", "--asof -- <A>"])
 def test_documented_command_gate_rejects_a_named_option_with_no_value(tmp_path, options):
     args = f"extract-edinet-metrics {options}"
