@@ -235,7 +235,7 @@ SECが `text/html` で返す索引では、[HTMLで省略可能な外側の終�
 既に許可されたSIP Market Dataの `APCA_API_KEY_ID` / `APCA_API_SECRET_KEY` と、別に確認したPaper Calendarの `APCA_PAPER_API_KEY_ID` / `APCA_PAPER_API_SECRET_KEY` を実行環境へ渡す。新たに照会するのは固定した現行銘柄マスターの対象だけ。 `--asof` を指定する場合は暦で確認した最新の引け済みNY立会日を指定し、異なれば取得しない。
 
 ```bash
-uv run --offline --no-sync python -m baibai_jobs.integration.source_handoff acquire \
+uv run python -m baibai_jobs.integration.source_handoff acquire \
   --source alpaca-us-daily --current-listing-master "$CURRENT_LISTING_MASTER" \
   --directory "$RUNNER_TEMP/us-daily-prices"
 ```
