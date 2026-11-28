@@ -180,6 +180,8 @@ def _page_envelope(body: bytes) -> tuple[NativeBarGroups, object]:
     value = decode_alpaca_json(body)
     if not isinstance(value, dict) or not isinstance(bars := value.get("bars"), dict):
         raise ValueError("Alpaca bars are not grouped by returned symbol")
+    if "currency" in value and value["currency"] != "USD":
+        raise ValueError("Alpaca daily bars response currency differs from USD request")
     if any(
         not key
         or not key.isprintable()
