@@ -10,6 +10,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from baibai_engine.data_collection.providers.nasdaq_symbols import (
+    US_PRIMARY_VENUES,
     DirectoryFile,
     read_us_symbol_directory,
 )
@@ -29,8 +30,6 @@ from baibai_jobs.integration.listing_master_current import (
     prepare_listing_market_update,
 )
 from baibai_jobs.schedule import us_master_refresh_date
-
-_US_PRIMARY_MIC = frozenset({"XNAS", "XNYS"})
 
 type USListingRefreshStatus = ListingUpdateStatus | Literal["closed"]
 
@@ -65,7 +64,7 @@ def refresh_current_us_listings(
     is_open: Callable[[date], bool | None],
     load_verified: Callable[[date], USListingInputs],
 ) -> USListingRefreshStatus:
-    """Apply complete current XNAS/XNYS directories through the existing Market owner."""
+    """Apply both complete current US directories through the existing Market owner."""
     target = us_master_refresh_date(created_at, now(), scheduled=scheduled, is_open=is_open)
     if target is None:
         return "closed"
@@ -105,11 +104,11 @@ def prepare_us_listing_update(
     if any(version.native_minute.date() != target for version in versions):
         raise ValueError("US listing directory native creation date does not match the session")
     if any(
-        event.key[0] not in _US_PRIMARY_MIC
-        or (event.previous_key is not None and event.previous_key[0] not in _US_PRIMARY_MIC)
+        event.key[0] not in US_PRIMARY_VENUES
+        or (event.previous_key is not None and event.previous_key[0] not in US_PRIMARY_VENUES)
         for event in inputs.verified_events
     ):
-        raise ValueError("US listing notice is outside the XNAS/XNYS scope")
+        raise ValueError("US listing notice is outside the supported US venue scope")
 
     received_at = max(r.received_at.astimezone(UTC) for r in inputs.receipts)
     return received_at, prepare_listing_market_update(

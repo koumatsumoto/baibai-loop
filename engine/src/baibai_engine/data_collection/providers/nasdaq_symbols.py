@@ -7,10 +7,22 @@ from dataclasses import dataclass
 from datetime import date, datetime, time
 from typing import Literal
 
-type PrimaryUSVenue = Literal["XNAS", "XNYS"]
+type PrimaryUSVenue = Literal["XNAS", "XNYS", "XASE", "ARCX", "BATS"]
 type DirectoryFile = Literal["nasdaqlisted.txt", "otherlisted.txt"]
 
+# Nasdaq Trader's otherlisted listing codes, not the execution venue of a quote.
+_OTHER_LISTED: dict[str, PrimaryUSVenue] = {
+    "N": "XNYS",
+    "A": "XASE",  # NYSE American, formerly NYSE MKT.
+    "P": "ARCX",
+    "Z": "BATS",  # Cboe BZX Equities, not Cboe's other venues.
+}
+US_PRIMARY_VENUES: frozenset[PrimaryUSVenue] = frozenset({"XNAS", *_OTHER_LISTED.values()})
+
 _CREATION_MINUTE = r"[0-9]{10}:[0-9]{2}"
+_DEPOSITARY_DESCRIPTION = re.compile(
+    r"\b(?:deposit(?:ary|ory) (?:shares?|receipts?)|(?:un)?sponsored AD[RS]s?)\b", re.I
+)
 
 _HEADERS: dict[DirectoryFile, str] = {
     "nasdaqlisted.txt": (
@@ -29,6 +41,12 @@ class USListing:
     ticker: str
     security_name: str
     fund_flag: bool
+
+    @property
+    def declared_depositary(self) -> bool:
+        # The directory name may explicitly identify a non-ordinary share.
+        # Absence of this description does not prove the product is an ordinary share.
+        return _DEPOSITARY_DESCRIPTION.search(self.security_name) is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,41 +78,40 @@ def _creation_stamp(line: str) -> str:
 
 
 def read_us_symbol_directory(body: bytes, *, file: DirectoryFile) -> USSymbolDirectory:
-    """Read XNAS and XNYS primary listings from an already received original."""
+    """Read supported primary listings from an already received original."""
     lines = body.decode("utf-8").splitlines()
     if len(lines) < 3 or lines[0] != _HEADERS[file]:
         raise ValueError("unexpected Nasdaq Trader symbol directory header")
     stamp = _creation_stamp(lines[-1])
-    listings: dict[str, USListing] = {}
+    listings: dict[tuple[PrimaryUSVenue, str], USListing] = {}
     for line in lines[1:-1]:
         cells = line.split("|")
         if len(cells) != 8:
             raise ValueError("invalid Nasdaq Trader symbol directory row")
-        venue: PrimaryUSVenue
-        supported = True
+        venue: PrimaryUSVenue | None
         if file == "nasdaqlisted.txt":
             ticker, name, tier, test, _, _, etf, nextshares = cells
             if tier not in ("Q", "G", "S"):
                 raise ValueError("unknown Nasdaq listing tier")
             venue = "XNAS"
         else:
-            # For NYSE the CQS symbol, not ACT reporting or Nasdaq routing symbols, is the alias.
+            # Use the CQS symbol, not the ACT reporting or Nasdaq routing symbol.
             _, name, exchange, ticker, etf, _, test, _ = cells
             if re.fullmatch(r"[A-Z]", exchange) is None:
                 raise ValueError("invalid other-listed exchange code")
-            venue = "XNYS"
+            venue = _OTHER_LISTED.get(exchange)
             nextshares = "N"
-            supported = exchange == "N"
         if any(flag not in ("Y", "N") for flag in (test, etf, nextshares)):
             raise ValueError("invalid Nasdaq Trader issue flag")
-        if test == "Y" or not supported:
+        if test == "Y" or venue is None:
             continue
         name = name.strip()
         if not ticker or not ticker.isprintable() or not name or not name.isprintable():
             raise ValueError("incomplete Nasdaq Trader primary listing")
-        if ticker in listings:
+        key = (venue, ticker)
+        if key in listings:
             raise ValueError("duplicate Nasdaq Trader primary listing")
-        listings[ticker] = USListing(
+        listings[key] = USListing(
             venue=venue, ticker=ticker, security_name=name, fund_flag="Y" in (etf, nextshares)
         )
     if not listings:

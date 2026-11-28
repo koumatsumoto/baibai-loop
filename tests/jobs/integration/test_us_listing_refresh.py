@@ -12,6 +12,10 @@ from baibai_engine.machine_analysis.observations.stocks.listing_master import (
     ObservedListing,
     VerifiedListingEvent,
 )
+from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
+    active_us_listing_ids,
+    encode_current_listing_master,
+)
 from baibai_jobs.integration.listing_master_current import (
     LISTING_MASTER_CURRENT_KEY,
     read_current_listing_master,
@@ -112,6 +116,50 @@ def test_complete_both_exchange_files_refresh_only_us_and_repeat_without_a_write
     assert not store.delete_keys
 
 
+def test_extending_otherlisted_keeps_verified_existing_ids_and_jp_byte_contents():
+    store = _Store()
+    assert (
+        refresh_current_listing_master(
+            store,
+            market="JP",
+            session=_DAY,
+            source="jquants-jpx",
+            received_at=_CREATED,
+            observations=(ObservedListing(("XTKS", "72030"), "JP fixture", "ordinary"),),
+            complete=True,
+        )
+        == "updated"
+    )
+    assert _refresh(store, _inputs()) == "updated"
+    before = read_current_listing_master(store)
+    old_ids = active_us_listing_ids(before["US"])
+    assert set(old_ids) == {("XNAS", "GOOG"), ("XNYS", "BRK.B")}
+    first, second = _inputs().receipts
+    extra = (
+        b"QAM|Fixture American|A|QAM|N|100|N|QAM\n"
+        b"QARCA|Fixture Arca|P|QARCA|Y|100|N|QARCA\n"
+        b"QBZX|Fixture BZX|Z|QBZX|N|100|N|QBZX\n"
+    )
+    second = replace(
+        second,
+        received_at=second.received_at + timedelta(minutes=1),
+        body=second.body.replace(
+            b"File Creation Time: 1127202608:47",
+            extra + b"File Creation Time: 1127202608:48",
+        ),
+    )
+    expanded = USListingInputs((first, second))
+    assert _refresh(store, expanded) == "updated"
+    after = read_current_listing_master(store)
+    new_ids = active_us_listing_ids(after["US"])
+    assert {key: new_ids[key] for key in old_ids} == old_ids
+    assert set(new_ids) - set(old_ids) == {("XASE", "QAM"), ("ARCX", "QARCA"), ("BATS", "QBZX")}
+    assert encode_current_listing_master({"JP": after["JP"]}) == encode_current_listing_master(
+        {"JP": before["JP"]}
+    )
+    assert _refresh(store, expanded) == "unchanged"
+
+
 def test_verified_closure_skips_and_unknown_calendar_errors_before_loading_or_writing():
     def unexpected_load(_: date) -> USListingInputs:
         pytest.fail("non-session must not touch provider input")
@@ -176,7 +224,7 @@ def test_invalid_or_noncurrent_receipts_never_reach_the_store(changes):
 )
 def test_foreign_mic_never_reaches_us_storage(event):
     store = _Store()
-    with pytest.raises(ValueError, match="outside the XNAS/XNYS scope"):
+    with pytest.raises(ValueError, match="outside the supported US venue scope"):
         _refresh(store, replace(_inputs(), verified_events=(event,)))
     assert not store.get_keys
     assert not store.put_keys
