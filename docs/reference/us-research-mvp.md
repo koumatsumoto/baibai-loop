@@ -19,13 +19,17 @@ uv run --offline python -m tools.experiments.us_research_mvp --bundle /private/m
 2. 価格の基準は[Alpaca SIPの無調整日足終値](#alpaca-sipの日足終値で比較する)とし、公式終値を必須にしない。公式値を使う場合は無調整の上場取引所値を選んで出典を別に示す。IEX観測帯は任意の分割調整済み参考値で、比較価格に代用しない。価格か他の比較根拠が不足なら `comparison: null` と未確認事項。
 3. 財務では原典と実読時刻、会計期間・観測内容を引用。比較が可能な場合だけ、同じ終期で基本／下振れの1株価値・取得権のある分配・仮定を示す。無利息のUSD現金との差を計算し、税・費用・為替は対象外。未確認の残高・執行条件・買付数量は入れない。別担当は出典の本文、銘柄と権利、期間、反対材料と比較前提を確認する。このCLIはリンク先を取得せず、根拠の真偽や別担当の本人性を認証しない。
 
+以下は[固定受領の日足](#alpaca-sipの日足終値で比較する)を使う例。日足を原稿に記録しない保留や取引所からの直接受領では `--daily-close-proof` とファイル名を外す。SIP経由で取引所公式値を使う場合は[別の原本と引数](#nasdaqの公式終値を固定受領から読む)を使う。
+
 ```bash
-uv run --offline python -m tools.experiments.us_research_report draft-digest /private/draft.json
+uv run --offline python -m tools.experiments.us_research_report draft-digest \
+  /private/draft.json --daily-close-proof /private/sip-bars-capture.json
 # 別担当が、出力の report_id / draft_sha256 と reviewer_identity / reviewed_at
 # （時差付き）/ conclusion: "pass" / notes をJSONに記入してから保存する。
 NEW_REPORT=/private/report.md
 uv run --offline python -m tools.experiments.us_research_report save \
-  /private/draft.json /private/review.json --output /private/reviewed.json &&
+  /private/draft.json /private/review.json \
+  --daily-close-proof /private/sip-bars-capture.json --output /private/reviewed.json &&
 (
   umask 077
   set -o noclobber
@@ -48,10 +52,11 @@ uv run --offline python -m tools.experiments.us_research_report check-render \
 
 ```bash
 uv run --offline python -m tools.experiments.us_research_report proposal-digest \
-  /private/reviewed.json /private/decision.json
+  /private/reviewed.json /private/decision.json --daily-close-proof /private/sip-bars-capture.json
 # 別担当が正確な提案IDとSHAを含む decision-review.json を作成した後。
 uv run --offline python -m tools.experiments.us_research_report proposal-save \
-  /private/reviewed.json /private/decision.json /private/decision-review.json --db "$APP_COPY" &&
+  /private/reviewed.json /private/decision.json /private/decision-review.json \
+  --daily-close-proof /private/sip-bars-capture.json --db "$APP_COPY" &&
 uv run --offline python -m tools.experiments.us_research_report proposal-show \
   --db "$APP_COPY" --proposal-id "$PROPOSAL_ID"
 ```
@@ -213,7 +218,7 @@ SECが `text/html` で返す索引では、[HTMLで省略可能な外側の終�
 
 許可された用途で取得した `DailyBarsQuery(..., "-", "raw", feed="sip")` の完全な受領を使う。[固定受領](#許可済みの実受領を束ねる)のAlpaca部分（`request_id`、`start`、`end`、`pages`）と要求順の `symbols` を一つのJSONにし、元の全文をJSONと同じディレクトリに置く。`sip_daily_close_fields` で対象の観測を原稿の `daily_close` へ写す。比較に使う価格は一種類。日足の場合は `official_close`、IEX観測を使わない場合は `iex_band` を省略できる。詳細は[取得から保存・読戻しの合成例](../../tests/tools/test_us_research_report_daily_close.py)。
 
-新規の `draft-digest`・`save`・`proposal-digest`・`proposal-save` には同じ `--daily-close-proof <固定受領JSON>` を渡す。保存後の読戻しに原本は不要。IEX、最終約定、分割調整後、別日・別株式クラス、取引所の公式値に読み替えない。日足を取得できなければ価格を埋めず、保留理由と見直し条件を記す。第三者への配信はデータ利用条件の確認が別に必要で、認証Webであることだけでは許可にならない。
+上記の新規作成・保存の各回に、同じ固定受領JSONを `--daily-close-proof` で渡す。保存後の読戻しに原本は不要。IEX、最終約定、分割調整後、別日・別株式クラス、取引所の公式値に読み替えない。日足を取得できなければ価格を埋めず、保留理由と見直し条件を記す。第三者への配信はデータ利用条件の確認が別に必要で、認証Webであることだけでは許可にならない。
 
 ## Nasdaqの公式終値を固定受領から読む
 
