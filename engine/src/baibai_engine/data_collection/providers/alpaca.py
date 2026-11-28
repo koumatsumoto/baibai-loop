@@ -19,6 +19,8 @@ MAX_SYMBOLS = 20
 MAX_PAGES = 16
 PAGE_LIMIT = 10_000  # Per page across all symbols, not per symbol.
 
+type AlpacaBarsFeed = Literal["iex", "sip"]
+
 type BarsFailure = Literal[
     "transport_error",
     "http_status",
@@ -45,13 +47,14 @@ def is_alpaca_symbol(value: object) -> bool:
 
 @dataclass(frozen=True, slots=True)
 class DailyBarsQuery:
-    """One IEX/USD scope. Alpaca's asof identifies symbols, not data availability."""
+    """One daily USD scope. Alpaca's asof identifies symbols, not data availability."""
 
     symbols: tuple[str, ...]
     start: date
     end: date
     symbol_asof: date | Literal["-"]
     adjustment: Literal["raw", "split"]
+    feed: AlpacaBarsFeed = "iex"
 
     def __post_init__(self) -> None:
         if (
@@ -67,6 +70,8 @@ class DailyBarsQuery:
             raise ValueError("select a fixed symbol date or disable Alpaca symbol mapping")
         if self.adjustment not in ("raw", "split"):
             raise ValueError("daily bars require explicit raw or split adjustment")
+        if self.feed not in ("iex", "sip"):
+            raise ValueError("daily bars require IEX or SIP feed")
 
     def url(self, *, page_token: str | None = None) -> str:
         # A cursor is opaque query data. It never supplies a host, path or another parameter.
@@ -78,7 +83,7 @@ class DailyBarsQuery:
             "limit": str(PAGE_LIMIT),
             "adjustment": self.adjustment,
             "asof": self.symbol_asof if self.symbol_asof == "-" else self.symbol_asof.isoformat(),
-            "feed": "iex",
+            "feed": self.feed,
             "currency": "USD",
             "sort": "asc",
         }
