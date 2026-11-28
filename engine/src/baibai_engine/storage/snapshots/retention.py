@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 from collections.abc import Iterator, Mapping
@@ -43,6 +42,12 @@ class LakeRetentionError(RuntimeError):
 def exclusive_lock(lock_path: Path, *, subject: str) -> Iterator[None]:
     """Hold one writer at a time over whatever ``lock_path`` stands for."""
 
+    # Snapshot inspection shares this module; a POSIX writer is not needed to read.
+    try:
+        import fcntl
+    except ModuleNotFoundError as exc:
+        raise LakeRetentionError(f"{subject} requires POSIX file locking") from exc
+
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+b") as handle:
         try:
@@ -62,7 +67,6 @@ def lake_writer_lock(mirror_root: Path) -> Iterator[None]:
     Only GC uses this lock. The operator must keep the mirror idle during apply.
     """
 
-    mirror_root.mkdir(parents=True, exist_ok=True)
     with exclusive_lock(mirror_root / ".lake-writer.lock", subject="lake publication"):
         yield
 
