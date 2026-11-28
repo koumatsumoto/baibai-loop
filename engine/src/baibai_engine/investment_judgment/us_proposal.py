@@ -43,6 +43,8 @@ from baibai_engine.storage.sqlite.application.write import connect_existing
 
 _ET = ZoneInfo("America/New_York")
 _EXCHANGE_HOST = {"XNAS": "nasdaq.com", "XNYS": "nyse.com"}
+_TICKER_PATTERN = r"^[A-Z][A-Z0-9]*(?:\.[A-Z0-9]+)?$"
+_TICKER_MAX_LENGTH = 8
 
 type Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 type ReportId = Annotated[str, Field(pattern=r"^us-report-[a-z0-9-]{1,64}$")]
@@ -217,7 +219,7 @@ class ReportDraft(_Record):
     report_id: ReportId
     author_identity: Text
     venue: Literal["XNAS", "XNYS"]
-    ticker: Annotated[str, Field(pattern=r"^[A-Z][A-Z0-9]*(?:\.[A-Z0-9]+)?$", max_length=8)]
+    ticker: Annotated[str, Field(pattern=_TICKER_PATTERN, max_length=_TICKER_MAX_LENGTH)]
     cik: Annotated[str, Field(min_length=10, max_length=10, pattern=r"^0*[1-9][0-9]*$")]
     share_class: Text
     currency: Literal["USD"]
@@ -308,10 +310,22 @@ def _require_matching_direct_nasdaq_link(draft: ReportDraft, close: _OfficialClo
         return
     path = (close.source_url.path or "").removesuffix("/")
     # Split before decoding so an encoded slash cannot become a route separator.
-    match tuple(unquote(part) for part in path.split("/")):
-        case ("", "market-activity", "stocks", ticker, "historical-nocp"):
-            if not ticker.isascii() or ticker.upper() != draft.ticker:
-                raise ValueError("direct Nasdaq NOCP link does not match the report ticker")
+    parts = tuple(unquote(part) for part in path.split("/"))
+    if parts[:3] != ("", "market-activity", "stocks") or len(parts) < 4:
+        return
+    ticker, section = parts[3], parts[4:]
+    symbol = ticker.upper() if ticker.isascii() else ""
+    # An ordinary page can contradict the ticker, never establish an official close.
+    # The screener is a listing-wide page at the same depth as a stock overview.
+    if section not in (("historical-nocp",), ("historical",)) and (
+        section
+        or symbol == "SCREENER"
+        or len(symbol) > _TICKER_MAX_LENGTH
+        or re.fullmatch(_TICKER_PATTERN, symbol) is None
+    ):
+        return
+    if symbol != draft.ticker:
+        raise ValueError("direct Nasdaq stock link does not match the report ticker")
 
 
 def require_close_receipt(draft: ReportDraft, sip_proof: SipCloseProof | None = None) -> None:
