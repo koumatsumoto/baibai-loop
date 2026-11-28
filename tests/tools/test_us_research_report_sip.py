@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
+from tests.helpers.us_research_admission import run_with_synthetic_current as main
 from tests.tools.test_us_research_report import _draft
-from tools.experiments.us_research_report import main
 
 from baibai_engine.data_collection.providers.alpaca_auctions import (
     NasdaqOfficialCloseQuery,

@@ -6,6 +6,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from hashlib import sha256
 from pathlib import Path
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
@@ -22,6 +23,7 @@ from baibai_engine.machine_analysis.observations.stocks.listing_master import (
     ListingSlice,
 )
 from baibai_engine.machine_analysis.observations.stocks.us_universe import RakutenRestriction
+from baibai_engine.primitives.json import encode_json
 
 NASDAQ_DIRECTORY_SOURCE = "nasdaq-trader"
 # This one object contains both complete name lists, not a small marker.
@@ -146,6 +148,47 @@ class CurrentListingMarket:
                 session=self.slice.session,
             ),
         )
+
+
+def active_us_listing_ids(current: CurrentListingMarket) -> dict[ListingKey, str]:
+    return {
+        row.key: row.instrument_id
+        for row in current.slice.rows
+        if row.key[0] in ("XNAS", "XNYS")
+        and row.listing_state == "listed"
+        and row.instrument_id is not None
+    }
+
+
+def active_us_listing_sha256(active: dict[ListingKey, str]) -> str:
+    return sha256(encode_json(sorted(active.items())).encode()).hexdigest()
+
+
+def read_bound_rakuten_scope(
+    current: CurrentListingMarket | None, *, session: date, cutoff: datetime
+) -> CurrentRakutenScope | None:
+    """Read a matching broker attachment for a session the caller already proved."""
+    if cutoff.utcoffset() is None:
+        raise ValueError("Rakuten cutoff requires a timezone")
+    if (
+        current is None
+        or current.slice.market != "US"
+        or current.slice.session != session
+        or session > cutoff.astimezone(RAKUTEN_SCOPE_ZONE).date()
+        or current.received_at > cutoff
+    ):
+        return None
+    scope = current.rakuten
+    if scope is None or scope.effective_session != session or max(scope.clocks) > cutoff:
+        return None
+    active = active_us_listing_ids(current)
+    if (
+        len({row.key for row in current.slice.rows}) != len(current.slice.rows)
+        or scope.active_listing_sha256 != active_us_listing_sha256(active)
+        or any(active.get(row.listing_key) != row.instrument_id for row in scope.rows)
+    ):
+        return None
+    return scope
 
 
 _FILE = TypeAdapter(dict[ListingMarket, CurrentListingMarket])

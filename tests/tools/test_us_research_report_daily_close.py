@@ -9,8 +9,8 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 
 import pytest
+from tests.helpers.us_research_admission import run_with_synthetic_current as main
 from tests.tools.test_us_research_report import _draft, _write
-from tools.experiments.us_research_report import main
 
 from baibai_engine.data_collection.providers.alpaca import DailyBarsQuery
 from baibai_engine.storage.paths import APPLICATION_DB_PATH

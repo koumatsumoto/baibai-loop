@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timezone
@@ -37,9 +38,17 @@ from baibai_engine.data_collection.providers.alpaca_auctions import (
     SipAuctionReceipt,
     read_nasdaq_official_close,
 )
+from baibai_engine.data_collection.providers.alpaca_calendar import AlpacaCalendarReading
 from baibai_engine.investment_judgment.contracts import PerspectiveAssessment, PerspectiveModel
+from baibai_engine.investment_judgment.us_research_admission import (
+    USResearchListingBasis,
+    require_us_research_listing,
+)
 from baibai_engine.machine_analysis.observations.prices.alpaca_normalization import (
     normalize_alpaca_daily_bars,
+)
+from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
+    CurrentListingMarket,
 )
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.numbers import finite_decimal
@@ -243,6 +252,9 @@ class ReportDraft(_Record):
     expected_session_et: date
     session_close_at: _ReportClock
     calendar_source_url: HttpUrl
+    listing_basis: USResearchListingBasis | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     iex_band: _IEXBand | None = None
     official_close: _OfficialClose | _NasdaqSipClose | None = None
     daily_close: _AlpacaSipDailyClose | None = Field(
@@ -262,6 +274,12 @@ class ReportDraft(_Record):
             or self.session_close_at > self.cutoff_at
             or _exchange_date(self.session_close_at) != self.expected_session_et
             or not _listing_https(self.calendar_source_url, self.venue)
+            or (
+                self.listing_basis is not None
+                and not self.expected_session_et
+                <= self.listing_basis.listing_session_et
+                <= cutoff_et
+            )
         ):
             raise ValueError("invalid report cutoff or calendar citation")
         if any(
@@ -321,6 +339,30 @@ class ReportDraft(_Record):
     def comparison_price(self) -> _OfficialClose | _NasdaqSipClose | _AlpacaSipDailyClose | None:
         """The single observed, non-execution price used in the scenario comparison."""
         return self.daily_close or self.official_close
+
+
+def admit_new_us_report(
+    draft: ReportDraft,
+    current: CurrentListingMarket | None,
+    calendar: AlpacaCalendarReading,
+    *,
+    checked_at: datetime,
+) -> ReportDraft:
+    """Bind even a price-incomplete draft to the current listing and known session."""
+    if checked_at.utcoffset() is None or draft.prepared_at > checked_at:
+        raise ValueError("US Research draft is after the admission instant")
+    basis = require_us_research_listing(
+        current,
+        calendar,
+        key=(draft.venue, draft.ticker),
+        cutoff=draft.cutoff_at,
+        checked_at=checked_at,
+        price_session=draft.expected_session_et,
+        session_close_at=draft.session_close_at,
+    )
+    if draft.listing_basis is not None and draft.listing_basis != basis:
+        raise ValueError("US Research draft identifies a different listing instance")
+    return draft.model_copy(update={"listing_basis": basis})
 
 
 @dataclass(frozen=True, slots=True)
@@ -502,6 +544,8 @@ def render(draft: ReportDraft, review: ReportReview) -> bytes:
         "",
         "## 観測価格と評価",
     ]
+    if draft.listing_basis is not None:
+        lines.insert(5, f"- 現行銘柄区分の対象立会（ET）: {draft.listing_basis.listing_session_et}")
     band = draft.iex_band
     if band is None:
         if draft.daily_close is None:
@@ -717,12 +761,45 @@ def _decision_digest(draft: USProposalDraft, analysis: ReviewedReport) -> str:
     )
 
 
+type USProposalCurrentInputs = tuple[CurrentListingMarket | None, AlpacaCalendarReading]
+
+
+def _require_current_us_proposal(
+    draft: USProposalDraft,
+    analysis: ReviewedReport,
+    current: USProposalCurrentInputs,
+    *,
+    checked_at: datetime,
+) -> None:
+    if checked_at.utcoffset() is None or draft.prepared_at > checked_at:
+        raise ValueError("US decision draft is after the admission instant")
+    report = analysis.draft
+    if report.listing_basis is None:
+        raise ValueError("new US decision requires a currently admitted analytical report")
+    actual = require_us_research_listing(
+        *current,
+        key=(report.venue, report.ticker),
+        cutoff=checked_at,
+        checked_at=checked_at,
+        price_session=report.expected_session_et,
+        session_close_at=report.session_close_at,
+    )
+    if actual != report.listing_basis:
+        raise ValueError("US decision analysis identifies a different listing or session")
+
+
 def prepare_us_proposal(
-    draft: USProposalDraft, analysis: ReviewedReport, *, sip_proof: CloseProof | None = None
+    draft: USProposalDraft,
+    analysis: ReviewedReport,
+    *,
+    current: USProposalCurrentInputs,
+    checked_at: datetime,
+    sip_proof: CloseProof | None = None,
 ) -> str:
     require_close_receipt(analysis.draft, sip_proof)
     _validate_decision(draft, analysis)
-    _require_future_horizon(draft, analysis, at=draft.prepared_at)
+    _require_current_us_proposal(draft, analysis, current, checked_at=checked_at)
+    _require_future_horizon(draft, analysis, at=checked_at)
     render_reviewed_report(analysis)
     return _decision_digest(draft, analysis)
 
@@ -760,17 +837,23 @@ def save_us_proposal(
     analysis: ReviewedReport,
     review: USProposalReview,
     *,
-    published_at: datetime,
+    read_current: Callable[[], USProposalCurrentInputs],
+    clock: Callable[[], datetime],
     sip_proof: CloseProof | None = None,
 ) -> USProposal:
-    # The reviewed analysis is an admission input, not a renderer dependency on App reads.
+    """Check the caller's current local pin after acquiring the App write lock."""
     require_close_receipt(analysis.draft, sip_proof)
     render_reviewed_report(analysis)
-    proposal = USProposal(
-        decision=draft, analysis=analysis, review=review, published_at=published_at
-    )
-    payload = canonical_json(proposal.model_dump(mode="json"))
-    with closing(connect_existing(path)) as connection:
+    with closing(connect_existing(path)) as connection, connection:
+        connection.execute("BEGIN IMMEDIATE")
+        current = read_current()
+        # A wait for the writer or file decoding can cross the NY session boundary.
+        published_at = clock()
+        _require_current_us_proposal(draft, analysis, current, checked_at=published_at)
+        proposal = USProposal(
+            decision=draft, analysis=analysis, review=review, published_at=published_at
+        )
+        payload = canonical_json(proposal.model_dump(mode="json"))
         connection.execute(
             "INSERT INTO us_equity_proposal(proposal_id, published_at, payload) VALUES (?, ?, ?)",
             (draft.proposal_id, _published_key(proposal.published_at), payload),

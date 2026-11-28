@@ -9,7 +9,6 @@ from collections.abc import Callable, Iterable
 from contextlib import closing
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
-from hashlib import sha256
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Literal, Protocol
@@ -29,9 +28,12 @@ from baibai_engine.machine_analysis.observations.stocks.listing_master_file impo
     NasdaqDirectoryVersion,
     RakutenBrokerRow,
     RakutenBrokerState,
+    active_us_listing_ids,
+    active_us_listing_sha256,
     checked_nasdaq_directory_versions,
     decode_current_listing_master,
     encode_current_listing_master,
+    read_bound_rakuten_scope,
 )
 from baibai_engine.machine_analysis.observations.stocks.us_universe import (
     RakutenOrdinaryRow,
@@ -39,7 +41,6 @@ from baibai_engine.machine_analysis.observations.stocks.us_universe import (
     RakutenRestrictionRow,
     rakuten_listing_key,
 )
-from baibai_engine.primitives.json import encode_json
 from baibai_engine.storage.filesystem import fsync_directory, write_bytes_atomic
 from baibai_engine.storage.objects.json import put_private
 from baibai_engine.storage.objects.r2 import (
@@ -240,20 +241,6 @@ def _update_market(
     raise AssertionError("conditional update exited without an outcome")
 
 
-def _active_ids(current: CurrentListingMarket) -> dict[ListingKey, str]:
-    return {
-        row.key: row.instrument_id
-        for row in current.slice.rows
-        if row.key[0] in ("XNAS", "XNYS")
-        and row.listing_state == "listed"
-        and row.instrument_id is not None
-    }
-
-
-def _active_listing_sha256(active: dict[ListingKey, str]) -> str:
-    return sha256(encode_json(sorted(active.items())).encode()).hexdigest()
-
-
 def _current_us_slice(
     current: CurrentListingMarket | None, *, expected_session: date, cutoff: datetime
 ) -> bool:
@@ -303,19 +290,9 @@ def read_current_rakuten_scope(
     """Return a complete broker intersection for this active US listing set or None."""
     if cutoff.utcoffset() is None:
         raise ValueError("Rakuten cutoff requires a timezone")
-    if current is None or not _current_us_slice(
-        current, expected_session=expected_session, cutoff=cutoff
-    ):
+    if cutoff.astimezone(RAKUTEN_SCOPE_ZONE).date() != expected_session:
         return None
-    scope = current.rakuten
-    if scope is None or scope.effective_session != expected_session or max(scope.clocks) > cutoff:
-        return None
-    active = _active_ids(current)
-    if scope.active_listing_sha256 != _active_listing_sha256(active) or any(
-        active.get(row.listing_key) != row.instrument_id for row in scope.rows
-    ):
-        return None  # A cached set cannot tell us whether newly active keys were matched.
-    return scope
+    return read_bound_rakuten_scope(current, session=expected_session, cutoff=cutoff)
 
 
 def refresh_current_us_rakuten_scope(
@@ -364,7 +341,7 @@ def refresh_current_us_rakuten_scope(
             current, expected_session=expected_session, cutoff=cutoff
         ):
             return None
-        active = _active_ids(current)
+        active = active_us_listing_ids(current)
         if any(active.get(row.listing_key) != row.instrument_id for row in bound):
             return None
         if active.keys() & captured_keys != bound_keys:
@@ -375,7 +352,7 @@ def refresh_current_us_rakuten_scope(
             exclusions_at,
             catalog_count,
             exclusions_count,
-            _active_listing_sha256(active),
+            active_us_listing_sha256(active),
             bound,
         )
         previous = current.rakuten

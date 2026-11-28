@@ -25,13 +25,12 @@ from baibai_engine.investment_judgment.us_proposal import (
     ReportDraft,
     ReportReview,
     SipCloseProof,
+    USProposal,
     USProposalDraft,
     USProposalReview,
     draft_digest,
-    prepare_us_proposal,
     published_us_proposal_ids,
     reviewed_report,
-    save_us_proposal,
     sip_official_close_fields,
 )
 from baibai_engine.machine_analysis.observations.stocks.listing_master import (
@@ -44,6 +43,7 @@ from baibai_engine.machine_analysis.observations.stocks.listing_master_file impo
     encode_current_listing_master,
 )
 from baibai_engine.portfolio.performance.store import PortfolioOutcomeStore
+from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.paths import APPLICATION_DB_PATH, MARKET_DB_PATH
 from baibai_engine.storage.sqlite.application.write import initialize_database
@@ -192,19 +192,34 @@ def _save_us(
             "model_perspectives": perspectives,
         }
     )
+    # Seed a pre-cutover record for the read-model test, not a new admission.
+    payload = {
+        "decision": decision.model_dump(mode="json"),
+        "analysis": analysis.model_dump(mode="json"),
+    }
     review = USProposalReview.model_validate(
         {
             "proposal_id": proposal_id,
-            "draft_sha256": prepare_us_proposal(decision, analysis, sip_proof=sip_proof),
+            "draft_sha256": sha256(canonical_json(payload).encode()).hexdigest(),
             "reviewer_identity": "synthetic formal peer",
             "reviewed_at": "2026-06-03T16:30:00Z",
             "conclusion": "pass",
             "notes": "synthetic formal notes, not a Web input",
         }
     )
-    return save_us_proposal(
-        app, decision, analysis, review, published_at=published_at, sip_proof=sip_proof
+    record = USProposal(
+        decision=decision, analysis=analysis, review=review, published_at=published_at
     )
+    with closing(sqlite3.connect(app, autocommit=True)) as connection:
+        connection.execute(
+            "INSERT INTO us_equity_proposal VALUES (?,?,?)",
+            (
+                proposal_id,
+                published_at.astimezone(UTC).isoformat(timespec="microseconds"),
+                canonical_json(record.model_dump(mode="json")),
+            ),
+        )
+    return record
 
 
 def _export(root, out):

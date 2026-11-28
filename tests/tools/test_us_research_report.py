@@ -11,7 +11,15 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from pydantic import ValidationError
-from tools.experiments.us_research_report import main
+from tests.helpers.us_research_admission import (
+    prepare_with_synthetic_current as prepare_us_proposal,
+)
+from tests.helpers.us_research_admission import (
+    run_with_synthetic_current as main,
+)
+from tests.helpers.us_research_admission import (
+    save_with_synthetic_current as save_us_proposal,
+)
 
 from baibai_engine.investment_judgment.us_proposal import (
     ReportDraft,
@@ -20,9 +28,7 @@ from baibai_engine.investment_judgment.us_proposal import (
     USProposalDraft,
     USProposalReview,
     draft_digest,
-    prepare_us_proposal,
     render,
-    save_us_proposal,
 )
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.paths import APPLICATION_DB_PATH
@@ -376,16 +382,14 @@ def test_changed_saved_draft_with_same_id_and_a_duplicate_json_key_are_rejected(
 
 
 def _decision_inputs(tmp_path, capsys, *, comparable, horizon=None, ticker="GOOGL"):
-    # Keep the existing private report shape, but use a past synthetic receipt for real CLI time.
+    # This test wrapper gives the actual CLI a fixed clock for the synthetic session.
     report = json.loads(
         json.dumps(_draft(ticker=ticker)).replace("2026-", "2025-").replace("2027-", "2026-")
     )
     if not comparable:
         report.update(official_close=None, comparison=None, unresolved=["取引所終値未確認。"])
     else:
-        report["comparison"]["horizon_et"] = (
-            horizon or (datetime.now(UTC) + timedelta(days=365)).date().isoformat()
-        )
+        report["comparison"]["horizon_et"] = horizon or "2026-11-27"
     authored, review = _prepare(tmp_path, capsys, report)
     review["reviewed_at"] = "2025-11-28T16:00:00Z"
     analysis = str(tmp_path / "analysis.json")

@@ -9,8 +9,9 @@ import re
 import sqlite3
 import sys
 from contextlib import closing
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
+from hashlib import sha256
 from pathlib import Path
 from typing import Never
 from urllib.parse import parse_qsl, urlsplit
@@ -22,14 +23,21 @@ from baibai_engine.data_collection.providers.alpaca_auctions import (
     NasdaqOfficialCloseQuery,
     SipAuctionReceipt,
 )
+from baibai_engine.data_collection.providers.alpaca_calendar import (
+    AlpacaCalendarReading,
+    AlpacaCalendarResponse,
+    read_paper_us_calendar,
+)
 from baibai_engine.investment_judgment.us_proposal import (
     CloseProof,
     ReportDraft,
     ReportReview,
     ReviewedReport,
     SipCloseProof,
+    USProposalCurrentInputs,
     USProposalDraft,
     USProposalReview,
+    admit_new_us_report,
     draft_digest,
     load_latest_us_proposal,
     load_us_proposal,
@@ -38,6 +46,9 @@ from baibai_engine.investment_judgment.us_proposal import (
     require_close_receipt,
     reviewed_report,
     save_us_proposal,
+)
+from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
+    read_local_listing_master,
 )
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.application.read import connect_read_only
@@ -54,6 +65,21 @@ def _read(path: Path) -> object:
     return json.loads(
         path.read_text(encoding="utf-8"), object_pairs_hook=_unique_fields, parse_float=Decimal
     )
+
+
+def _transfer_time(stamp: object) -> datetime:
+    if (
+        not isinstance(stamp, str)
+        or stamp.endswith("-00:00")
+        or re.fullmatch(
+            r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
+            r"(?:\.[0-9]{1,6})?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])",
+            stamp,
+        )
+        is None
+    ):
+        raise ValueError("receipt requires an exact transfer time")
+    return datetime.fromisoformat(stamp)
 
 
 def _sip_proof(draft: ReportDraft, paths: list[Path] | None) -> SipCloseProof | None:
@@ -74,17 +100,9 @@ def _sip_proof(draft: ReportDraft, paths: list[Path] | None) -> SipCloseProof | 
         not isinstance(url, str)
         or not isinstance(response, str)
         or not isinstance(digest, str)
-        or not isinstance(received_at, str)
         or type(status) is not int
         or type(complete) is not bool
         or type(redirected) is not bool
-        or re.fullmatch(
-            r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
-            r"(?:\.[0-9]{1,6})?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])",
-            received_at,
-        )
-        is None
-        or received_at.endswith("-00:00")
     ):
         raise ValueError("SIP receipt requires exact transfer metadata")
     # Decode only the bounds. The provider owner still requires both full captured
@@ -102,7 +120,7 @@ def _sip_proof(draft: ReportDraft, paths: list[Path] | None) -> SipCloseProof | 
             request_url=url,
             response_url=response,
             status_code=status,
-            received_at=datetime.fromisoformat(received_at),
+            received_at=_transfer_time(received_at),
             body_sha256=digest,
             complete=complete,
             redirected=redirected,
@@ -126,6 +144,64 @@ def _daily_close_proof(draft: ReportDraft, manifest: Path) -> BarsCapture:
     if isinstance(capture, str):
         raise ValueError("daily close manifest is not a complete raw SIP capture")
     return capture
+
+
+def _calendar_proof(path: Path) -> AlpacaCalendarReading:
+    # This is a run-local capture, not a new live request or a calendar store.
+    with path.open("rb") as stream:
+        data = stream.read(32769)
+    if len(data) > 32768:
+        raise ValueError("US calendar receipt exceeds its size bound")
+    spec = json.loads(data, object_pairs_hook=_unique_fields)
+    if not isinstance(spec, dict) or set(spec) != {
+        "start",
+        "end",
+        "request_url",
+        "response_url",
+        "received_at",
+        "status",
+        "complete",
+        "redirected",
+        "body",
+        "sha256",
+    }:
+        raise ValueError("invalid US calendar receipt fields")
+    if (
+        not isinstance(body := spec["body"], str)
+        or spec["redirected"] is not False
+        or type(spec["status"]) is not int
+        or spec["complete"] is not True
+    ):
+        raise ValueError("unverified US calendar receipt")
+    payload = body.encode("utf-8")
+    if sha256(payload).hexdigest() != spec["sha256"]:
+        raise ValueError("US calendar receipt body differs")
+
+    def fixed_response(url: str) -> AlpacaCalendarResponse:
+        if spec["request_url"] != url:
+            raise ValueError("US calendar receipt request does not match its window")
+        return AlpacaCalendarResponse(
+            response_url=spec["response_url"],
+            status_code=spec["status"],
+            received_at=_transfer_time(spec["received_at"]),
+            body=payload,
+            complete=True,
+        )
+
+    return read_paper_us_calendar(
+        date.fromisoformat(spec["start"]),
+        date.fromisoformat(spec["end"]),
+        get_authorized=fixed_response,
+    )
+
+
+def _current_inputs(args: argparse.Namespace) -> USProposalCurrentInputs:
+    if args.current_listing_master is None or args.calendar_proof is None:
+        raise ValueError("new US Research or decision requires the current master and calendar")
+    return (
+        read_local_listing_master(args.current_listing_master).get("US"),
+        _calendar_proof(args.calendar_proof),
+    )
 
 
 def _proof(draft: ReportDraft, args: argparse.Namespace) -> CloseProof | None:
@@ -173,6 +249,8 @@ def build_parser() -> _Parser:
     show.add_argument("--db", type=Path, required=True)
     show.add_argument("--proposal-id")
     for authoring in (draft_digest_command, save, digest, publish):
+        authoring.add_argument("--current-listing-master", type=Path, metavar="PATH")
+        authoring.add_argument("--calendar-proof", type=Path, metavar="RECEIPT")
         sources = authoring.add_mutually_exclusive_group()
         sources.add_argument(
             "--sip-proof",
@@ -190,13 +268,18 @@ def build_parser() -> _Parser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     args = build_parser().parse_args(argv)
     stage = "draft"
+
+    def checked_time() -> datetime:
+        return now if now is not None else datetime.now(UTC)
+
     try:
         if args.command in {"draft-digest", "save"}:
             draft = ReportDraft.model_validate(_read(args.draft))
             proof = _proof(draft, args)
+            draft = admit_new_us_report(draft, *_current_inputs(args), checked_at=checked_time())
             if args.command == "save":
                 stage = "review/save"
                 _save(
@@ -239,7 +322,13 @@ def main(argv: list[str] | None = None) -> int:
             decision = USProposalDraft.model_validate(_read(args.decision))
             proof = _proof(analysis.draft, args)
             if args.command == "proposal-digest":
-                digest_value = prepare_us_proposal(decision, analysis, sip_proof=proof)
+                digest_value = prepare_us_proposal(
+                    decision,
+                    analysis,
+                    current=_current_inputs(args),
+                    checked_at=checked_time(),
+                    sip_proof=proof,
+                )
             else:
                 stage = "US proposal save"
                 review = USProposalReview.model_validate(_read(args.proposal_review))
@@ -248,7 +337,8 @@ def main(argv: list[str] | None = None) -> int:
                     decision,
                     analysis,
                     review,
-                    published_at=datetime.now(UTC),
+                    read_current=lambda: _current_inputs(args),
+                    clock=checked_time,
                     sip_proof=proof,
                 )
                 digest_value = saved_proposal.review.draft_sha256

@@ -19,17 +19,23 @@ uv run --offline python -m tools.experiments.us_research_mvp --bundle /private/m
 2. 価格の基準は[Alpaca SIPの無調整日足終値](#alpaca-sipの日足終値で比較する)とし、公式終値を必須にしない。公式値を使う場合は無調整の上場取引所値を選んで出典を別に示す。IEX観測帯は任意の分割調整済み参考値で、比較価格に代用しない。価格か他の比較根拠が不足なら `comparison: null` と未確認事項。
 3. 財務では原典と実読時刻、会計期間・観測内容を引用。比較が可能な場合だけ、同じ終期で基本／下振れの1株価値・取得権のある分配・仮定を示す。無利息のUSD現金との差を計算し、税・費用・為替は対象外。未確認の残高・執行条件・買付数量は入れない。別担当は出典の本文、銘柄と権利、期間、反対材料と比較前提を確認する。このCLIはリンク先を取得せず、根拠の真偽や別担当の本人性を認証しない。
 
+新規の `draft-digest` と `save` には、同じ非公開の現行銘柄ファイルと、認可済みの受領を固定したNY暦を渡す。新規対象は対象日が合うUS区分の **上場中の銘柄ID × 楽天普通株対象 × 買付制限なし** であることを確認する。これは注文受付の確認ではない。通常・短縮立会を区別し、休場の繰り越しは暦が当日まで連続して確認できる場合だけ。立会前の新規調査で前回の終値を使う場合も、同一銘柄ID・上場市場がその価格日に成立している必要がある。原稿の情報締切を後から前倒しして古い現行値を採用しない。Digestには検証した銘柄IDと対象立会が含まれ、同じティッカーでも別銘柄への変化には新規査読が必要。米国株のSEC発行体や種類の照合は別の根拠で行う。
+
+`--calendar-proof` は作業用の私有JSON。認可済みのAlpaca Paper Trading Calendarから実受領した `start`・`end`（NY日付）、`request_url`・`response_url`、`status`、全文受領の `received_at`（時差付き）、`complete`・`redirected`、UTF-8の応答全文をそのまま表す文字列 `body` とその `sha256` を指定する。正規の `date_type=TRADING` の完全な受領だけを既存の暦処理で照合する。このCLIは認証情報を得ず、通信もせず、暦の別保管を作らない。SIPデータの認可だけから同APIの認可を推定しない。どちらかがない場合、新規原稿の承認は止める。保存済み原稿の `render` / `check-render` の意味は変えない。
+
 以下は[固定受領の日足](#alpaca-sipの日足終値で比較する)を使う例。日足を原稿に記録しない保留や取引所からの直接受領では `--daily-close-proof` とファイル名を外す。SIP経由で取引所公式値を使う場合は[別の原本と引数](#nasdaqの公式終値を固定受領から読む)を使う。
 
 ```bash
 uv run --offline python -m tools.experiments.us_research_report draft-digest \
-  /private/draft.json --daily-close-proof /private/sip-bars-capture.json
+  /private/draft.json --daily-close-proof /private/sip-bars-capture.json \
+  --current-listing-master "$CURRENT_LISTING_MASTER" --calendar-proof "$US_CALENDAR_PROOF"
 # 別担当が、出力の report_id / draft_sha256 と reviewer_identity / reviewed_at
 # （時差付き）/ conclusion: "pass" / notes をJSONに記入してから保存する。
 NEW_REPORT=/private/report.md
 uv run --offline python -m tools.experiments.us_research_report save \
   /private/draft.json /private/review.json \
-  --daily-close-proof /private/sip-bars-capture.json --output /private/reviewed.json &&
+  --daily-close-proof /private/sip-bars-capture.json --output /private/reviewed.json \
+  --current-listing-master "$CURRENT_LISTING_MASTER" --calendar-proof "$US_CALENDAR_PROOF" &&
 (
   umask 077
   set -o noclobber
@@ -48,15 +54,19 @@ uv run --offline python -m tools.experiments.us_research_report check-render \
 
 現在の判断として見送りを新規発行するときは、比較の基準価格が対象取引所の直近の完了立会のものか、分析の締切後に判断を変える公表・権利変更がないかを査読で照合する。発行時刻だけでは、価格や根拠の鮮度は確認できない。重要な根拠が足りなければ `defer` とし、会社IRなどの確認先と再検討の条件を `revisit_when` に記す。
 
+新規の `proposal-digest` と `proposal-save` の各回に、現行正本から取り直した作業用銘柄ファイルと、その時点まで確認できる暦の受領を渡す。どちらの判断も、査読済み分析の銘柄ID、楽天普通株対象、買付制限、上場市場、対象立会と直近の完了立会を現在時刻で再照合する。保存ではAppの書込ロック取得後に再照合する。同じ立会・同じ銘柄の再取得は査読を変えない。対象外・銘柄変更・立会切替・証拠不足、または銘柄IDを結び付けていない旧分析では新規判断を止める。CLIは非通信で、渡されなかった新しい変更は検知しない。既存判断の読戻しにはこれらの入力を要求しない。
+
 査読済みの分析を用い、[判断原稿と査読の例](../../tests/tools/test_us_research_report.py)に沿って独立した提案本文の査読を取る。`proposal-digest` が出す提案IDとSHAに、見送りか保留か、理由、見直し条件、元の分析・その査読を結び付ける。分析の査読を提案の査読として使い回さない。査読済み分析の内容はApp内に保存され、読戻しでは分析と提案それぞれが査読に結び付いていることも確認する。元ファイルや再描画は不要で、同IDの差替えや欠損・破損した最新判断から別判断へのfallbackは行わない。
 
 ```bash
 uv run --offline python -m tools.experiments.us_research_report proposal-digest \
-  /private/reviewed.json /private/decision.json --daily-close-proof /private/sip-bars-capture.json
-# 別担当が正確な提案IDとSHAを含む decision-review.json を作成した後。
+  /private/reviewed.json /private/decision.json --daily-close-proof /private/sip-bars-capture.json \
+  --current-listing-master "$CURRENT_LISTING_MASTER" --calendar-proof "$US_CALENDAR_PROOF"
+# 別担当が正確な提案IDとSHAを含む decision-review.json を作成した後、現行の入力を再取得。
 uv run --offline python -m tools.experiments.us_research_report proposal-save \
   /private/reviewed.json /private/decision.json /private/decision-review.json \
-  --daily-close-proof /private/sip-bars-capture.json --db "$APP_COPY" &&
+  --daily-close-proof /private/sip-bars-capture.json --db "$APP_COPY" \
+  --current-listing-master "$CURRENT_LISTING_MASTER" --calendar-proof "$US_CALENDAR_PROOF" &&
 uv run --offline python -m tools.experiments.us_research_report proposal-show \
   --db "$APP_COPY" --proposal-id "$PROPOSAL_ID"
 ```
@@ -234,7 +244,8 @@ Alpaca SIP経由でNasdaqの公式値を比較価格に採用する場合だけ�
 
 ```bash
 uv run --offline python -m tools.experiments.us_research_report draft-digest \
-  /private/draft.json --sip-proof /private/sip-receipt.json /private/sip-original.json
+  /private/draft.json --sip-proof /private/sip-receipt.json /private/sip-original.json \
+  --current-listing-master "$CURRENT_LISTING_MASTER" --calendar-proof "$US_CALENDAR_PROOF"
 ```
 
 本番でNasdaqのSIP経由公式終値を使う判断を初めて保存する前に、対応するApp読取・配信処理と認証Webを先に反映する。実際の受入では同じ保存判断のID・正式原稿SHAと「Nasdaqの無調整公式終値（Alpaca SIP経由）」の表示を照合する。隔離検証やこの手順だけでは実データの受入・本番配信を証明しない。
