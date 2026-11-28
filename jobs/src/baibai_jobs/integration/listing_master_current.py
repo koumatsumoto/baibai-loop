@@ -395,10 +395,14 @@ def refresh_current_us_rakuten_scope(
     return _update_market(store, "US", prepare)
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="現行銘柄マスターを今回の処理用に固定する。")
     parser.add_argument("--output", required=True, type=Path, help="この実行専用の未作成ファイル")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     try:
         bucket = os.environ.get("R2_STORES_BUCKET") or "baibai-stores"
         with closing(Boto3R2Store(bucket=bucket)) as store:

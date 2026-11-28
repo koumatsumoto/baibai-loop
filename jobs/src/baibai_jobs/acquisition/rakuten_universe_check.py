@@ -80,7 +80,7 @@ def _session(value: str) -> date:
     return parsed
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="baibai-jobs rakuten-universe-check",
         description="Validate private normalized inputs only; no network or publication.",
@@ -107,7 +107,11 @@ def main(argv: list[str] | None = None) -> int:
         help="complete restriction capture total",
     )
     parser.add_argument("--restrictions-received-at", required=True, type=datetime.fromisoformat)
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     totals = dict(args.venue_count)
     try:
         if len(totals) != len(args.venue_count):
