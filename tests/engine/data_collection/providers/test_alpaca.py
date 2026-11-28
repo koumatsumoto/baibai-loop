@@ -14,9 +14,11 @@ from baibai_engine.data_collection.providers.alpaca import (
     BARS_URL,
     MAX_PAGES,
     PAGE_LIMIT,
+    BarsPage,
     BarsResponse,
     DailyBarsQuery,
     capture_daily_bars,
+    read_complete_daily_bar_pages,
 )
 
 QUERY = DailyBarsQuery(
@@ -162,6 +164,38 @@ def test_empty_final_page_is_wire_complete_not_proof_of_a_market_day():
     assert result.complete
     assert result.pages[0].returned_symbols == ()
     assert calls == [QUERY.url()]
+
+
+def test_optional_response_currency_can_be_omitted_or_match_usd():
+    first = _page(next_token="next")
+    last = BarsResponse(200, AT, b'{"bars":{},"currency":"USD","next_page_token":null}')
+    result, _ = _capture(first, last)
+
+    assert result.complete
+    assert [page.response for page, _ in read_complete_daily_bar_pages(result)] == [first, last]
+
+
+@pytest.mark.parametrize("currency", ["EUR", "usd", None, 840])
+def test_conflicting_currency_fails_capture_and_replay(currency):
+    first = _page(next_token="next")
+    original = json.dumps({"bars": {}, "currency": currency, "next_page_token": "more"}).encode()
+    wrong = BarsResponse(200, AT, original)
+    terminal = _page()
+    result, calls = _capture(first, wrong, terminal)
+
+    assert not result.complete
+    assert result.failure == "invalid_envelope"
+    assert [page.response for page in result.pages] == [first, wrong]
+    assert calls == [QUERY.url(), QUERY.url(page_token="next")]
+
+    # Simulate a complete capture recorded before the currency check.
+    legacy = (
+        result.pages[0],
+        BarsPage(result.request_id, 2, calls[-1], wrong, ()),
+        BarsPage(result.request_id, 3, QUERY.url(page_token="more"), terminal, ()),
+    )
+    with pytest.raises(ValueError, match="invalid_envelope"):
+        read_complete_daily_bar_pages(replace(result, pages=legacy, failure=None))
 
 
 def test_equal_body_and_receipt_identity_are_distinct():
