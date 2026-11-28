@@ -29,9 +29,9 @@ uv run baibai-jobs --help
 
 shellを開き直したらenv.shをsourceする。checkoutを移動したらsetupをやり直す。通常のfixture・CLI helpに.envや本番storeは不要。ブラウザの検証が必要なときだけsetupに `--with-browser` を付ける。
 
-### 3. 実データが必要なときだけ `.env` を用意する
+### 3. 運用する端末に `.env` を用意する
 
-[設定例](../.env.sample)から必要な項目だけを選ぶ。R2には `R2_ACCESS_KEY_ID`・`R2_SECRET_ACCESS_KEY` と `R2_ACCOUNT_ID`。読取だけなら Object Read only、本番反映もする端末は同じ変数に Object Read & Write を設定する。対象は `baibai-stores` で足り、`baibai-serving` を含む鍵でも使える。CloudflareのToken Valueではなく、R2のS3用Access Key IDとSecret Access Keyを使う。日本株を直接取得するなら `JQUANTS_API_KEY`、米国相場を直接取得するなら Alpaca の `APCA_API_KEY_ID`・`APCA_API_SECRET_KEY` を追加する。EDINETとe-Statの鍵は各APIまで使うときのみ。GitHub Actions・Cloudflareの管理用トークン、npm公開トークン、本番Webのパスワードは共有用の設定に混ぜない。AlpacaのIEX取得可否とSIPの契約・権限は別。
+通常の運用セットアップでは、[設定例](../.env.sample)のR2認証3項目と本番Webの閲覧パスワード `VIEW_PASSWORD` を入れる。これはログイン用の控えで、ローカルの `.env` を変えてもWorker側のパスワードは変わらない。外部API・Actions・Discordは使う場合だけ追加する。Cloudflareの管理用トークンとnpm公開トークンはこの `.env` に入れない。
 
 **パスワードマネージャーで管理する。** このプロジェクトの `.env` 全文をパスワードマネージャーの保護されたノートに保存する。別の端末では、WSL内の作業コピーで `.env` を用意し、そこに必要な設定を貼り付ける。
 
@@ -44,6 +44,8 @@ cd ~/baibai-loop &&
 `git check-ignore` が `.env` を表示しない場合は、貼り付ける前にGitで追跡されていないか確認する。既存の `.env` は、必要な行を確認してから編集する。秘密の値をコマンド行・チャット・Gitに貼らない。通常のテストやCLIの起動確認には `.env` 自体が不要。
 
 本番データを読む場合だけ、[運用手順の実行前確認](../jobs/OPERATIONS.md#actions-write-boundary)へ。提案のAppデータだけなら [`pull-app`](../jobs/OPERATIONS.md#application-db-を反映する) を使う（AWS CLIと空の作業領域が必要）。`pull-app` は必要なR2変数が未設定なら `.env` をBashで読むため、信頼できる設定だけを使い、R2の各行は設定例どおりの単純な `名前=値` にする。セットアップ確認のために全DBをダウンロードしたり、`publish.sh` や本番バッチを実行したりしない。
+
+GitHub Actionsをローカルから起動するときだけ `GH_ACTIONS_TOKEN` を使う。Bashで `set -a; source .env; set +a` を実行してから、起動するコマンドにだけ `GH_TOKEN="${GH_ACTIONS_TOKEN:?GH_ACTIONS_TOKENを設定してください}"` を付ける。App反映時にActionsを呼ぶ `publish.sh` も同じ。PR作成・push用の認証とは分け、`GH_TOKEN` として常時exportしない。
 
 ## 変更を検証する
 
