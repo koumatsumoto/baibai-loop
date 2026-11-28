@@ -216,7 +216,7 @@ FRED確認state自体の欠落は[通常recheck-source](#経済原本)へ。他s
 
 空の作業領域へpullし、DBとstores/.r2-generations/baibai.sqlite.etagを同じ組で使う。版は取得した本文と同じ応答から取り、配置前に現正本と異なれば中止する。同じ作業領域に対する `pull-app` が重なった場合、後から来た取得はDB・取得世代を変えずに停止する。別の作業領域やR2側のwriterを止めるロックではない。更新済みの組があれば再pullしない。
 
-日米とも、提案の作成・査読とWebへの反映は別です。
+日米とも、提案の作成・査読とWebへの反映は別です。この手順での `r2_transfer.sh` は取得用。本番反映には `publish.sh` を使う。内部のDB転送だけではWeb更新は起動しない。
 
 1. **取得**: `R2_STORES_BUCKET=baibai-stores jobs/scripts/r2_transfer.sh pull-app`。この段階は読み取り鍵で足りる。
 2. **作成・査読・App保存**: 日本株は[提案手順](../.agents/skills/investment-judgment/SKILL.md#trade-proposal)の `trade-proposal-context` → `trade-proposal-check` → 査読 → `trade-proposal-publish`。米国株は[米国株CLI](../docs/reference/us-research-mvp.md#隔離appに米国株の見送り判断保留を保存する)の `draft-digest` → 分析査読 → `save` → `proposal-digest` → 判断査読 → `proposal-save` → `proposal-show`。保存先は取得した `stores/application/baibai.sqlite`（例: `APP_COPY=stores/application/baibai.sqlite`）。保存コマンドはAppを更新するだけで、R2や発注は行わない。
