@@ -76,8 +76,21 @@ jobs:
             uv run python -m baibai_web.materialize --output-dir "$RUNNER_TEMP/serving"
           } > "$RUNNER_TEMP/materialize-private.log" 2>&1
 
-      - name: Upload serving objects
+      - name: Confirm the generated views are from current main
+        id: current-revision
         if: ${{ !cancelled() && steps.materialize.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          current_sha=$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          checked_out_sha=$(git rev-parse HEAD)
+          if [[ "$current_sha" != "$checked_out_sha" ]]; then
+            echo 'main changed; regenerate views from the current main without repeating App upload.' >&2
+            exit 1
+          fi
+
+      - name: Upload serving objects
+        if: ${{ !cancelled() && steps.current-revision.outcome == 'success' }}
         env:
           PUBLICATION_LEASE_HANDLE: ${{ runner.temp }}/publication-lease-handle.json
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
