@@ -33,20 +33,15 @@ shellを開き直したらenv.shをsourceする。checkoutを移動したらsetu
 
 [設定例](../.env.sample)から必要な項目だけを選ぶ。R2の読取には読み取り専用の `R2_ACCESS_KEY_ID`・`R2_SECRET_ACCESS_KEY` と `R2_ACCOUNT_ID`。日本株を直接取得するなら `JQUANTS_API_KEY`、米国相場を直接取得するなら Alpaca の `APCA_API_KEY_ID`・`APCA_API_SECRET_KEY` を追加する。EDINETとe-Statの鍵は各APIまで使うときのみ。GitHub Actions・Cloudflareの管理用トークン、npm公開トークン、本番Webのパスワードは共有用の設定に混ぜない。AlpacaのIEX取得可否とSIPの契約・権限は別。
 
-**envshareを使う場合:** リポジトリのルートに配布元が用意した `envshare.enc` があるときだけ同期する。まだ配布されていなければこの手順は飛ばし、必要なら `.env.sample` を元に自分の `.env` を作る。既存の `.env` は上書きコピーしない。
-
-[envshare](https://github.com/koumatsumoto/envshare#インストール) またはそのソースCLIを使う。このリポジトリのWeb用Node固定版がenvshareの要求未満なら、envshare用に別のNodeを一時的に使う。たとえば fnm では `fnm install 26` の後に次を実行する。
+**パスワードマネージャーで管理する。** このプロジェクトの `.env` 全文をパスワードマネージャーの保護されたノートに保存する。別の端末では、WSL内の作業コピーで `.env` を用意し、そこに必要な設定を貼り付ける。
 
 ```bash
-fnm exec --using=26 npm install --global @koumatsumoto/envshare
-(
-  set +x
-  read -rs -p 'envshare key: ' ENVSHARE_KEY && printf '\n' &&
-    ENVSHARE_KEY="$ENVSHARE_KEY" fnm exec --using=26 envshare sync --bootstrap
-)
+cd ~/baibai-loop
+git check-ignore -- .env &&
+  (umask 077; touch .env && chmod 600 .env && nano .env)
 ```
 
-鍵は別経路で受け取り、コマンドの引数や履歴に直接書かない。すでに `.env` に鍵がある場合は `fnm exec --using=26 envshare sync` だけ。同期で `.env` の既存の無関係な設定は消えない。Gitには必要な場合だけ暗号文を置き、鍵・`.env`・平文の配布元は追加しない。CLIの単体テストには同期不要。
+`git check-ignore` が `.env` を表示しない場合は、貼り付ける前にGitで追跡されていないか確認する。既存の `.env` は、必要な行を確認してから編集する。秘密の値をコマンド行・チャット・Gitに貼らない。通常のテストやCLIの起動確認には `.env` 自体が不要。
 
 本番データを読む場合だけ、[運用手順の実行前確認](../jobs/OPERATIONS.md#actions-write-boundary)へ。提案のAppデータだけなら [`pull-app`](../jobs/OPERATIONS.md#application-db-を反映する) を使う（AWS CLIと空の作業領域が必要）。`pull-app` は必要なR2変数が未設定なら `.env` をBashで読むため、信頼できる設定だけを使い、R2の各行は設定例どおりの単純な `名前=値` にする。セットアップ確認のために全DBをダウンロードしたり、`publish.sh` や本番バッチを実行したりしない。
 
