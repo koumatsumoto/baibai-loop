@@ -22,9 +22,9 @@ def publish(case, number, instant, *, action="buy"):
         action=action,
         proposal_id=f"investment-proposal-00000000-0000-4000-8000-{number:012d}",
     )
-    return TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: instant).publish(
-        draft
-    )
+    return TradeProposalService(
+        case.app, listing_reader=case.listing_reader, sqlite_path=case.market, clock=lambda: instant
+    ).publish(draft)
 
 
 def lookup(case, when, *, tickers=("1234",), exclude=None):
@@ -149,8 +149,7 @@ def test_unverified_latest_does_not_promote_older_buy_or_poison_another_symbol(t
 def test_incomplete_buy_is_returned_with_its_limits_still_unconfirmed(tmp_path):
     c = backend_case(tmp_path)
     proposal = reviewed_proposal(c)
-    with closing(sqlite3.connect(c.market)) as d, d:
-        d.execute("DELETE FROM jquants_master_snapshots")
+    c.listing_path.unlink()
     raw = proposal.model_dump(mode="json")
     raw["inputs"]["security_classification"] = []
     raw["items"][0].update(
@@ -161,9 +160,9 @@ def test_incomplete_buy_is_returned_with_its_limits_still_unconfirmed(tmp_path):
         ],
     )
     draft = bind_review(raw, {c.pair.assessment_id: c.pair.document})
-    saved = TradeProposalService(c.app, sqlite_path=c.market, clock=lambda: PUBLISHED).publish(
-        draft
-    )
+    saved = TradeProposalService(
+        c.app, listing_reader=c.listing_reader, sqlite_path=c.market, clock=lambda: PUBLISHED
+    ).publish(draft)
     result = lookup(c, PUBLISHED)["1234"]
     assert result.proposal == saved
     assert result.item_index == 0

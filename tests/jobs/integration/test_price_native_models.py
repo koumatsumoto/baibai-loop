@@ -11,7 +11,7 @@ from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.financial_native import fixed_empty_financial_input, seed_empty_financial
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
-from tests.helpers.master import insert_master_rows
+from tests.helpers.master_calendar_native import pinned_jp_listing
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
@@ -173,13 +173,6 @@ def test_invalid_native_prices_do_not_enter_market_model_populations(tmp_path, i
     owner.commit(attempts)
     market = market_store(tmp_path / "market.sqlite")
     with sqlite3.connect(market) as connection:
-        insert_master_rows(
-            connection,
-            [
-                (days[0].isoformat(), ticker, "合成企業", "Prime", "機械", "011")
-                for ticker in ("1301", "1302")
-            ],
-        )
         connection.executemany(
             "INSERT INTO jquants_market_calendar VALUES (?,?)",
             [(day.isoformat(), "1" if day.weekday() < 5 else "0") for day in days],
@@ -210,6 +203,7 @@ def test_invalid_native_prices_do_not_enter_market_model_populations(tmp_path, i
                 ttm_rules=DEFAULT_TTM_RULES,
                 tickers=("1301", "1302"),
                 price_identity=saved,
+                current_master=pinned_jp_listing(as_of=as_of, tickers=("1301", "1302")),
             )
         )
     broken = generation.result("market_context", "1301").payload
@@ -371,7 +365,7 @@ def test_ordinary_integration_fixes_head_once_and_models_use_native_prices(tmp_p
     from baibai_engine.storage.snapshots.reader import resolve_current_release
     from baibai_jobs.publication.policy import release_policy_for_profile
 
-    names = ("jquants.daily_bars", "jquants.master_snapshots", "jquants.market_calendar")
+    names = ("jquants.daily_bars", "jquants.market_calendar")
     narrow_release_policy(monkeypatch, datasets=names)
     monkeypatch.setattr(publication, "LAKE_DATASETS", {name: LAKE_DATASETS[name] for name in names})
     monkeypatch.setattr(job, "_load_handle", lambda path: None)
@@ -387,27 +381,22 @@ def test_ordinary_integration_fixes_head_once_and_models_use_native_prices(tmp_p
         daily_bars=(("1301", DAY.isoformat(), 999, 1),),
         short_sale_reports=(),
     )
-    with sqlite3.connect(market) as connection:
-        insert_master_rows(
-            connection, [(DAY.isoformat(), "1301", "合成企業", "プライム", "卸売業", "011")]
-        )
-    from tests.helpers.master_calendar_native import seed_calendar, seed_master
+    from tests.helpers.master_calendar_native import seed_calendar
 
     seed_calendar(store, market, tmp_path / "calendar-native", as_of=DAY)
-    seed_master(store, market, tmp_path / "master-native", as_of=DAY)
     economic = tmp_path / "economic.sqlite"
     initialize_database(economic).close()
     import baibai_engine.machine_analysis.generation.inputs as generation
 
-    original_reader = generation.read_price_bars
+    original_reader = generation.iter_price_bar_batches
     consumed_prices = []
 
     def read_prices(*args, **kwargs):
-        prices = original_reader(*args, **kwargs)
-        consumed_prices.extend(bar.price for bar in prices["1301"])
-        return prices
+        for subjects, prices in original_reader(*args, **kwargs):
+            consumed_prices.append((kwargs.get("tickers"), [bar.price for bar in prices["1301"]]))
+            yield subjects, prices
 
-    monkeypatch.setattr(generation, "read_price_bars", read_prices)
+    monkeypatch.setattr(generation, "iter_price_bar_batches", read_prices)
     store.get_keys.clear()
     seed_empty_financial(store, tmp_path / "financial-native", DAY)
     result = job.integrate_models(
@@ -418,10 +407,11 @@ def test_ordinary_integration_fixes_head_once_and_models_use_native_prices(tmp_p
         runs=tmp_path / "runs",
         mirror=tmp_path / "mirror",
         as_of=DAY,
+        current_master=pinned_jp_listing(as_of=DAY),
         lease_handle=tmp_path / "lease",
         growth_start=None,
     )
-    assert consumed_prices == [100]
+    assert consumed_prices == [(None, [100]), (("1301",), [100])]
     assert store.get_keys.count(HEAD_KEY) == 1
     pack_reads = [key for key in store.get_keys if "/daily-bars/v1/packs/" in key]
     assert len(pack_reads) == len(set(pack_reads)) == 1

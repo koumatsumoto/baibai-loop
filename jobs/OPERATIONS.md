@@ -10,6 +10,7 @@ repository rootのBashで、依頼された対象だけを操作する。[archit
 | 公開済みの内容を読む | [固定release](#fixed-release-read)。release IDとmanifest SHAを固定する。 |
 | 反映が一部だけ成功した | [machine公開の結果不明](#machine公開の結果不明)／[seal・次input](#machine公開後の失敗再開)／[経済単独の再開](#経済単独公開と失敗再開)。日次を丸ごと再送しない。 |
 | 日本株の新規提案を本番データで検証する | [本番データで新規の売買提案を受け入れる](#production-proposal-acceptance)。日次成功・保存済み提案の表示とは別。 |
+| 楽天証券の米国普通株の対象範囲を確認する | [私有CSVの照合](#rakuten-us-universe-intake)。取扱・買付制限と上場・日足は別。 |
 | 米国株のAlpaca実接続を確認する | [Paper口座のIEX日足を手動確認](../docs/reference/us-research-mvp.md#us-iex-live-acceptance)。日本株の日次とは別。 |
 | 提案・台帳を保存する | [application DBの更新](#application-db-を反映する)。[ローカルcheckpointの確認](#inspect-local-application-db)とは異なる。 |
 | Webだけを更新する | [表示の生成・原本との照合・配備](#web-serving)。表示失敗でcoreを巻き戻さない。 |
@@ -52,7 +53,7 @@ gh run watch "${RUN_ID:?対象の日次run IDを指定}" --exit-status --interva
 | lease内で現行ポインタから同じMarket/Runsを一度取得し、SQLiteとLakeのorigin・EDINET指標契約を照合 | 完全hydrateや全データの受入ではない。不一致なら新規machineも経済L1も公開しない。 |
 | 経済L1の受領を公開・読戻し・sealし、次の経済取得inputを発行 | 他のmarket入力、L2、Web。後段が失敗しても経済L1を戻さない。 |
 | 到着済みmarket受領を固定し、取得済みMarketをhydrate。固定原本の投影とEDINET抽出を適用 | 全providerの充足。個別の失敗/延期は残し、他sourceを進める。 |
-| [モデル生成](src/baibai_jobs/integration/models.py)で候補外も含むGenerationとSelectionを保存し、対応するLakeとMarket/Runsを一組で公開 | 局所の保存成功だけでは公開にならない。正本はポインタ本文の読戻しまで確認し、[machine公開の結果不明](#machine公開の結果不明)は停止する。 |
+| 非公開の現行銘柄マスターを一度固定し、[モデル生成](src/baibai_jobs/integration/models.py)で候補外も含むGenerationとSelectionを保存。対応するLakeとMarket/Runsを一組で公開 | 銘柄マスターがなければ旧Market表で補わない。局所の保存成功だけでは公開にならない。正本はポインタ本文の読戻しまで確認し、[machine公開の結果不明](#machine公開の結果不明)は停止する。 |
 | 一組の公開後、同じreleaseを読戻して市場の受領をseal | 市場の受領確定は正本の選択と別。[seal失敗](#machine公開後の失敗再開)は表示や経済inputの再発行で埋めない。 |
 | core成功後の[Web生成・転送](#web-serving)、lease解放、通知 | 受領・提案・取引の成否。表示はseal成功を条件にせず、表示・通知の失敗だけで正本を再公開しない。 |
 
@@ -117,7 +118,7 @@ ParquetのSQLite由来をコードでは `sqlite_snapshot` と呼ぶ。公開済
 
 作業は検証するcommitの隔離checkoutで行い、そのルートを `WORK_ROOT` とする。DBだけのディレクトリは使えない（[ルートの判定](../engine/src/baibai_engine/storage/paths.py)は `pyproject.toml` と `engine/src/baibai_engine/` を必要とする）。固定した入力の作業コピーは、そのcheckoutの `stores/application/baibai.sqlite`、`stores/market/market.sqlite`、`stores/screening/runs.sqlite` に置く。執筆ファイルと表示出力は `.cache/` 配下に置く。これらはGit管理外で、本番正本への書戻しは行わない。
 
-縮小転送されたMarket作業コピーに日足・立会暦・銘柄masterが未展開なら、提案の準備・表示の前に、コピーのoriginと同じ固定releaseからこの3種だけを展開する。別releaseや別の取得元で欠損を補わない。
+縮小転送されたMarket作業コピーに日足・立会暦が未展開なら、コピーのoriginと同じ固定releaseからこの2種だけを展開する。銘柄マスターはMarket/Lakeに含めず、非公開の `market/listing-master/current.json` から別に固定する。別release・旧Market表・別の取得元で欠損を補わない。
 
 ```bash
 uv run baibai-jobs snapshots hydrate-portfolio \
@@ -128,13 +129,25 @@ uv run baibai-jobs snapshots hydrate-portfolio \
 
 `WORK_ROOT` で実行する。取得済みのmirrorを使うならその場所を指定し、認可済みR2から不足分を読む場合に限り `--bucket baibai-stores` を追加する。
 
+銘柄マスターをまだ固定していなければ、同じ隔離checkoutで次を実行する。既に固定したファイルがある場合はその絶対パスを `CURRENT_LISTING_MASTER` に指定し、取り直さない。取得に失敗したら新規提案の検証は止める。後から取得した現行値を過去の日次runの再現には使わない。
+
+```bash
+cd "${WORK_ROOT:?検証用の隔離checkoutを指定}"
+umask 077
+mkdir -p .cache/proposal-acceptance
+pin_dir="$(mktemp -d "$PWD/.cache/proposal-acceptance/listing.XXXXXX")"
+CURRENT_LISTING_MASTER="$pin_dir/current.json"
+uv run python -m baibai_jobs.integration.listing_master_current --output "$CURRENT_LISTING_MASTER"
+```
+
 ```bash
 (
   set -eu
   umask 077
   cd "${WORK_ROOT:?検証用の隔離checkoutを指定}"
   PRIVATE_OUTPUT=".cache/proposal-acceptance/${PROPOSAL_ID:?照合する提案IDを指定}"
-  uv run python -m baibai_web.materialize --root . --output-dir "$PRIVATE_OUTPUT"
+  uv run python -m baibai_web.materialize --root . --output-dir "$PRIVATE_OUTPUT" \
+    --current-listing-master "${CURRENT_LISTING_MASTER:?固定済みの銘柄マスターを指定}"
   uv run python -m tools.diagnostics.check_served_proposal \
     --db stores/application/baibai.sqlite --latest-json "$PRIVATE_OUTPUT/views/latest-proposal.json" \
     --history-json "$PRIVATE_OUTPUT/views/proposal-history.json" \
@@ -149,7 +162,7 @@ Machineの正本は `lake/pointers/market/current.json` が指す一件のLake r
 
 Runsの新しい公開には、そのreleaseのGenerationとSelectionだけを入れる。直前のRunsは財務比較のseedとして読み、旧DBをcloneして新しい組へ持ち越さない。準備済みOperation、提案・報告・実績はAppに残る。古い世代を指したままAppに未保存の `selection.json` は、現行へ切り替わったら現行の入力で選び直す。`model-integration` の `--runs` には他のSQLite利用者を閉じた専用の作業copyを指定する。公開成功後に手元の置換だけ失敗した場合は `local_runs_refreshed=false` となるため、そのcopyを使う前に `pull-machine` で更新する。
 
-`jobs/scripts/r2_transfer.sh pull-machine` は同じポインタから両DBを検証し、Marketをhydrateしてから作業copyに反映する。既存のDBを置き換えるため他のローカル作業を閉じてから使う。`--daily-preflight` はleaseと現行契約を確認して取得までを行う。経済L1の後、`hydrate-market-for-daily` はMarket内の同じoriginから展開し、currentを読み直さない。`pull-portfolio-market` は表示に必要なMarketだけを取得する。正本の切替と衝突して取得できなければ、別世代の片方を混ぜず現行から取得し直す。現行の探索には取得結果の `generation_id` と `selection_id` を既存CLIの `--generation-id`・`--screening-selection-id` へ渡す。ID省略時も、指定した基準日・情報締切の範囲外の結果は選ばない。
+`jobs/scripts/r2_transfer.sh pull-machine` は同じポインタから両DBを検証し、Marketをhydrateしてから作業copyに反映する。既存のDBを置き換えるため他のローカル作業を閉じてから使う。`--daily-preflight` はleaseと現行契約を確認して取得までを行う。経済L1の後、`hydrate-market-for-daily` はMarket内の同じoriginから展開し、currentを読み直さない。`pull-portfolio-market` はMarketだけを取得し、そのreleaseの日足・立会暦を展開する。銘柄マスターは別の私有ファイルとして固定する。正本の切替と衝突して取得できなければ、別世代の片方を混ぜず現行から取得し直す。現行の探索には取得結果の `generation_id` と `selection_id` を既存CLIの `--generation-id`・`--screening-selection-id` へ渡す。ID省略時も、指定した基準日・情報締切の範囲外の結果は選ばない。
 
 `push-indicators` と `upload-portfolio-views` には `PUBLICATION_LEASE_HANDLE` が必要。App更新とsource固有CASのnative L1はこのleaseの対象外。途中でownerが失効・交代したら次writeを止める。leaseのverifyは延長ではない。
 
@@ -226,7 +239,7 @@ FRED確認state自体の欠落は[通常recheck-source](#経済原本)へ。他s
    | 原稿と独立査読 | `trade-proposal-context` → `trade-proposal-check` → 提案査読 → 再度 `trade-proposal-check`（`valid=true`、`review_binding=match`） | `draft-digest` → 分析査読 → `save`（私有の分析ファイルだけ）→ `proposal-digest` → 判断査読 |
    | App保存 | `trade-proposal-publish` | `proposal-save`。出力されたIDは `proposal-show` の `--proposal-id` に指定して読戻す。 |
 
-   日本株は準備済みのOperationから始め、3コマンドには同じApp・Market作業コピー（`--db`、`--sqlite-path`）を渡す。どちらのApp保存もR2への反映や発注は行わない。
+   日本株は準備済みのOperationから始め、3コマンドには同じApp・Market・固定済み銘柄マスター（`--db`、`--sqlite-path`、`--current-listing-master`）を渡す。どちらのApp保存もR2への反映や発注は行わない。
 3. **本番反映（日米共通）**: App保存が返した `proposal_id` を `PROPOSAL_ID` に設定する。任意の `--check` は読み取り鍵で対象バケット・R2の版・一時Appスナップショット中の提案IDを確認し、PUTもActions起動もしない。実反映は版を改めて照合し、R2書き込み鍵と[開発手順で読み込んだActions専用キー](../docs/development.md#3-運用する端末に-env-を用意する)を使う。
 
 ```bash
@@ -269,6 +282,27 @@ schemaが合わない・台帳を読めない場合に初期化や変換はし�
 取得時には全market/applicationをhydrateしない。同source/groupのqueueと共有quotaを守り、L2不足だけで再GETしない。[経済のsource input](#経済単独公開と失敗再開)は経済統合から発行し、元bindingで再開する。計画材料が欠けたときは空seedや全DB取得で代用しない。形式変更時は対応readerを先行させ、非対応writerをdrainする。
 
 破損handoffは当該sourceの失敗として他を進める。経済等の正本やR2全体の障害では止まる。`needs_explicit_recovery`は元ID/hash/時計/markerを保った限定回復とし、正常nullや遅着を一律全期間取得で埋めない。
+
+<a id="rakuten-us-universe-intake"></a>
+### 楽天証券の米国普通株の取込確認
+
+[楽天証券のPCウェブ](https://www.rakuten-sec.co.jp/web/us/stock/lineup/)の許可済み画面で、**米国株の現物、普通株、取引可能銘柄のみ**を確認する。銘柄・価格・指数・業種などの追加フィルターは使わない。[CSV出力がある画面](https://www.rakuten-sec.co.jp/web/us/pdf/us_margin_guidebook.pdf)でも、信用取引や情報閲覧用の検索結果で代用しない。実際に選べた市場・画面の総件数・市場別件数と、全ページまたはCSV全体の行数を突き合わせる。1ページ分・上限付き出力・不明な市場は完全とみなさない。ETF、ADR、保有・口座情報、価格は持ち込まない。
+
+受領した一覧を私有のUTF-8 CSV `ticker,exchange` にする。[売付のみの一覧](https://www.rakuten-sec.co.jp/web/us/stock/lineup/sell.html)と別に掲示される買付停止案内の有効分を確認し、独立した `ticker,exchange,restriction`（`sell_only` または `buy_suspended`）を作る。制限は一覧にない銘柄も含める。同じ銘柄・市場の重複は元資料で解消し、合計は照合済みの一意な制限件数。全制限を確認し実際に0件なら、ヘッダーだけと `--restrictions-count 0` を渡す。未取得は0としない。市場名は `NASDAQ`、`NYSE`、`NYSE American`、`NYSE Arca`、`Cboe` にそろえる。NYSEのA/B株の区切りは既存の照合に任せ、それ以外の記号を推測で変えない。
+
+対象の立会日と一覧・制限の有効範囲は取得側で確かめ、別々の実受領時刻を時差付きで記録する。選択できなかった市場に0を入れない。下は最初の2市場だけを確認した場合の例。変数は実際に照合した値を使う。
+
+```bash
+uv run --offline baibai-jobs rakuten-universe-check \
+  --session "$NY_SESSION" \
+  --catalog "$PRIVATE/catalog.csv" --catalog-count "$BROKER_TOTAL" \
+  --catalog-received-at "$CATALOG_RECEIVED_AT" \
+  --venue-count "NASDAQ=$NASDAQ_TOTAL" --venue-count "NYSE=$NYSE_TOTAL" \
+  --restrictions "$PRIVATE/restrictions.csv" --restrictions-count "$RESTRICTIONS_TOTAL" \
+  --restrictions-received-at "$RESTRICTIONS_RECEIVED_AT"
+```
+
+[楽天証券の現物の取扱市場](https://www.rakuten-sec.co.jp/web/us/stock/rule/ground_rules.html)にはNYSE American、NYSE Arca、Cboeも含まれる。確認できた市場は `--venue-count "市場名=件数"` を追加する。出力の `catalog_count: null` は市場未確認、0は確認済み0件。後者3市場など上場照合の未対応は `listing_supported: false` で表示し、候補に数えない。終了0はNASDAQとNYSEの入力件数が合い、制限を除いた取込対象があることだけ。終了1は入力は読めたが初期対象が不足、2は件数・日時・CSV不整合や読取失敗。照合結果は指定日だけに有効で、過去日の通過は最新の取込根拠にならない。全市場取得・上場との結合・Alpaca取込・注文可否を証明しない。ネット接続・DB/R2更新・成果物保存は行わず、集計だけを出す。
 
 <a id="economic-acquisition"></a>
 ### 経済原本
@@ -411,7 +445,7 @@ uv run python -m baibai_jobs.integration.tradingview_receipts \
   --sqlite <LOCAL_RECEIPTS_SQLITE> --asof <CYCLE_DATE> --diagnose-receipt <ID>
 ```
 
-既存receiptの投影再現が必要な場合に限り、固定参照を使う `source_handoff replay-copy --source tradingview --database <LOCAL_MARKET_COPY>` または `tradingview-source rebuild` を隔離コピーに対して使う。現在のmasterで過去観測を書き換えず、コピーは本番へ戻さない。
+旧個社TradingViewの再投影・コピーへの再取込は廃止。必要時は固定receiptの読取診断だけを使い、現在の銘柄マスターで過去観測を作り直さない。
 
 ### 判断直前の多市場補助観測
 
@@ -602,13 +636,14 @@ TSE資本政策/JPX廃止は翌月15日以降に既存refresh/buildと必要な�
 <a id="web-serving"></a>
 ## 保有・運用Webの表示更新
 
-[表示生成](../web/backend/src/baibai_web/materialize.py)の入口は二つある。[日次](#daily)はMachine公開成功後にその作業Marketを使う。表示だけを更新する場合は `gh workflow run cloud-materialize.yml --ref main`。単独更新ではlease内でAppを取得し、現行ポインタのMarketから価格・calendar・masterだけをhydrateする。Runsは取得しない。Marketが失敗した場合はrunに失敗を残し、未検証の時価を使わずAppに保存された取引・成績・提案だけを表示する。過去の日次runを指定して再公開する入口ではない。
+[表示生成](../web/backend/src/baibai_web/materialize.py)の入口は二つある。[日次](#daily)はMachine公開成功後、その作業MarketとL2が使った同じ私有銘柄マスターを渡す。表示だけの更新は `gh workflow run cloud-materialize.yml --ref main`。lease内でAppと現行Marketを取得し、日足・立会暦だけを展開してから銘柄マスターを一度固定する。Runsは取得しない。Marketの取得・展開が失敗したら未検証の時価を使わず、Appに保存された取引・成績・提案を表示する。銘柄マスターだけが読めない場合は確認済みの時価を残し、銘柄名の代わりにコードを表示する。旧入力に戻さず、取得・固定の失敗はrunに残す。
 
 ```bash
-uv run python -m baibai_web.materialize --output-dir /tmp/baibai-serving
+uv run python -m baibai_web.materialize --output-dir /tmp/baibai-serving \
+  --current-listing-master "${CURRENT_LISTING_MASTER:?固定済みの銘柄マスターを指定}"
 ```
 
-これはlocal生成だけ。公開はworkflow内の`jobs/scripts/r2_transfer.sh upload-portfolio-views /tmp/baibai-serving`を使い、全viewの全bytes読戻しを同lease内で確認する。
+これは[固定済みの銘柄マスター](#production-proposal-acceptance)を使ったlocal生成だけ。公開はworkflow内の`jobs/scripts/r2_transfer.sh upload-portfolio-views /tmp/baibai-serving`を使い、全viewの全bytes読戻しを同lease内で確認する。
 
 **実配信と正本の照合:** 私有の空の領域へ`pull-app`し、固定Appと取得ETagを組で保つ。認証済み本番の`/api/proposal/latest`と`/api/proposal/history`の成功JSONを私有ファイルに取得する。Appと2表示objectの各ETagが採取前後で同じで、App取得世代・Workerのbucket/routeが対象と対応することを確かめる。Workerは応答にETagを含めない。元App世代からの生成まで受け入れるには、同じ取得ETagのmaterializer runが当該objectを公開・読戻した証拠も必要。なければ「本文一致、生成元世代は未確認」とする。下記は表示生成に使った版で実行し、稼働CLI・Worker/UIの版とは別に記録する。本文・銘柄・ETag・閲覧秘密を公開logに出さない。
 

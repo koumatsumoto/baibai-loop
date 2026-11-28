@@ -8,6 +8,7 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.lake_release import market_store
+from tests.helpers.master_calendar_native import pinned_jp_listing
 from tests.helpers.model_generation import materialize_generation
 from tests.helpers.price_native import seed_prices
 from tests.helpers.r2_store import MemoryR2Store
@@ -106,6 +107,9 @@ def test_native_financial_inputs_generate_all_models_without_old_financial_proje
     # Fail if generation tries to decode the stale projection instead of fixed L1.
     with sqlite3.connect(market) as connection:
         connection.execute(
+            "INSERT INTO jquants_market_calendar VALUES (?, '1')", (DAY.isoformat(),)
+        )
+        connection.execute(
             "INSERT INTO jquants_fin_summaries VALUES (?, ?, ?, ?)",
             ("1301", DAY.isoformat(), "1", "invalid SQLite projection"),
         )
@@ -120,6 +124,7 @@ def test_native_financial_inputs_generate_all_models_without_old_financial_proje
             ttm_rules=DEFAULT_TTM_RULES,
             tickers=("1301",),
             financial_input=financial,
+            current_master=pinned_jp_listing(as_of=DAY),
         )
         result = materialize_generation(stream)
     assert len({model.model_id for model in result.models}) == 5
@@ -164,7 +169,6 @@ def test_first_native_daily_publishes_models_and_upload_copy_without_financial_d
     import shutil
 
     from tests.helpers.lake_policy import narrow_release_policy
-    from tests.helpers.master import insert_master_rows
 
     import baibai_jobs.integration.models as job
     import baibai_jobs.publication.snapshot_publication as publication
@@ -180,7 +184,6 @@ def test_first_native_daily_publishes_models_and_upload_copy_without_financial_d
     monkeypatch.setenv("BAIBAI_FINANCIAL_NATIVE", "false")
     names = (
         "jquants.daily_bars",
-        "jquants.master_snapshots",
         "jquants.fin_summaries",
         "jquants.market_calendar",
     )
@@ -207,9 +210,6 @@ def test_first_native_daily_publishes_models_and_upload_copy_without_financial_d
         short_sale_reports=(),
     )
     with sqlite3.connect(market) as connection:
-        insert_master_rows(
-            connection, [(DAY.isoformat(), "1301", "合成企業", "プライム", "卸売業", "011")]
-        )
         connection.execute(
             "INSERT INTO jquants_fin_summaries VALUES (?, ?, ?, ?)",
             ("1301", DAY.isoformat(), "old", "{}"),
@@ -267,10 +267,9 @@ def test_first_native_daily_publishes_models_and_upload_copy_without_financial_d
     )
     assert financial_policy.carries_history is True
     seed_prices(store, market, tmp_path / "native-price", as_of=DAY)
-    from tests.helpers.master_calendar_native import seed_calendar, seed_master
+    from tests.helpers.master_calendar_native import seed_calendar
 
     seed_calendar(store, market, tmp_path / "calendar-native", as_of=DAY)
-    seed_master(store, market, tmp_path / "master-native", as_of=DAY)
     economic = tmp_path / "economic.sqlite"
     initialize_database(economic).close()
     edinet = empty_edinet_input(store, tmp_path)
@@ -284,6 +283,7 @@ def test_first_native_daily_publishes_models_and_upload_copy_without_financial_d
         runs=tmp_path / "runs",
         mirror=tmp_path / "mirror",
         as_of=DAY,
+        current_master=pinned_jp_listing(as_of=DAY),
         lease_handle=tmp_path / "lease",
         growth_start=None,
     )

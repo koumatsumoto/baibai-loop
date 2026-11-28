@@ -8,8 +8,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
-from tests.helpers.market_context import security_context_from_store
-from tests.helpers.master import insert_master_rows
+from tests.helpers.market_context import fixture_market_master, security_context_from_store
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.machine_analysis.generation.runners.technical_analysis import technical_analysis
@@ -23,24 +22,17 @@ def _insert_bars(sqlite_path: Path, ticker: str, closes: list[float], *, end: da
     insert_daily_bars_from_closes(sqlite_path, ticker, closes, end_date=end, turnover_value=2.0e8)
 
 
-def _insert_master_rows(sqlite_path: Path) -> None:
-    conn = open_connection(sqlite_path)
-    try:
-        insert_master_rows(
-            conn, [("2026-05-28", "AAAA", "テスト製作所", "プライム", "機械", "011")]
-        )
-        insert_master_rows(conn, [("2026-05-28", "BBBB", "同業ペア", "プライム", "機械", "011")])
-        conn.commit()
-    finally:
-        conn.close()
+CURRENT_A = ("AAAA", "テスト製作所", "プライム", "機械", "011")
+CURRENT_B = ("BBBB", "同業ペア", "プライム", "機械", "011")
 
 
 class SecurityMarketContextTests(unittest.TestCase):
-    def _build(self, root: Path, ticker: str) -> dict[str, object]:
+    def _build(self, root: Path, ticker: str, *, master=None) -> dict[str, object]:
         return security_context_from_store(
             root / "market.sqlite",
             ticker=ticker,
             as_of=_ASOF,
+            master=master,
         )
 
     def test_security_and_technical_owners_preserve_price_and_relative_facts(self) -> None:
@@ -51,9 +43,9 @@ class SecurityMarketContextTests(unittest.TestCase):
             _insert_bars(sqlite_path, "AAAA", [100 * 1.01**i for i in range(30)], end=_ASOF)
             _insert_bars(sqlite_path, "1321", [200.0] * 30, end=_ASOF)
             _insert_bars(sqlite_path, "BBBB", [300 * 0.99**i for i in range(30)], end=_ASOF)
-            _insert_master_rows(sqlite_path)
+            master = fixture_market_master(_ASOF, (CURRENT_A, CURRENT_B))
 
-            profile = self._build(root, "AAAA")
+            profile = self._build(root, "AAAA", master=master)
 
             master = profile["master"]
             assert isinstance(master, dict)
@@ -147,22 +139,11 @@ class SecurityMarketContextTests(unittest.TestCase):
             _insert_bars(sqlite_path, "AAAA", [100.0] * 30, end=_ASOF)
             _insert_bars(sqlite_path, "BBBB", [300 * 0.99**i for i in range(30)], end=_ASOF)
             _insert_bars(sqlite_path, "CCCC", [200 * 1.01**i for i in range(30)], end=_ASOF)
-            _insert_master_rows(sqlite_path)
-            conn = open_connection(sqlite_path)
-            try:
-                insert_master_rows(
-                    conn,
-                    [
-                        ("2026-05-29", "AAAA", "テスト製作所", "プライム", "機械", "011"),
-                        ("2026-05-29", "CCCC", "現構成ペア", "プライム", "機械", "011"),
-                    ],
-                )
-                conn.commit()
-            finally:
-                conn.close()
-
-            current_profile = self._build(root, "AAAA")
-            old_only_profile = self._build(root, "BBBB")
+            master = fixture_market_master(
+                _ASOF, (CURRENT_A, ("CCCC", "現構成ペア", "プライム", "機械", "011"))
+            )
+            current_profile = self._build(root, "AAAA", master=master)
+            old_only_profile = self._build(root, "BBBB", master=master)
 
             relative = current_profile["relative"]
             assert isinstance(relative, dict)
@@ -187,11 +168,12 @@ def _insert_dated_bars(sqlite_path, ticker, prices):
         conn.close()
 
 
-def _security_context(root, asof):
+def _security_context(root, asof, *, master=None):
     return security_context_from_store(
         root / "market.sqlite",
         ticker="AAAA",
         as_of=asof,
+        master=master,
     )
 
 
@@ -270,7 +252,6 @@ def test_sector_uses_only_peers_with_exact_target_interval(tmp_path, target_coun
     start = end - timedelta(days=180)
     target = [(start, 100)] + [(end - timedelta(days=19 - i), 110) for i in range(20)]
     _insert_dated_bars(sqlite_path, "AAAA", target[-target_count:])
-    _insert_master_rows(sqlite_path)
     peers = {
         "BBBB": [(start, 100), (end, 120)],
         "CCCC": [(start, 100), (end, 140)],
@@ -282,15 +263,10 @@ def test_sector_uses_only_peers_with_exact_target_interval(tmp_path, target_coun
         peers.pop("CCCC")
     for ticker, prices in peers.items():
         _insert_dated_bars(sqlite_path, ticker, prices)
-    conn = open_connection(sqlite_path)
-    try:
-        insert_master_rows(
-            conn, [("2026-05-28", ticker, "peer", "プライム", "機械", "011") for ticker in peers]
-        )
-        conn.commit()
-    finally:
-        conn.close()
-    sector = _security_context(tmp_path, end)["relative"]["sector"]
+    master = fixture_market_master(
+        end, (CURRENT_A, *((ticker, "peer", "プライム", "機械", "011") for ticker in peers))
+    )
+    sector = _security_context(tmp_path, end, master=master)["relative"]["sector"]
     if target_count == 20 or not usable_peers:
         assert sector is None
     else:

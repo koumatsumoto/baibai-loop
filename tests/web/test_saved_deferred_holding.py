@@ -20,7 +20,12 @@ def _saved(case, *, unreviewed=False):
             now=PREPARED,
         )
     draft = reviewed_proposal(case, action="defer")
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     assert service.check(draft).valid
     return service, draft, service.publish(draft)
 

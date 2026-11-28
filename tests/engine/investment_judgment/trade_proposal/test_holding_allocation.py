@@ -292,7 +292,10 @@ def test_cli_draft_and_exact_saved_source_use_same_inputs_without_writes(tmp_pat
     case = backend_case(tmp_path, holding=True)
     proposal = reviewed_proposal(case, action="hold")
     issued = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(proposal)
     draft_path = tmp_path / "draft.json"
     draft_path.write_text(proposal.model_dump_json())

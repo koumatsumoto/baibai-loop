@@ -7,7 +7,11 @@ import pytest
 from baibai_engine.storage.snapshots.sources import sha256_file
 
 
-@pytest.mark.parametrize("payload", [b"", bytes(range(256)) * (32 * 1024) + b"tail"])
+@pytest.mark.parametrize(
+    "payload",
+    [b"", bytes(range(256)) * (32 * 1024) + b"tail"],
+    ids=["empty", "multiple-chunks-and-tail"],
+)
 def test_snapshot_file_digest_covers_empty_and_multiple_chunks(tmp_path, payload):
     path = tmp_path / "source"
     path.write_bytes(payload)

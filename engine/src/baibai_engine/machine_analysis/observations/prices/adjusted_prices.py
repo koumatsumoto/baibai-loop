@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from contextlib import closing
 from datetime import date
-from itertools import groupby
+from itertools import batched, groupby
 from pathlib import Path
 
 import baibai_engine.machine_analysis.observations.prices.price_models as price_models
@@ -31,6 +31,38 @@ def read_price_bars(
             return read_adjusted_bars(connection, tickers=tickers, start=start, end=end)
 
     return read_store_if_written(sqlite_path, read) or {}
+
+
+_PRICE_BATCH_TICKERS = 64
+
+
+def iter_price_bar_batches(
+    path: Path, *, start: date, end: date, tickers: Sequence[str] | None = None
+) -> Iterator[tuple[tuple[str, ...], dict[str, list[price_models.PriceBar]]]]:
+    """Read complete histories a fixed ticker batch at a time from a held Market seal.
+
+    A ticker predicate lets SQLite use the `(ticker,traded_at)` primary key in
+    order, rather than sorting the global date-index scan. Close each reader
+    before delivering its batch; the caller owns the immutable seal throughout.
+    Explicitly requested missing prices remain in the batch's planned subjects.
+    """
+    if tickers is None:
+        with closing(connect_read_only(path)) as connection:
+            keys = tuple(
+                str(row[0])
+                for row in connection.execute(
+                    "SELECT DISTINCT ticker FROM jquants_daily_bars "
+                    "WHERE traded_at BETWEEN ? AND ? ORDER BY ticker",
+                    (start.isoformat(), end.isoformat()),
+                )
+            )
+    else:
+        keys = tuple(sorted(set(tickers)))
+    for batch in batched(keys, _PRICE_BATCH_TICKERS, strict=False):
+        with closing(connect_read_only(path)) as connection:
+            connection.execute("BEGIN")
+            bars = read_adjusted_bars(connection, tickers=batch, start=start, end=end)
+        yield batch, bars
 
 
 def read_adjusted_bars(

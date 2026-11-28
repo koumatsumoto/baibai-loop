@@ -6,7 +6,7 @@ from datetime import date, timedelta
 import pytest
 from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.jquants_receipts import FIRST_AT
-from tests.helpers.master_calendar_native import seed_calendar, seed_master
+from tests.helpers.master_calendar_native import seed_calendar
 from tests.helpers.native_handoff import integrate_economic, stage
 from tests.helpers.r2_store import MemoryR2Store, VerifiedMemoryR2Store
 
@@ -26,7 +26,6 @@ def native_dependencies(store, market, work, asof):
     from baibai_jobs.integration.calendar_native import model_input
 
     calendar = seed_calendar(store, market, work / "fixture-calendar", as_of=asof)
-    seed_master(store, market, work / "fixture-master", as_of=asof)
     model_input(store, calendar.fixed(), as_of=asof, evaluated_at=datetime.now(UTC), market=market)
 
 

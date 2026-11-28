@@ -96,6 +96,7 @@ def test_authoring_context_uses_one_fixed_selection(tmp_path, capsys, mocker, co
             PROPOSAL_ID,
             "--db",
             str(case.app),
+            *case.listing_args,
             "--sqlite-path",
             str(case.market),
         ],
@@ -125,7 +126,12 @@ def test_real_selection_pair_scope_publish_atomic_and_ledger_unchanged(case):
     assert proposal.inputs.checked_at < PUBLISHED
     before = _counts(case.app)
     ledger_before = _ledger_snapshot(case.app)
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     assert service.check(proposal).valid
     published = service.publish(proposal)
     after = _counts(case.app)
@@ -164,7 +170,12 @@ def test_published_unbound_unfinished_proposal_cannot_be_skipped(case, monkeypat
         now=PREPARED,
     )
     proposal = reviewed_proposal(case, action="defer")
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     if publication == "after_read":
         from baibai_engine.investment_judgment.workflow.operation import service as operation_owner
 
@@ -230,7 +241,10 @@ def test_reviewed_defer_still_requires_a_bound_published_proposal(tmp_path):
     with pytest.raises(OperationCompletionError, match="published Trade Proposal"):
         case.operations.complete(case.operation.operation_id, **notes)
     published = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(proposal)
     assert (
         case.operations.complete(
@@ -257,9 +271,12 @@ def test_unfinished_completion_prevents_later_new_proposal_publication(case):
     )
     before = _counts(case.app)
     with pytest.raises(ProposalConflictError, match="active Research Operation"):
-        TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-            proposal
-        )
+        TradeProposalService(
+            case.app,
+            listing_reader=case.listing_reader,
+            sqlite_path=case.market,
+            clock=lambda: PUBLISHED,
+        ).publish(proposal)
     assert _counts(case.app) == before
     assert case.operations.get(completed.operation_id) == completed
 
@@ -282,6 +299,7 @@ def test_cli_yaml_output_failure_preserves_successful_publication(
                 str(draft),
                 "--db",
                 str(case.app),
+                *case.listing_args,
                 "--sqlite-path",
                 str(case.market),
             ],
@@ -331,6 +349,7 @@ def test_context_and_work_file_keep_one_app_market_and_reviewed_pair_snapshot(
                 PROPOSAL_ID,
                 "--db",
                 str(case.app),
+                *case.listing_args,
                 "--sqlite-path",
                 str(case.market),
                 "--out",
@@ -397,7 +416,12 @@ def test_known_scaffold_instruction_is_not_authored_even_with_a_matching_review(
         raw[field] = seed
     bound = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     assert proposal_draft_sha256(bound) == bound.review.draft_sha256
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     before = case.app.read_bytes()
     for require_review in (False, True):
         with pytest.raises(ProposalError, match="reserved authoring"):
@@ -417,7 +441,12 @@ def test_author_can_retain_a_source_caution_without_using_a_scaffold_as_the_deci
     )
     raw["items"][0]["review_conditions"] = [source]
     bound = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     assert service.check(bound).valid
     assert service.publish(bound).items[0].review_conditions == (source,)
 
@@ -427,7 +456,7 @@ def test_one_context_authored_unsigned_check_later_review_publish_and_exact_retr
     case, tmp_path, capsys, monkeypatch, legacy_publication_time
 ):
     draft = tmp_path / "proposal.yaml"
-    common = ["--db", str(case.app), "--sqlite-path", str(case.market)]
+    common = ["--db", str(case.app), *case.listing_args, "--sqlite-path", str(case.market)]
     assert (
         main(
             [
@@ -519,7 +548,12 @@ def test_future_review_is_rejected_even_with_a_later_caller_publication_time(cas
     raw["review"]["reviewed_at"] = (PUBLISHED + timedelta(minutes=1)).isoformat()
     raw["published_at"] = (PUBLISHED + timedelta(minutes=2)).isoformat()
     proposal = load_proposal_draft(raw)
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     before = case.app.read_bytes()
     validation = service.check(proposal)
     assert not validation.valid
@@ -534,7 +568,12 @@ def test_service_boundaries_reject_an_invalid_nested_typed_draft(case):
     invalid = proposal.model_copy(
         update={"review": proposal.review.model_copy(update={"open_findings": ("unresolved",)})}
     )
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     before = case.app.read_bytes()
     with pytest.raises(ValidationError, match="cannot carry open findings"):
         service.check(invalid)
@@ -555,7 +594,9 @@ def test_new_publication_uses_jst_date_after_writer_acquisition(
     proposal = reviewed_proposal(case)
     instant = PUBLISHED.replace(hour=23, minute=59, second=59)
     after_midnight = instant + timedelta(seconds=2)
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: instant)
+    service = TradeProposalService(
+        case.app, listing_reader=case.listing_reader, sqlite_path=case.market, clock=lambda: instant
+    )
     assert service.check(proposal).valid
     before = case.app.read_bytes()
 
@@ -590,6 +631,7 @@ def test_new_publication_uses_jst_date_after_writer_acquisition(
                     str(path),
                     "--db",
                     str(case.app),
+                    *case.listing_args,
                     "--sqlite-path",
                     str(case.market),
                 ]
@@ -608,7 +650,7 @@ def test_new_publication_uses_jst_date_after_writer_acquisition(
 def test_cli_context_check_and_preview_keep_limit_arithmetic_separate_from_the_close(
     case, tmp_path, capsys
 ):
-    common = ["--db", str(case.app), "--sqlite-path", str(case.market)]
+    common = ["--db", str(case.app), *case.listing_args, "--sqlite-path", str(case.market)]
     assert (
         main(
             [
@@ -633,7 +675,12 @@ def test_cli_context_check_and_preview_keep_limit_arithmetic_separate_from_the_c
     assert checked["valid"] is True
     assert checked["draft_sha256"] == proposal.review.draft_sha256
     calculations.append(checked["calculations"]["1234"])
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     saved = service.publish(proposal)
     before = case.app.read_bytes()
     assert (
@@ -673,7 +720,12 @@ def test_place_limit_publishes_and_previews_separate_quote_and_ceiling(case, moc
     item["terms"].update(limit_price_yen="880", notional_yen="264000")
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     ledger_before = _ledger_snapshot(case.app)
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     assert service.check(proposal).valid
     published = service.publish(proposal)
     assert read_saved_proposal(proposal_id=published.proposal_id, db_path=case.app) == published
@@ -683,6 +735,7 @@ def test_place_limit_publishes_and_previews_separate_quote_and_ceiling(case, moc
     preview = preview_current_terms(
         proposal_id=published.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(minutes=5),
     )
@@ -713,7 +766,12 @@ def test_same_id_retry_reads_immutable_before_current_clock_latest_or_quote_gate
     case, monkeypatch
 ):
     proposal = reviewed_proposal(case)
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     published = service.publish(proposal)
     with closing(sqlite3.connect(case.market)) as connection, connection:
         connection.execute("UPDATE jquants_daily_bars SET close=900")
@@ -724,7 +782,10 @@ def test_same_id_retry_reads_immutable_before_current_clock_latest_or_quote_gate
     monkeypatch.setattr(proposal_service, "_check_validated_proposal", current_inputs_are_not_used)
     monkeypatch.setattr(proposal_service, "proposal_market_snapshot", current_inputs_are_not_used)
     later = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=current_inputs_are_not_used
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=current_inputs_are_not_used,
     )
     assert later.publish(proposal) == published
     raw = proposal.payload()
@@ -736,7 +797,12 @@ def test_same_id_retry_reads_immutable_before_current_clock_latest_or_quote_gate
 
 def test_same_id_retry_requires_the_exact_signed_typed_payload(case):
     proposal = reviewed_proposal(case)
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     service.publish(proposal)
     raw = proposal.payload()
     raw["inputs"]["quotes"][0]["price_yen"] = "1100.000"
@@ -777,7 +843,12 @@ def test_actual_input_fact_change_requires_new_snapshot_and_review(case, change)
         raw = proposal.payload()
         raw["inputs"]["quotes"][0]["source_ref"] = "other-real-source"
         proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     with pytest.raises(ProposalConflictError, match="input facts changed"):
         service.publish(proposal)
     assert _counts(case.app)["investment_proposal"] == 0
@@ -791,7 +862,10 @@ def test_same_instant_utc_and_decimal_equivalent_facts_publish(case):
     raw["inputs"]["available_cash_yen"] = "3E+5"
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     published = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(proposal)
     assert published.model_dump(mode="json", exclude={"published_at"}) == proposal.payload()
 
@@ -813,7 +887,12 @@ def test_saved_input_and_quote_times_must_precede_their_reviewed_cutoffs(
     raw = reviewed_proposal(case).payload()
     raw["inputs"]["checked_at"] = checked_at
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     validation = service.check(proposal)
     assert not validation.valid
     assert blocker_code in {reason.code for reason in validation.blockers}
@@ -829,7 +908,10 @@ def test_saved_input_review_and_quote_boundaries_accept_the_same_utc_instant(cas
     raw["inputs"]["checked_at"] = checked_at
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     service = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED.astimezone(UTC)
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED.astimezone(UTC),
     )
     assert proposal.inputs.checked_at <= proposal.review.reviewed_at < PUBLISHED
     assert service.check(proposal).valid
@@ -841,7 +923,12 @@ def test_review_binds_conditions_cash_scope_and_projection(case):
     raw = proposal.payload()
     raw["items"][0]["terms"]["conditions"].append("別の実前提")
     changed = load_proposal_draft(raw)
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     stale = service.check(changed, require_review=False)
     assert [b.code for b in stale.blockers] == ["proposal_content_review_stale"]
     assert service.check(changed.model_copy(update={"review": None}), require_review=False).valid
@@ -867,9 +954,12 @@ def test_warning_or_exposure_tampering_not_accepted_by_new_review(case, change):
     before = _counts(case.app)
     message = "terms warnings" if change == "terms_warning" else "warning/exposure"
     with pytest.raises(ProposalConflictError, match=message):
-        TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-            changed
-        )
+        TradeProposalService(
+            case.app,
+            listing_reader=case.listing_reader,
+            sqlite_path=case.market,
+            clock=lambda: PUBLISHED,
+        ).publish(changed)
     assert _counts(case.app) == before
 
 
@@ -883,7 +973,10 @@ def test_injected_failure_after_binding_rolls_back_proposal_items_and_binding(ca
     monkeypatch.setattr(owner, "load_investment_proposal", fail)
     with pytest.raises(RuntimeError, match="injected"):
         owner.TradeProposalService(
-            case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+            case.app,
+            listing_reader=case.listing_reader,
+            sqlite_path=case.market,
+            clock=lambda: PUBLISHED,
         ).publish(proposal)
     counts = _counts(case.app)
     assert (
@@ -897,14 +990,22 @@ def test_injected_failure_after_binding_rolls_back_proposal_items_and_binding(ca
 
 def test_nonbuy_has_no_binding_and_date_clock_guard_even_with_same_facts(case):
     proposal = reviewed_proposal(case, action="no_action")
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     assert service.publish(proposal).items[0].action == "no_action"
     assert _counts(case.app)["position_decision_reference"] == 0
     raw = proposal.payload()
     raw["proposal_id"] = "investment-proposal-00000000-0000-4000-8000-000000000099"
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     tomorrow = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(days=1)
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED + timedelta(days=1),
     )
     with pytest.raises(ProposalError, match="基準日は本日"):
         tomorrow.publish(proposal)
@@ -914,7 +1015,12 @@ def test_nonbuy_has_no_binding_and_date_clock_guard_even_with_same_facts(case):
 def test_missing_economic_comparison_is_not_concluded_by_stance(tmp_path, stance):
     case = backend_case(tmp_path, stance=stance, valuation_unresolved=True)
     proposal = reviewed_proposal(case, action="no_action")
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     before = _counts(case.app)
     ledger_before = _ledger_snapshot(case.app)
     checked = service.check(proposal)
@@ -954,7 +1060,12 @@ def test_concluded_no_action_does_not_require_all_buy_inputs(
             forgone="足元の価格や取引条件は確認し直さず、現在の買付提案はしない。",
         )
         proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     ledger_before = _ledger_snapshot(case.app)
     assert service.check(proposal).valid
     published = service.publish(proposal)
@@ -1049,7 +1160,12 @@ def test_new_no_action_matches_the_authored_economic_finding(
     raw["items"][0]["rationale"] = rationale
     draft = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     assert draft.research_scope.selection_sha256 == selection_sha256(case.selected)
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     ledger = _ledger_snapshot(case.app)
     before = case.app.read_bytes()
     checked = service.check(draft)
@@ -1130,7 +1246,12 @@ def test_unsupported_stance_does_not_settle_an_explicitly_uncertain_business_cas
     draft = reviewed_proposal(case, action="no_action")
     assert bool(draft.inputs.quotes) is quote_present
     before = case.app.read_bytes()
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     checked = service.check(draft)
     assert [reason.code for reason in checked.blockers] == ([] if expected is None else [expected])
     if expected:
@@ -1167,7 +1288,12 @@ def test_no_action_only_needs_a_fresh_observation_when_its_comparison_uses_that_
     case.operations.record_assessment(
         case.operation.operation_id, case.pair.assessment_id, now=PREPARED
     )
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     draft = reviewed_proposal(case, action="no_action")
     assert draft.inputs.quotes[0].price_as_of.isoformat() == observed_on
     assert case.pair.document.input_snapshot.as_of == PUBLISHED.date()
@@ -1190,7 +1316,11 @@ def test_no_action_only_needs_a_fresh_observation_when_its_comparison_uses_that_
         assert service.check(draft).valid
         saved = service.publish(draft)
     item = preview_current_terms(
-        proposal_id=saved.proposal_id, db_path=case.app, sqlite_path=case.market, now=PUBLISHED
+        proposal_id=saved.proposal_id,
+        db_path=case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        now=PUBLISHED,
     ).items[0]
     assert (item["current_quote_calculation"] is not None) == (quote_age_days == 7)
     assert (
@@ -1261,6 +1391,7 @@ def test_exact_price_comparison_cannot_reuse_a_right_at_its_final_close(
                 tickers=("1234",),
                 proposal_id=PROPOSAL_ID,
                 now=now,
+                current_listing=case.listing_reader(),
                 sqlite_path=case.market,
                 budget_min_yen=DEFAULT_BUDGET_MIN_YEN,
                 budget_max_yen=DEFAULT_BUDGET_MAX_YEN,
@@ -1320,7 +1451,10 @@ def test_dated_no_action_distinguishes_expiry_from_unconfirmed_acquisition(
     fingerprints = set()
     read = mocker.spy(proposal_service, "read_order_session_bounds")
     writer = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: friday + timedelta(minutes=2)
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: friday + timedelta(minutes=2),
     )
     for index, (finding, stance) in enumerate(variants):
         document, review = pair_payload(
@@ -1359,6 +1493,7 @@ def test_dated_no_action_distinguishes_expiry_from_unconfirmed_acquisition(
                 operation_id=case.operation.operation_id,
                 proposal_id=PROPOSAL_ID[:-2] + f"{50 + index * 10 + offset:02x}",
                 db_path=case.app,
+                listing_reader=case.listing_reader,
                 sqlite_path=case.market,
                 now=friday,
             )
@@ -1407,6 +1542,7 @@ def test_dated_no_action_distinguishes_expiry_from_unconfirmed_acquisition(
             preview = preview_current_terms(
                 proposal_id=saved.proposal_id,
                 db_path=case.app,
+                listing_reader=case.listing_reader,
                 sqlite_path=case.market,
                 now=friday + timedelta(minutes=2),
             ).items[0]
@@ -1457,7 +1593,12 @@ def test_buy_uses_calendar_lower_bound_only_to_prove_right_expiry(tmp_path, clos
         case.operation.operation_id, case.pair.assessment_id, now=PREPARED
     )
     ledger = _ledger_snapshot(case.app)
-    writer = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    writer = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     original = reviewed_proposal(case)
     saved = writer.publish(original)
     assert saved.items[0].terms is not None
@@ -1472,6 +1613,7 @@ def test_buy_uses_calendar_lower_bound_only_to_prove_right_expiry(tmp_path, clos
         operation_id=case.operation.operation_id,
         proposal_id=new_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PREPARED,
     )
@@ -1489,7 +1631,11 @@ def test_buy_uses_calendar_lower_bound_only_to_prove_right_expiry(tmp_path, clos
     with pytest.raises(ProposalError):
         writer.publish(draft)
     preview = preview_current_terms(
-        proposal_id=saved.proposal_id, db_path=case.app, sqlite_path=case.market, now=PUBLISHED
+        proposal_id=saved.proposal_id,
+        db_path=case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        now=PUBLISHED,
     )
     assert preview.status == "blocked"
     row = preview.items[0]
@@ -1514,7 +1660,10 @@ def test_old_uncertain_no_action_keeps_exact_read_and_retry(tmp_path):
     before = _counts(case.app)
     assert read_saved_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == historical
     service = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(days=1)
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED + timedelta(days=1),
     )
     assert service.publish(proposal) == historical
     assert _counts(case.app) == before
@@ -1530,7 +1679,10 @@ def test_live_latest_gate_applies_to_buy_but_not_no_action(case):
         assessment_id(21), document, review, supersedes_id=case.pair.assessment_id
     )
     service = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(minutes=5)
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED + timedelta(minutes=5),
     )
     validation = service.check(buy)
     assert not validation.valid
@@ -1549,7 +1701,12 @@ def test_late_outcome_does_not_rewrite_saved_scope_but_rejects_stale_new_publica
         now=PUBLISHED - timedelta(minutes=12),
     )
     proposal = reviewed_proposal(case, action="no_action")
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     published = service.publish(proposal)
     document, review = pair_payload(ticker="5678", review_number=32)
     pair = AssessmentStoreService(
@@ -1566,7 +1723,10 @@ def test_late_outcome_does_not_rewrite_saved_scope_but_rejects_stale_new_publica
     new = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     with pytest.raises(ProposalConflictError, match="fixed coverage"):
         TradeProposalService(
-            case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(minutes=3)
+            case.app,
+            listing_reader=case.listing_reader,
+            sqlite_path=case.market,
+            clock=lambda: PUBLISHED + timedelta(minutes=3),
         ).publish(new)
 
 
@@ -1574,7 +1734,12 @@ def test_same_session_adjustment_does_not_change_native_quote_or_comparison(case
     proposal = reviewed_proposal(case)
     with closing(sqlite3.connect(case.market)) as connection, connection:
         connection.execute("UPDATE jquants_daily_bars SET adjustment_factor=0.5, ex_right_type='1'")
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     assert service.check(proposal).valid
     assert service.publish(proposal).proposal_id == proposal.proposal_id
 
@@ -1618,7 +1783,12 @@ def test_author_sell_floor_flows_through_check_publish_get_and_preview(
         item["case_reassessment_reason"] = "仮説は維持している。"
     raw["comparison"] = "実quoteと作者下限での保有継続を比べ、下限でも回収を選ぶ。"
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     checked = service.check(proposal)
     assert checked.valid
     calculation = checked.payload()["calculations"]["1234"]
@@ -1642,6 +1812,7 @@ def test_author_sell_floor_flows_through_check_publish_get_and_preview(
     preview = preview_current_terms(
         proposal_id=proposal.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(minutes=5),
     )
@@ -1670,14 +1841,23 @@ def test_policy_revision_invalidates_unpublished_draft_not_saved_identity(case, 
     with monkeypatch.context() as old:
         old.setattr(proposal_inputs, "proposal_input_policy_id", lambda: "retained-old-policy")
         proposal = reviewed_proposal(case)
-        service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+        service = TradeProposalService(
+            case.app,
+            listing_reader=case.listing_reader,
+            sqlite_path=case.market,
+            clock=lambda: PUBLISHED,
+        )
         published = service.publish(proposal)
     assert current_policy != proposal.inputs.policy_id
     before = case.app.read_bytes()
     assert service.publish(proposal) == published
     assert read_saved_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == published
     preview = preview_current_terms(
-        proposal_id=proposal.proposal_id, db_path=case.app, sqlite_path=case.market, now=PUBLISHED
+        proposal_id=proposal.proposal_id,
+        db_path=case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        now=PUBLISHED,
     )
     assert preview.status == "changed"
     assert "input_facts_changed:policy_id" in {reason.code for reason in preview.change_reasons}
@@ -1693,7 +1873,12 @@ def test_selected_buy_quantity_publication_uses_existing_ceiling(tmp_path, quant
     raw["items"][0]["terms"].update(quantity=quantity, notional_yen=str(quantity * 1000))
     raw["comparison"] = "選択数量と上限量・現金維持を比べ、no-addで増量できない代償も確認。"
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     checked = service.check(proposal)
     assert checked.valid is (quantity <= 300)
     assert checked.calculations["1234"]["maximum_quantity"] == 300
@@ -1727,13 +1912,26 @@ def test_authored_proposal_yaml_fails_before_check_or_publish(
     draft.write_text(text, encoding="utf-8")
     before = case.app.read_bytes()
     if entry == "service":
-        service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+        service = TradeProposalService(
+            case.app,
+            listing_reader=case.listing_reader,
+            sqlite_path=case.market,
+            clock=lambda: PUBLISHED,
+        )
         with pytest.raises(ValueError, match=r"^invalid proposal YAML$"):
             service.publish(text)
     else:
         assert (
             main(
-                [entry, str(draft), "--db", str(case.app), "--sqlite-path", str(case.market)],
+                [
+                    entry,
+                    str(draft),
+                    "--db",
+                    str(case.app),
+                    *case.listing_args,
+                    "--sqlite-path",
+                    str(case.market),
+                ],
                 now=PUBLISHED,
             )
             == 3

@@ -20,7 +20,10 @@ def test_selected_limit_quantity_and_cash_survive_normal_save_and_read(tmp_path,
     )
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     saved = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(proposal)
     before = case.app.read_bytes()
     view = read_proposal_views(case.app).latest.proposal
@@ -45,9 +48,12 @@ def test_selected_limit_quantity_and_cash_survive_normal_save_and_read(tmp_path,
     assert item["assessment"]["valuation"]["price_yen"] == "1100"
     assert case.app.read_bytes() == before
     assert (
-        TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-            proposal
-        )
+        TradeProposalService(
+            case.app,
+            listing_reader=case.listing_reader,
+            sqlite_path=case.market,
+            clock=lambda: PUBLISHED,
+        ).publish(proposal)
         == saved
     )
     assert case.app.read_bytes() == before
@@ -62,7 +68,10 @@ def test_selected_limit_quantity_and_cash_survive_normal_save_and_read(tmp_path,
 def test_saved_incomplete_or_different_date_does_not_invent_comparison(tmp_path, incomplete):
     case = backend_case(tmp_path)
     saved = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(reviewed_proposal(case))
     item = saved.items[0]
     document = case.pair.document
@@ -96,7 +105,12 @@ def test_saved_incomplete_or_different_date_does_not_invent_comparison(tmp_path,
 
 def test_old_serving_payload_and_nonbuy_remain_readable(tmp_path):
     case = backend_case(tmp_path)
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     saved = service.publish(reviewed_proposal(case))
     raw = read_proposal_views(case.app).latest.proposal.model_dump(mode="json")
     raw["items"][0].pop("saved_buy_comparison")

@@ -62,7 +62,12 @@ def test_normal_saved_proposal_keeps_each_hypothesis_result_reason_and_dedicated
         case.operation.operation_id, saved.assessment_id, now=PREPARED
     )
     draft = reviewed_proposal(case, action=action)
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     published = service.publish(draft)
 
     later_document, later_review = pair_payload(review_number=21)
@@ -101,9 +106,12 @@ def test_normal_saved_proposal_keeps_each_hypothesis_result_reason_and_dedicated
 @pytest.mark.parametrize("mode", ["absent", "null"])
 def test_old_display_does_not_infer_hypotheses_from_stance_or_countercase(tmp_path, mode):
     case = backend_case(tmp_path)
-    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        reviewed_proposal(case)
-    )
+    TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    ).publish(reviewed_proposal(case))
     raw = read_proposal_views(case.app).latest.proposal.items[0].assessment.model_dump(mode="json")
     raw["hypothesis_checks"] = None
     raw["hypothesis_sources"] = None

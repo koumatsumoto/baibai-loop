@@ -42,7 +42,12 @@ def test_scenario_citations_survive_normal_save_and_exact_read(tmp_path, action)
         case.operation.operation_id, saved.assessment_id, now=PREPARED
     )
     draft = reviewed_proposal(case, action=action)
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     published = service.publish(draft)
 
     later_document, later_review = pair_payload(review_number=21)

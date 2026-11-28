@@ -118,9 +118,12 @@ def _save(path, raw, *, now=NOW):
 
 
 def _publish(case, *, action="buy"):
-    return TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        reviewed_proposal(case, action=action)
-    )
+    return TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    ).publish(reviewed_proposal(case, action=action))
 
 
 def test_buy_roundtrip_reuses_scoped_evidence_without_rewriting_old_records(tmp_path, mocker):

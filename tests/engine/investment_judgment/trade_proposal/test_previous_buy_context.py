@@ -1,7 +1,5 @@
 """新規候補の前回案。保存条件・本人の言葉は当時の説明で、現在の経済入力ではない。"""
 
-import sqlite3
-from contextlib import closing
 from datetime import timedelta
 
 from tests.helpers.proposal import (
@@ -30,6 +28,7 @@ def _context(
         operation_id=case.operation.operation_id,
         proposal_id=proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=now,
     )
@@ -47,7 +46,10 @@ def test_previous_buy_is_the_exact_target_row_not_current_terms_or_an_execution(
     receipt = PUBLISHED + timedelta(minutes=3)
     before_publication = _context(case, now=receipt)
     saved = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(reviewed_proposal(case))
     ref = ProposalReference(proposal_id=saved.proposal_id, draft_sha256=saved.review.draft_sha256)
     report = ProposalRecordService(case.app, clock=lambda: receipt).report(
@@ -103,12 +105,12 @@ def test_previous_buy_is_the_exact_target_row_not_current_terms_or_an_execution(
 
 def test_latest_incomplete_previous_buy_is_not_a_concrete_limit_or_session(tmp_path):
     case = backend_case(tmp_path)
-    with closing(sqlite3.connect(case.market)) as con, con:
-        con.execute("DELETE FROM jquants_master_snapshots")
+    case.listing_path.unlink()
     raw = authored_defer_fixture(
         operation_id=case.operation.operation_id,
         proposal_id=PROPOSAL_ID,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PREPARED,
     )
@@ -125,7 +127,10 @@ def test_latest_incomplete_previous_buy_is_not_a_concrete_limit_or_session(tmp_p
         ],
     )
     saved = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(bind_review(raw, {case.pair.assessment_id: case.pair.document}))
     row = _context(case).previous_buy_context["targets"]["1234"]
     assert row["status"] == "available"

@@ -684,7 +684,7 @@ def test_price_input_rejects_a_later_calendar_clock(tmp_path):
 def test_old_closed_gaps_outside_acquisition_window_reach_normal_daily_and_cold_cli(
     tmp_path, monkeypatch, capsys, mocker
 ):
-    from tests.jobs.integration.test_master_native_models import attempt as master_attempt
+    from tests.helpers.master_calendar_native import pinned_jp_listing
     from tests.jobs.publication.test_calendar_native_objects import configure
 
     import baibai_jobs.integration.models as job
@@ -693,7 +693,6 @@ def test_old_closed_gaps_outside_acquisition_window_reach_normal_daily_and_cold_
         FinancialAttempt,
         FinancialL1,
     )
-    from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
     from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
     from baibai_engine.storage.snapshots.reader import resolve_current_release
     from baibai_jobs.integration.source_handoff import FINANCIAL_HISTORY_DAYS
@@ -724,9 +723,6 @@ def test_old_closed_gaps_outside_acquisition_window_reach_normal_daily_and_cold_
             )
         ]
     )
-    master = MasterL1(store, tmp_path / "master")
-    master.initialize()
-    master.commit([master_attempt("master", day=today, at=AT)])
     financial = FinancialL1(store, tmp_path / "financial")
     financial.initialize()
     financial.commit(
@@ -764,6 +760,7 @@ def test_old_closed_gaps_outside_acquisition_window_reach_normal_daily_and_cold_
         runs=tmp_path / "runs.sqlite",
         mirror=tmp_path / "mirror",
         as_of=today,
+        current_master=pinned_jp_listing(as_of=today),
         lease_handle=tmp_path / "lease",
         growth_start=None,
     )

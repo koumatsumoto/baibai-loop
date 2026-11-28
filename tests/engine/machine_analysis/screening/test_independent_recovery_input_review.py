@@ -100,6 +100,7 @@ def _generation(
                 )
             },
             financial_release=_RELEASE,
+            subjects=(_TICKER,),
             companies=(
                 CompanyModelInputs(
                     ticker=_TICKER,
@@ -112,6 +113,14 @@ def _generation(
                     ).payload,
                     adjustment_events=(),
                     sector=sector,
+                    market_context={
+                        "master": {"sector_33": sector, "is_common_stock": common_stock},
+                        "price": {
+                            "close": bars[0].price if bars else None,
+                            "price_basis": "price_adjusted_close",
+                            "resolved_date": quote_day.isoformat() if bars else None,
+                        },
+                    },
                 ),
             ),
             trading_dates=calendar.trading_dates,
@@ -119,16 +128,6 @@ def _generation(
             ttm_rules=DEFAULT_TTM_RULES,
             external_observations={},
             market_context=None,
-            securities_context={
-                _TICKER: {
-                    "master": {"sector_33": sector, "is_common_stock": common_stock},
-                    "price": {
-                        "close": bars[0].price if bars else None,
-                        "price_basis": "price_adjusted_close",
-                        "resolved_date": quote_day.isoformat() if bars else None,
-                    },
-                }
-            },
             market_context_revision="native-recovery-review-fixture",
         )
     )

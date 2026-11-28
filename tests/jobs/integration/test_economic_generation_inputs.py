@@ -10,8 +10,7 @@ from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.financial_native import seed_empty_financial
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
-from tests.helpers.master import insert_master_rows
-from tests.helpers.master_calendar_native import seed_calendar, seed_master
+from tests.helpers.master_calendar_native import pinned_jp_listing, seed_calendar
 from tests.helpers.price_native import seed_prices
 from tests.helpers.r2_store import MemoryR2Store
 from tests.helpers.tradingview_market import CLOCK, capture
@@ -53,7 +52,7 @@ def seed(path, *, value="100000", at=CLOCK):
 
 @pytest.fixture
 def integration(tmp_path, monkeypatch):
-    names = ("jquants.daily_bars", "jquants.master_snapshots", "jquants.market_calendar")
+    names = ("jquants.daily_bars", "jquants.market_calendar")
     narrow_release_policy(monkeypatch, datasets=names)
     monkeypatch.setattr(publication, "LAKE_DATASETS", {name: LAKE_DATASETS[name] for name in names})
     monkeypatch.setattr(publication, "lake_verified_git_commit", lambda: "a" * 40)
@@ -64,10 +63,6 @@ def integration(tmp_path, monkeypatch):
         daily_bars=(("1301", DAY.isoformat(), 100, 1),),
         short_sale_reports=(),
     )
-    with closing(sqlite3.connect(market)) as connection, connection:
-        insert_master_rows(
-            connection, [(DAY.isoformat(), "1301", "合成企業", "プライム", "卸売業", "011")]
-        )
     economic = tmp_path / "economic.sqlite"
     seed(economic)
     with closing(initialize_database(economic)) as connection:
@@ -76,7 +71,6 @@ def integration(tmp_path, monkeypatch):
     seed_empty_financial(store, tmp_path / "financial-native", DAY)
     seed_prices(store, market, tmp_path / "native-price", as_of=DAY)
     seed_calendar(store, market, tmp_path / "native-calendar", as_of=DAY)
-    seed_master(store, market, tmp_path / "native-master", as_of=DAY)
     return dict(
         store=store,
         edinet_input=empty_edinet_input(store, tmp_path),
@@ -85,6 +79,7 @@ def integration(tmp_path, monkeypatch):
         runs=tmp_path / "runs.sqlite",
         mirror=tmp_path / "mirror",
         as_of=DAY,
+        current_master=pinned_jp_listing(as_of=DAY),
         lease_handle=tmp_path / "lease",
         growth_start=None,
     )
@@ -118,6 +113,8 @@ def test_daily_cli_generates_without_articles_and_retains_economic_input(
         json.dumps({"asof": DAY.isoformat(), "edinet_input": args["edinet_input"].model_dump()})
     )
     notice = tmp_path / "notice.json"
+    listing = tmp_path / "current.json"
+    pinned_jp_listing(as_of=DAY, output=listing)
     assert (
         jobs_cli(
             [
@@ -139,6 +136,8 @@ def test_daily_cli_generates_without_articles_and_retains_economic_input(
                 "--notice-output",
                 str(notice),
                 "--daily-origin",
+                "--current-listing-master",
+                str(listing),
             ]
         )
         == 0

@@ -751,6 +751,7 @@ def owner_generation(
             )
         },
         financial_release=release,
+        subjects=("1001",),
         companies=(
             CompanyModelInputs(
                 ticker="1001",
@@ -758,6 +759,7 @@ def owner_generation(
                 adjusted_bars=(PriceBar(as_of, 10.0, None),),
                 adjustment_events=(),
                 sector="情報・通信業",
+                market_context={"master": {"sector_33": "情報・通信業", "name": "owner fixture"}},
             ),
         ),
         trading_dates=tuple(as_of - timedelta(days=252 - i) for i in range(253)),
@@ -770,9 +772,6 @@ def owner_generation(
         ),
         external_observations={},
         market_context=None,
-        securities_context={
-            "1001": {"master": {"sector_33": "情報・通信業", "name": "owner fixture"}}
-        },
         market_context_revision="owner-fixture-v1",
     )
     return materialize_generation(stream)

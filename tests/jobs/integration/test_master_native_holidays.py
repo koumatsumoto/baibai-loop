@@ -1,17 +1,12 @@
 """Only confirmed closed sessions adjust the master consumer, never L1 acquisition."""
 
-import json
 import sqlite3
 from datetime import date, timedelta
 
 import pytest
-from tests.helpers.edinet_native import empty_edinet_input
-from tests.helpers.financial_native import seed_empty_financial
-from tests.helpers.lake_policy import narrow_release_policy
 from tests.jobs.integration.test_master_native_models import AT, attempt, records, setup_native
 
 from baibai_engine.machine_analysis.generation.master_inputs import read_master_input
-from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_master_snapshot,
@@ -101,98 +96,6 @@ def test_unconfirmed_or_business_calendar_does_not_excuse_invalid_master(tmp_pat
             conn.execute("DELETE FROM source_coverage WHERE source='jquants_market_calendar'")
     with pytest.raises(JQuantsProviderError, match="empty"):
         model_input(store, owner.fixed(), as_of=SUNDAY, evaluated_at=AT, market=market)
-
-
-@pytest.mark.parametrize("response", ["empty", "prior-date", "matching-date"])
-@pytest.mark.parametrize("generation_day", [SUNDAY, SUNDAY + timedelta(days=1)])
-def test_normal_holiday_generation_preserves_asof_but_reads_business_master(
-    tmp_path, monkeypatch, response, generation_day
-):
-    import baibai_engine.machine_analysis.generation.inputs as generation
-    import baibai_jobs.integration.models as job
-    import baibai_jobs.publication.snapshot_publication as publication
-    from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
-    from baibai_engine.data_collection.providers.jquants.price_native import PriceAttempt, PriceL1
-    from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-    from baibai_jobs.publication.datasets import LAKE_DATASETS
-
-    names = ("jquants.master_snapshots", "jquants.daily_bars", "jquants.market_calendar")
-    narrow_release_policy(monkeypatch, datasets=names)
-    monkeypatch.setattr(publication, "LAKE_DATASETS", {name: LAKE_DATASETS[name] for name in names})
-    monkeypatch.setattr(publication, "lake_verified_git_commit", lambda: "a" * 40)
-    monkeypatch.setattr(job, "_load_handle", lambda _path: None)
-    monkeypatch.setattr(job, "verify_held", lambda *_args: None)
-    raw = [] if response == "empty" else records(FRIDAY if response == "prior-date" else SUNDAY)
-    store, _owner, market = setup_native(
-        tmp_path, [attempt("business", day=FRIDAY), attempt("holiday", day=SUNDAY, rows=raw)]
-    )
-    calendar(market)
-    if generation_day > SUNDAY:
-        with sqlite3.connect(market) as connection:
-            connection.execute(
-                "INSERT INTO jquants_market_calendar VALUES (?, '1')", (generation_day.isoformat(),)
-            )
-    price = PriceL1(store, tmp_path / "price")
-    price.initialize()
-    price.commit(
-        [
-            PriceAttempt(
-                str(day),
-                day,
-                AT,
-                (
-                    JQuantsPage(
-                        "daily_bars",
-                        {"date": day.isoformat()},
-                        AT,
-                        json.dumps(
-                            {
-                                "data": [{"Code": "13010", "Date": day.isoformat(), "C": 100}]
-                                if day == FRIDAY
-                                else []
-                            }
-                        ).encode(),
-                    ),
-                ),
-            )
-            for day in (FRIDAY, SATURDAY, SUNDAY)
-            + ((generation_day,) if generation_day > SUNDAY else ())
-        ]
-    )
-    from tests.helpers.master_calendar_native import seed_calendar
-
-    seed_calendar(store, market, tmp_path / "calendar-native", as_of=generation_day)
-    original = generation.read_master_snapshot
-    consumed = []
-
-    def read(*args, **kwargs):
-        consumed.append(kwargs["as_of"])
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(generation, "read_master_snapshot", read)
-    economic = tmp_path / "economic.sqlite"
-    initialize_database(economic).close()
-    seed_empty_financial(store, tmp_path / "financial-native", generation_day)
-    result = job.integrate_models(
-        store=store,
-        edinet_input=empty_edinet_input(store, tmp_path),
-        market=market,
-        economic=economic,
-        runs=tmp_path / "runs",
-        mirror=tmp_path / "mirror",
-        as_of=generation_day,
-        lease_handle=tmp_path / "lease",
-        growth_start=None,
-    )
-    saved = read_generation(result["generation_id"], path=tmp_path / "runs")
-    expected = SUNDAY if generation_day > SUNDAY and response == "matching-date" else FRIDAY
-    assert saved.as_of == generation_day
-    assert consumed == [expected]
-    assert saved.inputs["master"].descriptor["as_of"] == generation_day.isoformat()
-    assert saved.inputs["master"].descriptor["summary"]["snapshot_date"] == expected.isoformat()
-    basis = FRIDAY if generation_day == SUNDAY else generation_day
-    assert saved.inputs["master"].descriptor["summary"]["master_basis_date"] == basis.isoformat()
-    assert "lake/pointers/market/current.json" in store.values
 
 
 def test_closed_invalid_cannot_hide_a_previous_business_invalid_boundary(tmp_path):

@@ -128,7 +128,10 @@ def test_research_readers_reject_noncurrent_or_nonstrict_payload_versions(
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
     proposal = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(proposal)
     table = "stock_assessment" if kind == "assessment" else "investment_proposal"
     raw = case.pair.document.model_dump(mode="json") if kind == "assessment" else proposal.payload()
@@ -149,6 +152,7 @@ def test_research_readers_reject_noncurrent_or_nonstrict_payload_versions(
             lambda: preview_current_terms(
                 db_path=case.app,
                 proposal_id=proposal.proposal_id,
+                listing_reader=case.listing_reader,
                 sqlite_path=case.market,
                 now=PUBLISHED,
             ),

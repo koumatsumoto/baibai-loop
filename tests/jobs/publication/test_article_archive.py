@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from tests.helpers.jquants_receipts import receive
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import export_market_fixture, market_store
-from tests.helpers.master_calendar_native import seed_calendar, seed_master
+from tests.helpers.master_calendar_native import seed_calendar
 from tests.helpers.price_native import seed_prices
 from tests.helpers.r2_store import MemoryR2Store
 from tests.helpers.trends import PHARMA
@@ -66,7 +66,6 @@ def test_daily_retires_article_payloads_but_fixed_evidence_stays_readable(tmp_pa
     )
     seed_prices(remote, market, tmp_path / "price-source")
     seed_calendar(remote, market, tmp_path / "calendar-source", as_of=DAY)
-    seed_master(remote, market, tmp_path / "master-source", as_of=DAY)
     request = receive(market, "margin_alerts", {}, b'{"data":[]}', AT)
     body = f'<div class="entry"><h1>合成・医薬品調査</h1><p>{PHARMA}</p></div>'.encode()
     body_ref = BodyRef(receipt_id="retained-original", sha256=hashlib.sha256(body).hexdigest())

@@ -79,6 +79,7 @@ def test_sequential_proposals_recollect_cash_without_changing_saved_scope_or_ter
             operation_id=operation.operation_id,
             proposal_id=proposal_id,
             db_path=case.app,
+            listing_reader=case.listing_reader,
             sqlite_path=case.market,
             now=now,
         )
@@ -116,7 +117,10 @@ def test_sequential_proposals_recollect_cash_without_changing_saved_scope_or_ter
         assert proposal.inputs.available_cash_yen == cash
         before = store.load()
         published = TradeProposalService(
-            case.app, sqlite_path=case.market, clock=lambda instant=now: instant
+            case.app,
+            listing_reader=case.listing_reader,
+            sqlite_path=case.market,
+            clock=lambda instant=now: instant,
         ).publish(proposal)
         assert store.load() == before
         if index == 0:
@@ -189,6 +193,7 @@ def test_sequential_proposals_recollect_cash_without_changing_saved_scope_or_ter
     preview = preview_current_terms(
         proposal_id=first_proposal.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(minutes=2),
     )

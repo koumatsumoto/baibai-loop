@@ -47,7 +47,8 @@ def test_core_order_and_source_receipts_survive_without_web(steps, by_id):
         ("smoke", "validate-input"),
         ("validate-input", "setup"),
         ("hydrate", "source-integration"),
-        ("source-integration", "batch"),
+        ("source-integration", "listing-master"),
+        ("listing-master", "batch"),
         ("batch", "source-seal"),
         ("source-seal", "source-check"),
     ):
@@ -204,6 +205,75 @@ def test_failed_machine_publication_never_reports_ready_or_starts_another_proces
         "asof": "2026-10-25",
         "models_ready": "true" if exit_code == 0 else "false",
     }
+
+
+@pytest.mark.parametrize("pin_exit", [0, 41])
+def test_daily_l2_and_web_share_one_required_listing_pin(tmp_path, by_id, pin_exit):
+    assert "if" not in by_id["listing-master"]
+    assert "continue-on-error" not in by_id["listing-master"]
+    assert "if" not in by_id["batch"]  # A failed pin never reaches either consumer.
+    runner = tmp_path / "runner temp"
+    runner.mkdir()
+    path = runner / "current-listing-master.json"
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    uv = binary / "uv"
+    uv.write_text(
+        """#!/usr/bin/env python3
+import os
+import sys
+from pathlib import Path
+
+args = sys.argv[1:]
+runner = Path(os.environ["RUNNER_TEMP"])
+pin = runner / "current-listing-master.json"
+if args[1:4] == ["python", "-m", "baibai_jobs.integration.listing_master_current"]:
+    phase = "pin"
+    assert Path(args[args.index("--output") + 1]) == pin
+else:
+    assert Path(args[args.index("--current-listing-master") + 1]) == pin
+    assert pin.read_bytes() == b"same listing input"
+    phase = "l2" if args[1:3] == ["baibai-jobs", "model-integration"] else "web"
+    if phase == "web":
+        assert args[1:4] == ["python", "-m", "baibai_web.materialize"]
+with (runner / "calls").open("a") as log:
+    print(phase, file=log)
+if phase == "pin":
+    if exit_code := int(os.environ["PIN_EXIT"]):
+        raise SystemExit(exit_code)
+    with pin.open("xb") as output:
+        output.write(b"same listing input")
+"""
+    )
+    uv.chmod(0o755)
+    scripts = tmp_path / "jobs/scripts"
+    scripts.mkdir(parents=True)
+    transfer = scripts / "r2_transfer.sh"
+    transfer.write_text('#!/bin/sh\nprintf "%s\n" "$1" >> "$RUNNER_TEMP/calls"\n')
+    transfer.chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": str(binary) + os.pathsep + os.environ["PATH"],
+        "RUNNER_TEMP": str(runner),
+        "GITHUB_OUTPUT": str(tmp_path / "output"),
+        "INTEGRATION_ASOF": "2026-11-27",
+        "PIN_EXIT": str(pin_exit),
+    }
+    for phase in ("listing-master", "batch", "portfolio-views"):
+        completed = subprocess.run(
+            ["bash", "-euo", "pipefail", "-c", by_id[phase]["run"]],
+            cwd=tmp_path,
+            env=env,
+            capture_output=True,
+            check=False,
+        )
+        if completed.returncode:
+            break
+    assert completed.returncode == pin_exit
+    assert (runner / "calls").read_text().splitlines() == (
+        ["pin"] if pin_exit else ["pin", "l2", "pull-app", "web", "upload-portfolio-views"]
+    )
+    assert path.exists() == (pin_exit == 0)
 
 
 def test_dispatch_does_not_offer_runs_pruning(workflow, by_id):

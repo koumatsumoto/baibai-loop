@@ -14,6 +14,7 @@ from copy import deepcopy
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from functools import partial
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -31,12 +32,13 @@ from tests.helpers.external_assessment_html import monex_eps_section, monex_html
 from tests.helpers.external_assessment_responses import response
 from tests.helpers.financial_native import fixed_empty_financial_input, seed_financial
 from tests.helpers.lake_release import publish_market_fixture
-from tests.helpers.master import insert_master_rows
+from tests.helpers.master_calendar_native import pinned_jp_listing
 from tests.helpers.proposal import (
     PREPARED,
     PROPOSAL_ID,
     PUBLISHED,
     bind_review,
+    read_jp_proposal_listing,
     read_saved_proposal,
 )
 from tests.helpers.r2_store import MemoryR2Store
@@ -330,19 +332,12 @@ def _prepare_case(
         ],
     )
     with closing(sqlite3.connect(market)) as connection, connection:
-        insert_master_rows(
-            connection, [("2026-10-14", "1234", "合成企業", "Prime", "情報・通信業", "011")]
-        )
         connection.executemany(
             "INSERT INTO jquants_market_calendar(day,holiday_division) VALUES (?,?)",
             [("2026-10-14", 1), ("2026-10-15", 1)],
         )
     if discover:
         seed_daily_bars(market, [("1001", START.date().isoformat(), 500.0, 1.0)])
-        with closing(sqlite3.connect(market)) as connection, connection:
-            insert_master_rows(
-                connection, [("2026-10-14", "1001", "別の合成企業", "Prime", "小売業", "011")]
-            )
     # 同じ四半期の増収と利益率低下を別々に残す。成長スコアや将来予測ではない。
     financial_store = MemoryR2Store()
     financial_owner = seed_financial(
@@ -427,6 +422,11 @@ def _prepare_case(
         ),
         expected_head=None,
     )
+    listing_path = tmp_path / "current-listings.json"
+    companies = [("1234", "合成企業", "Prime", "情報・通信業", "011")]
+    if discover:
+        companies.append(("1001", "別の合成企業", "Prime", "小売業", "011"))
+    pinned = pinned_jp_listing(as_of=START.date(), companies=companies, output=listing_path)
     with (
         sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "sealed") as snapshot,
         monkeypatch.context() as assembly,
@@ -435,6 +435,7 @@ def _prepare_case(
             _bind_historical_article_inputs(assembly, snapshot.path, model_release)
         generation = read_and_generate_models(
             generation_id="synthetic-five-models",
+            current_master=pinned,
             financial_input=financial,
             market_snapshot=snapshot,
             market_release=model_release,
@@ -485,6 +486,7 @@ def _prepare_case(
     case = SimpleNamespace(
         app=app,
         market=market,
+        listing_reader=partial(read_jp_proposal_listing, listing_path),
         runs=runs,
         ledger=ledger,
         selected=saved,
@@ -858,6 +860,7 @@ def _promote_and_propose(case):
         proposal_id=PROPOSAL_ID,
         operation_id=case.prepared.operation_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PREPARED,
     )
@@ -987,7 +990,12 @@ def test_five_domain_assessment_review_action_and_readback(tmp_path, monkeypatch
         assert proposal.items[0].terms.limit_price_yen == Decimal(
             900 if scenario == "current" else 1000
         )
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     assert service.check(proposal).valid
     published = service.publish(proposal)
     assert read_saved_proposal(proposal_id=PROPOSAL_ID, db_path=case.app) == published
@@ -1060,6 +1068,7 @@ def test_five_domain_assessment_review_action_and_readback(tmp_path, monkeypatch
     preview = preview_current_terms(
         proposal_id=PROPOSAL_ID,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(minutes=2),
     )
@@ -1114,7 +1123,12 @@ def test_changed_action_reason_cannot_publish_with_original_content_review(
     # 初回の正常draft以降はbind_reviewを呼ばず、元Reviewをそのまま渡す。
     assert changed.review == proposal.review
     assert proposal_draft_sha256(changed) != changed.review.draft_sha256
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     stale = service.check(changed, require_review=False)
     assert [b.code for b in stale.blockers] == ["proposal_content_review_stale"]
     assert service.check(changed.model_copy(update={"review": None}), require_review=False).valid
@@ -1179,7 +1193,12 @@ def test_seven_domains_retain_shared_raw_evidence_through_review_proposal_and_re
     assert pair.document.valuation.base.terminal_value_per_share_yen == Decimal(1100)
     assert proposal.items[0].terms.maximum_entry_price_yen == Decimal(1000)
     # More models are not extra votes or an automatic terminal/Pmax increase.
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     published = service.publish(proposal)
     saved_view = (case.prepared.workspace / "domain-inputs.yaml").read_bytes()
 
@@ -1342,7 +1361,12 @@ def test_fixed_economic_originals_and_unchanged_ledger_reach_saved_judgment(tmp_
     assert Decimal(capital["cash_only_terminal_value_yen"]) == 300000
     assert Decimal(capital["base"]["profit_loss_yen"]) == 30000
     assert Decimal(capital["downside"]["profit_loss_yen"]) == -90000
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     published = service.publish(proposal)
     projected = (case.prepared.workspace / "domain-inputs.yaml").read_bytes()
 
@@ -1496,7 +1520,10 @@ def test_sealed_monex_eps_reaches_formal_web_without_bodies_in_authoring_copy(
     )
     assert case.runs.read_bytes() == runs_before
     published = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(draft)
     assert published.proposal_id == PROPOSAL_ID
     case.market.rename(tmp_path / "removed-market.sqlite")
@@ -1565,9 +1592,6 @@ def test_monex_fixed_research_uses_the_same_eligible_price_pair_and_eps_original
     seed_daily_bars(market, [("1234", t.date().isoformat(), 100.0, 1.0) for t in (a, b)])
     receipts = []
     with closing(sqlite3.connect(market)) as conn, conn:
-        insert_master_rows(
-            conn, [(a.date().isoformat(), "1234", "合成企業", "Prime", "情報・通信業", "011")]
-        )
         conn.executemany(
             "INSERT INTO jquants_market_calendar(day,holiday_division) VALUES (?,?)",
             [(t.date().isoformat(), 1) for t in (a, b)],
@@ -1593,6 +1617,9 @@ def test_monex_fixed_research_uses_the_same_eligible_price_pair_and_eps_original
         def build():
             return read_and_generate_models(
                 generation_id="fixed-overnight",
+                current_master=pinned_jp_listing(
+                    as_of=as_of, tickers=("1234",), received_at=a - timedelta(hours=1)
+                ),
                 financial_input=financial,
                 market_snapshot=replace(snapshot, sealed_at=seal_clock),
                 market_release=InputRelease(release_id="fixture-release", manifest_sha256="a" * 64),
@@ -1771,6 +1798,7 @@ def test_cash_choice_uses_verified_finite_right_not_issuer_stance(tmp_path, monk
             operation_id=operation_id,
             proposal_id=PROPOSAL_ID[:-2] + f"{index + 3:02x}",
             db_path=case.app,
+            listing_reader=case.listing_reader,
             sqlite_path=case.market,
             now=now,
         )
@@ -1839,7 +1867,10 @@ def test_cash_choice_uses_verified_finite_right_not_issuer_stance(tmp_path, monk
             reviewed_at=(now + timedelta(minutes=1)).isoformat(),
         )
         service = TradeProposalService(
-            case.app, sqlite_path=case.market, clock=lambda now=now: now + timedelta(minutes=2)
+            case.app,
+            listing_reader=case.listing_reader,
+            sqlite_path=case.market,
+            clock=lambda now=now: now + timedelta(minutes=2),
         )
         checked_proposal = service.check(draft)
         assert checked_proposal.valid == (blocker is None), scenario

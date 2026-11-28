@@ -13,7 +13,6 @@ from baibai_engine.storage.snapshots.writer import LakeBuildError
 NATIVE_NAMES = (
     "jquants.daily_bars",
     "jquants.market_calendar",
-    "jquants.master_snapshots",
 )
 
 
@@ -56,7 +55,6 @@ def test_same_seal_native_exports_are_fully_checked_once(tmp_path, monkeypatch):
     [
         ("jquants.daily_bars", "close", 999.0),
         ("jquants.market_calendar", "holiday_division", "0"),
-        ("jquants.master_snapshots", "record_json", "{}"),
     ],
 )
 def test_native_value_difference_is_rejected_by_exporter(

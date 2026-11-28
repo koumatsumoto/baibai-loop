@@ -36,7 +36,7 @@ from baibai_engine.portfolio.performance.calculate import (
 )
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_web.readmodel.builders import dashboard
-from baibai_web.sources.db_sources import DbLedgerSource, DbMarketSource
+from baibai_web.sources.db_sources import CurrentJpMarketSource, DbLedgerSource
 
 NOW = datetime.fromisoformat("2026-10-05T18:00:00+09:00")
 BASIS = date(2026, 10, 2)
@@ -312,6 +312,7 @@ def test_confirmed_conversion_connects_portfolio_and_new_proposal_inputs(tmp_pat
             tickers=(),
             proposal_id="",
             now=NOW,
+            current_listing=None,
             sqlite_path=market,
             budget_min_yen=200000,
             budget_max_yen=300000,
@@ -460,7 +461,7 @@ def test_reference_marks_keep_sub_yen_precision_until_whole_yen_output(
 
     mocker.patch.object(dashboard, "datetime").now.return_value = at
     view = dashboard.build_dashboard(
-        DbLedgerSource(tmp_path / "app.sqlite", market), DbMarketSource(market)
+        DbLedgerSource(tmp_path / "app.sqlite", market), CurrentJpMarketSource(market)
     )
     assert view.valuation_error is None
     assert view.valuation_as_of == end
@@ -653,7 +654,10 @@ def test_share_conversion_never_rewrites_the_original_proposal(tmp_path):
 
     case = backend_case(tmp_path, holding=True)
     saved = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(reviewed_proposal(case, action="hold"))
     original = saved.model_dump(mode="json")
     original_sha = proposal_draft_sha256(saved)

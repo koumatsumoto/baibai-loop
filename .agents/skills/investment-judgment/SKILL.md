@@ -134,17 +134,17 @@ uv run baibai-engine operation --db <APP_DB> --format json record-unfinished \
   <OPERATION_ID> --ticker <TICKER> --reason '<REASON>' --ref <REF>
 ```
 
-通常の提案はcontextから作る。以下の3コマンドには同じAppとMarketの作業コピーを渡す。
+通常の提案はcontextから作る。context / check / publish / preview には同じApp・Marketの作業コピーと、受け取った現行銘柄マスターを明示する。対象立会・受領時刻が合わない、または現行ファイルを読めないときは商品分類未確認とし、旧Market表に戻さない。同一ID・同一内容での発行再試行は保存済み提案を返し、現行ファイルを読み直さない。
 
 ```bash
 uv run baibai-engine investment-judgment trade-proposal-context \
   --operation-id <OPERATION_ID> --proposal-id <NEW_PROPOSAL_ID> --out <DRAFT> \
-  --db <APP_DB> --sqlite-path <MARKET_DB>
+  --db <APP_DB> --sqlite-path <MARKET_DB> --current-listing-master <CURRENT_LISTING_JSON>
 ```
 
 標準出力のcontextと任意の新規作業ファイルは同じ時点・IDの投影である。新規発行では、固定元にある流動性の期間を省略しない。旧い未発行原稿がこれを欠く場合は新しい作業ファイルにcontextを出し直し、本文を移して再査読する。既発行の本文・hashは直さない。前回提案・本人報告、監理指定と関連届出の出典はcontextで確認し、今回の判断へ流用しない。作者は固定全対象の行動・理由・再調査条件を[Trade Proposal](../../../docs/reference/trade-proposal.md)に沿って書く。相対強弱を理由にするなら[反対の読み](../../../docs/reference/trade-proposal.md#fixed-price-comparison)で価値・採否・次の確認のどれが変わるかを残す。
 
-`trade-proposal-check <DRAFT> --db <APP_DB> --sqlite-path <MARKET_DB>`の`unreviewed`は本文の事前確認で、正式保存ではない。評価のReviewとは別に、提案の内容Reviewerが本文とdigestを検証して[内容Review](../../../engine/src/baibai_engine/investment_judgment/trade_proposal/contracts.py)を記入する。`trade-proposal-publish <REVIEWED_DRAFT> --db <APP_DB> --sqlite-path <MARKET_DB>`は発行時点の事実を改めて確認する。
+`trade-proposal-check <DRAFT>`の`unreviewed`は本文の事前確認で、正式保存ではない。評価のReviewとは別に、提案の内容Reviewerが本文とdigestを検証して[内容Review](../../../engine/src/baibai_engine/investment_judgment/trade_proposal/contracts.py)を記入する。`trade-proposal-publish <REVIEWED_DRAFT>`は発行時点の事実を改めて確認する。
 
 保有の利確・配当・業種集中が競合するときは[資本回収案の比較](../../../docs/reference/trade-proposal.md#holding-allocation)で、維持と、同じ現金を別の組合せから回収する案を固定終値・同じ権利窓で突き合わせる。現金目標がなければ作らず、差が採否を変えるものだけを正式本文に残す。
 

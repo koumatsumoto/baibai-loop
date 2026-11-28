@@ -74,13 +74,19 @@ def context(case):
         proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PREPARED,
     ).calculations["1234"]
 
 
 def service(case):
-    return TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    return TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
 
 
 def buy_at(case, limit, saved_max):
@@ -127,7 +133,11 @@ def test_price_only_bound_is_not_a_text_hint_or_automatic_order(tmp_path):
     assert finding.value_facts[0].value == "取得者への給付は先順位分控除後。"
     assert {s.source_id for s in finding.sources} == {"price", "annual"}
     preview = preview_current_terms(
-        proposal_id=saved.proposal_id, db_path=case.app, sqlite_path=case.market, now=PUBLISHED
+        proposal_id=saved.proposal_id,
+        db_path=case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        now=PUBLISHED,
     ).payload()
     item = preview["items"][0]
     assert item["saved_limit_revalidation"]["quantity"] == 100
@@ -234,7 +244,11 @@ def test_next_order_session_controls_entitlement_not_unchanged_quote_or_payment_
         saved = _legacy_proposal(case, draft)
         assert writer.publish(draft) == saved
     preview = preview_current_terms(
-        proposal_id=saved.proposal_id, db_path=case.app, sqlite_path=case.market, now=PUBLISHED
+        proposal_id=saved.proposal_id,
+        db_path=case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        now=PUBLISHED,
     ).payload()["items"][0]
     record = read_proposal_views(case.app).latest.proposal.items[0].assessment.price_value_case
     assert record.status == "supported_at_quote"

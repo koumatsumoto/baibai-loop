@@ -229,13 +229,13 @@ def native_market_dependencies(store, tmp_path, monkeypatch):
 
     calendar(store, tmp_path / "calendar", DAY, DAY)
     monkeypatch.setattr(jquants_calendar_native, "calendar_window", lambda *a: (DAY, DAY))
-    for module, name in (
-        (jquants_calendar_native, "acquire_calendar_native"),
-        (jquants_master_native, "acquire_master_native"),
-    ):
-        monkeypatch.setattr(
-            module, name, lambda *a, **kw: {"failed": 0, "held": 0, "incomplete": 0}
-        )
+    report = {"failed": 0, "held": 0, "incomplete": 0}
+    monkeypatch.setattr(jquants_calendar_native, "acquire_calendar_native", lambda *a, **kw: report)
+    monkeypatch.setattr(
+        jquants_master_native,
+        "acquire_master_native",
+        lambda *a, **kw: jquants_master_native.MasterNativeAcquisition(report),
+    )
 
 
 def test_price_commits_before_an_independent_source_failure(tmp_path, monkeypatch):

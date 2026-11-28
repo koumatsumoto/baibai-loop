@@ -23,7 +23,12 @@ def test_normal_saved_holding_position_preserves_quantity_basis_cost_and_input_c
         if action == "hold"
         else sell_draft(case, broken=True)
     )
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     assert service.check(draft).valid
     saved = service.publish(draft)
     before = case.app.read_bytes()
@@ -60,7 +65,12 @@ def test_broken_sell_keeps_unconfirmed_recorded_quantity_without_inventing_terms
         )
     ]
     draft = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     assert service.check(draft).valid
     saved = service.publish(draft)
     before = case.app.read_bytes()
@@ -81,7 +91,10 @@ def test_broken_sell_keeps_unconfirmed_recorded_quantity_without_inventing_terms
 def test_saved_display_does_not_round_recorded_cost_or_substitute_quote_value(tmp_path, cost):
     case = backend_case(tmp_path, holding=True)
     saved = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(reviewed_proposal(case, action="hold"))
     raw = saved.payload()
     raw["items"][0]["position"].update(quantity=200, cost_yen=cost)
@@ -107,7 +120,12 @@ def test_old_display_omission_is_unknown_not_zero_or_confirmed(tmp_path, action,
         if action == "hold"
         else sell_draft(case, broken=True)
     )
-    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(draft)
+    TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    ).publish(draft)
     raw = read_proposal_views(case.app).latest.proposal.items[0].model_dump(mode="json")
     raw["saved_position"] = None
     if mode == "absent":
@@ -118,9 +136,12 @@ def test_old_display_omission_is_unknown_not_zero_or_confirmed(tmp_path, action,
 
 def test_saved_position_does_not_consult_current_inputs(tmp_path, mocker):
     case = backend_case(tmp_path, holding=True)
-    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        reviewed_proposal(case, action="hold")
-    )
+    TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    ).publish(reviewed_proposal(case, action="hold"))
     current_inputs = mocker.patch(
         "baibai_engine.investment_judgment.trade_proposal.inputs.collect_proposal_inputs",
         side_effect=AssertionError("must not substitute current holdings"),

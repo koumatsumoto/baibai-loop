@@ -16,6 +16,7 @@ from tests.engine.data_collection.providers.jquants.test_calendar_native import 
 from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
+from tests.helpers.master_calendar_native import pinned_jp_listing
 from tests.jobs.integration.test_master_native_models import attempt as master_attempt
 from tests.jobs.integration.test_master_native_models import records
 
@@ -89,7 +90,7 @@ def native_dependencies(store, tmp_path, *, day=DAY, holiday=None, request_close
 def configure(monkeypatch):
     import baibai_jobs.publication.snapshot_publication as publication
 
-    names = ("jquants.daily_bars", "jquants.master_snapshots", "jquants.market_calendar")
+    names = ("jquants.daily_bars", "jquants.market_calendar")
     narrow_release_policy(monkeypatch, datasets=names)
     monkeypatch.setattr(publication, "LAKE_DATASETS", {name: LAKE_DATASETS[name] for name in names})
     monkeypatch.setattr(publication, "lake_verified_git_commit", lambda: "a" * 40)
@@ -148,7 +149,7 @@ def test_month_objects_reuse_equal_and_correct_only_changed_month_from_same_seal
     assert sum(len(pq.read_table(path)) for path in paths) == 4
 
 
-def test_generation_materializes_calendar_before_master_and_preserves_identity(
+def test_generation_uses_pinned_master_basis_and_preserves_native_calendar_identity(
     tmp_path, monkeypatch
 ):
     import baibai_jobs.integration.models as job
@@ -191,13 +192,15 @@ def test_generation_materializes_calendar_before_master_and_preserves_identity(
         runs=tmp_path / "runs",
         mirror=tmp_path / "mirror",
         as_of=sunday,
+        current_master=pinned_jp_listing(as_of=friday),
         lease_handle=tmp_path / "lease",
         growth_start=None,
     )
     saved = read_generation(result["generation_id"], path=tmp_path / "runs")
     assert saved.inputs["calendar"].descriptor["head_sha256"] == fixed.content_id
-    assert saved.inputs["master"].descriptor["summary"]["master_basis_date"] == friday.isoformat()
-    assert saved.inputs["master"].descriptor["summary"]["snapshot_date"] == friday.isoformat()
+    assert saved.inputs["master"].kind == "current_listing_master"
+    assert saved.inputs["master"].descriptor["session"] == friday.isoformat()
+    assert not any("/master/v1/" in key for key in store.get_keys)
     assert store.get_keys.count(HEAD_KEY) == 1
     assert saved.inputs["price"].descriptor["summary"]["closed_unrequested_days"] == 2
     # Price closure reuses the calendar proof from this same preparation.

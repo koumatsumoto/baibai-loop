@@ -138,7 +138,7 @@ def test_saved_old_tv_report_cannot_write_or_seal_current_data(tmp_path, monkeyp
 
 
 @pytest.mark.parametrize("command", ["acquire", "export", "stage", "replay-copy"])
-def test_only_fixed_read_or_explicit_local_replay_remain(
+def test_retired_handoff_cannot_write_or_replay_even_into_an_explicit_copy(
     tmp_path,
     monkeypatch,
     command,
@@ -159,7 +159,10 @@ def test_only_fixed_read_or_explicit_local_replay_remain(
                 DAY,
                 "--stage-id",
                 "tradingview-current",
+                "--database",
+                str(tmp_path / "must-not-open.sqlite"),
             ],
         )
         == 1
     )
+    assert not list(tmp_path.iterdir())

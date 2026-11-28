@@ -194,9 +194,22 @@ def test_shared_transfer_callers_pass_the_acquired_publication_handle():
 def test_materialize_keeps_verified_application_independent_of_market_failure():
     steps = _steps(_workflow("cloud-materialize.yml"), "materialize")
     by_id = {step.get("id"): step for step in steps}
-    app, market, materialize = (by_id[name] for name in ("pull-app", "market", "materialize"))
+    app, market, pin, materialize = (
+        by_id[name] for name in ("pull-app", "market", "listing-master", "materialize")
+    )
     upload = next(step for step in steps if step.get("name") == "Upload serving objects")
-    assert steps.index(app) < steps.index(market) < steps.index(materialize) < steps.index(upload)
+    ordered = [steps.index(step) for step in (app, market, pin, materialize, upload)]
+    assert ordered == sorted(ordered)
+    assert pin["if"] == "${{ steps.market.outcome == 'success' }}"
+    assert "continue-on-error" not in pin
+    assert (
+        sum(
+            "baibai_jobs.integration.listing_master_current --output" in step.get("run", "")
+            for step in steps
+        )
+        == 1
+    )
+    assert '--output "$RUNNER_TEMP/current-listing-master.json"' in pin["run"]
     assert "jobs/scripts/r2_transfer.sh pull-app" in app["run"]
     assert market["run"].splitlines() == ["jobs/scripts/r2_transfer.sh pull-portfolio-market"]
     assert "continue-on-error" not in market
@@ -205,6 +218,8 @@ def test_materialize_keeps_verified_application_independent_of_market_failure():
         "&& steps.pull-app.outcome == 'success' }}"
     )
     assert materialize["env"]["MARKET_OUTCOME"] == "${{ steps.market.outcome }}"
+    assert materialize["env"]["LISTING_MASTER_OUTCOME"] == "${{ steps.listing-master.outcome }}"
+    assert "R2_SECRET_ACCESS_KEY" not in materialize["env"]
     current_revision = by_id["current-revision"]
     assert steps.index(materialize) < steps.index(current_revision) < steps.index(upload)
     assert current_revision["if"] == "${{ !cancelled() && steps.materialize.outcome == 'success' }}"
@@ -240,11 +255,16 @@ gh() {{
 
 
 @pytest.mark.parametrize(
-    ("market_outcome", "market_present"),
-    [("success", True), ("failure", True), ("failure", False)],
+    ("market_outcome", "market_present", "listing_outcome"),
+    [
+        ("success", True, "success"),
+        ("success", True, "failure"),
+        ("failure", True, "skipped"),
+        ("failure", False, "skipped"),
+    ],
 )
 def test_materialize_excludes_unverified_market_copies_but_keeps_application(
-    tmp_path, market_outcome, market_present
+    tmp_path, market_outcome, market_present, listing_outcome
 ):
     steps = _steps(_workflow("cloud-materialize.yml"), "materialize")
     materialize = next(step for step in steps if step.get("id") == "materialize")
@@ -258,8 +278,22 @@ def test_materialize_excludes_unverified_market_copies_but_keeps_application(
     binary = tmp_path / "bin"
     binary.mkdir()
     uv = binary / "uv"
+    (tmp_path / "current-listing-master.json").write_bytes(b"would be unsafe after a failed pin")
     uv.write_text(
-        "#!/bin/sh\nif test -f stores/market/market.sqlite; then echo present; else echo absent; fi\n"
+        """#!/bin/sh
+set -eu
+if test -f stores/market/market.sqlite; then echo market-present; else echo market-absent; fi
+until test "$1" = --current-listing-master; do shift; done
+shift
+if test "$LISTING_MASTER_OUTCOME" = success; then
+    test "$1" = "$RUNNER_TEMP/current-listing-master.json"
+    test -f "$1"
+    echo listing-pinned
+else
+    test ! -e "$1"
+    echo listing-unavailable
+fi
+"""
     )
     uv.chmod(0o755)
 
@@ -271,6 +305,7 @@ def test_materialize_excludes_unverified_market_copies_but_keeps_application(
             "PATH": str(binary) + os.pathsep + os.environ["PATH"],
             "RUNNER_TEMP": str(tmp_path),
             "MARKET_OUTCOME": market_outcome,
+            "LISTING_MASTER_OUTCOME": listing_outcome,
         },
         capture_output=True,
         text=True,
@@ -280,9 +315,10 @@ def test_materialize_excludes_unverified_market_copies_but_keeps_application(
     assert result.returncode == 0
     verified = market_outcome == "success"
     assert result.stdout == ""
-    assert (tmp_path / "materialize-private.log").read_text().strip() == (
-        "present" if verified else "absent"
-    )
+    assert (tmp_path / "materialize-private.log").read_text().splitlines() == [
+        "market-present" if verified else "market-absent",
+        "listing-pinned" if listing_outcome == "success" else "listing-unavailable",
+    ]
     assert app.read_bytes() == b"verified application"
     if market_present:
         retained = market if verified else tmp_path / "unverified-market/market.sqlite"

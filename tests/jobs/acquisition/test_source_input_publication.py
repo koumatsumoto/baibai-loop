@@ -21,7 +21,6 @@ def test_tradingview_input_roundtrip_keeps_generation_binding_without_sql_depend
             "SELECT * FROM tradingview_forecast_snapshots ORDER BY ticker"
         ).fetchall()
         receipts = conn.execute("SELECT * FROM tradingview_source_receipts").fetchall()
-        conn.execute("DELETE FROM jquants_master_snapshots")
         conn.execute("DELETE FROM jquants_market_calendar")
     generations = {"lake_release_id": "fixed", "lake_manifest_sha256": "a" * 64}
     assert publish_inputs(
@@ -47,7 +46,6 @@ def test_tradingview_input_roundtrip_keeps_generation_binding_without_sql_depend
             == snapshots
         )
         assert conn.execute("SELECT * FROM tradingview_source_receipts").fetchall() == receipts
-        assert conn.execute("SELECT COUNT(*) FROM jquants_master_snapshots").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM jquants_market_calendar").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM source_coverage").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM lake_store_origin").fetchone()[0] == 0

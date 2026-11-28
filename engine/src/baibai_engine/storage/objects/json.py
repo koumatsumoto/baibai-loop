@@ -84,9 +84,14 @@ def read_fixed_private(
 
 
 def put_private(
-    store: ObjectStore, key: str, payload: bytes, *, previous_etag: str | None
+    store: ObjectStore,
+    key: str,
+    payload: bytes,
+    *,
+    previous_etag: str | None,
+    max_bytes: int = MAX_PRIVATE_OBJECT_BYTES,
 ) -> SavedObject:
-    if not 0 < len(payload) <= MAX_PRIVATE_OBJECT_BYTES:
+    if not 0 < len(payload) <= max_bytes:
         raise ValueError("invalid private JSON payload size")
     digest = hashlib.sha256(payload).hexdigest()
     with tempfile.TemporaryDirectory(prefix="baibai-private-json-") as temporary:

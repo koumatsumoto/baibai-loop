@@ -826,18 +826,14 @@ def test_jquants_source_and_adopted_rows_have_distinct_lake_layers(tmp_path: Pat
             "request_id, page_index, source, query_json, received_at_utc, received_on, body_gzip"
             ") VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
-                "raw-master",
+                "raw-financial",
                 0,
-                "master",
+                "financial_summaries",
                 '{"date":"2026-01-05"}',
                 "2026-01-05T01:00:00+00:00",
                 "2026-01-05",
                 gzip.compress(b"{}"),
             ),
-        )
-        connection.execute(
-            "INSERT INTO jquants_master_snapshots(snapshot_date, security_code, record_json) "
-            "VALUES ('2026-01-05', '13010', '{\"Code\":\"13010\"}')"
         )
         connection.execute(
             "INSERT INTO jquants_fin_summaries("
@@ -848,7 +844,6 @@ def test_jquants_source_and_adopted_rows_have_distinct_lake_layers(tmp_path: Pat
     mirror = tmp_path / "mirror"
     for name, layer, version in (
         ("jquants.source_pages", "l1_source", 1),
-        ("jquants.master_snapshots", "l2_processed", 3),
         ("jquants.fin_summaries", "l2_processed", 5),
     ):
         export = _export(

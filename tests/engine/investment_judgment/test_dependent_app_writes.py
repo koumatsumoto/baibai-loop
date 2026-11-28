@@ -36,6 +36,7 @@ def test_dependent_publication_does_not_create_the_missing_origin_store(
             str(draft),
             "--db",
             str(target),
+            *case.listing_args,
             "--sqlite-path",
             str(case.market),
         ]

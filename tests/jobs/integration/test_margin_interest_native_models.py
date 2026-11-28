@@ -287,7 +287,6 @@ def test_margin_projection_keeps_calendar_outside_selected_balances(tmp_path, mo
 def test_publication_shares_fixed_margin_calendar_and_seal(tmp_path, monkeypatch):
     from tests.helpers.jquants_receipts import body
     from tests.helpers.lake_policy import narrow_release_policy
-    from tests.helpers.master_calendar_native import seed_master
 
     from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
     from baibai_engine.data_collection.providers.jquants.price_native import PriceAttempt, PriceL1
@@ -295,7 +294,6 @@ def test_publication_shares_fixed_margin_calendar_and_seal(tmp_path, monkeypatch
     from baibai_jobs.publication.datasets import LAKE_DATASETS
 
     store, owner, cal, market, mirror = setup(tmp_path, monkeypatch)
-    seed_master(store, market, mirror / "master-native", as_of=DAY)
     prices = PriceL1(store, mirror / "price-native")
     prices.initialize()
     originals = []
@@ -309,7 +307,7 @@ def test_publication_shares_fixed_margin_calendar_and_seal(tmp_path, monkeypatch
         )
         originals.append(PriceAttempt("price-" + text, day, AT, (page,)))
     prices.commit(originals)
-    datasets = (*NAMES, "jquants.market_calendar", "jquants.daily_bars", "jquants.master_snapshots")
+    datasets = (*NAMES, "jquants.market_calendar", "jquants.daily_bars")
     assert set(datasets) <= {
         item.dataset for item in publication.release_policy_for_profile("production").datasets
     }

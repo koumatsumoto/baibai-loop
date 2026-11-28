@@ -17,6 +17,9 @@ from baibai_engine.data_collection.providers.jquants.calendar_native import (
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
 from baibai_engine.data_collection.providers.jquants.master_native import MasterAttempt, MasterL1
 from baibai_engine.data_collection.providers.jquants.price_native import PriceAttempt, PriceL1
+from baibai_engine.machine_analysis.observations.stocks.storage_contracts import (
+    JQUANTS_MASTER_SNAPSHOTS_DDL,
+)
 from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_jobs.integration import calendar_native, master_native, price_native
 
@@ -44,6 +47,9 @@ def _prepare(tmp_path, source):
         attempt = CalendarAttempt("calendar", DAY, DAY, None, (page,))
         table, count = "jquants_market_calendar", 1
     elif source == "master":
+        # Explicit historical projection tests own their private old table.
+        with closing(sqlite3.connect(market)) as connection:
+            connection.executescript(JQUANTS_MASTER_SNAPSHOTS_DDL)
         module, owner = master_native, MasterL1(store, tmp_path / "native")
         page = JQuantsPage(
             "master", query, AT, json.dumps({"data": make_master_records(DAY)}).encode()

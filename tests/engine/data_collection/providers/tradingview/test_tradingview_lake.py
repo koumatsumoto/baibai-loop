@@ -123,13 +123,6 @@ def test_month_partition_fixed_query_and_hydrate_roundtrip(
 
     seed_snapshot(path, ["TSE:1000", "TSE:1001"], missing=("TSE:1001",))
     next_day = date(2026, 10, 1)
-    with closing(sqlite3.connect(path)) as conn, conn:
-        conn.execute(
-            "UPDATE jquants_master_snapshots SET snapshot_date=?, "
-            "record_json=json_set(record_json, '$.Date', ?)",
-            (next_day.isoformat(), next_day.isoformat()),
-        )
-        conn.execute("UPDATE jquants_market_calendar SET day=?", (next_day.isoformat(),))
     seed_snapshot(
         path,
         ["TSE:1000", "TSE:1001"],

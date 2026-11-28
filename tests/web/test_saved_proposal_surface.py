@@ -56,7 +56,10 @@ def test_proposal_empty_or_unavailable_does_not_stop_other_views(tmp_path, state
 def test_export_replaces_old_ready_with_unavailable_when_latest_is_corrupt(tmp_path):
     case = backend_case(tmp_path)
     saved = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(reviewed_proposal(case))
     app = tmp_path / APPLICATION_DB_PATH
     app.parent.mkdir(parents=True, exist_ok=True)

@@ -15,7 +15,12 @@ from baibai_web.sources.proposal import read_proposal_views
 
 def _publish(case, *, action="no_action"):
     draft = reviewed_proposal(case, action=action)
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     assert service.check(draft).valid
     return service, draft, service.publish(draft)
 

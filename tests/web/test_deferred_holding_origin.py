@@ -66,6 +66,7 @@ def _published_defer(tmp_path, *, unreviewed=False):
         operation_id=fixture.operation.operation_id,
         proposal_id=DEFER_ID,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=NOW,
     )
@@ -80,7 +81,10 @@ def _published_defer(tmp_path, *, unreviewed=False):
     )
     draft = bind_review(raw, {current.assessment_id: current.document})
     service = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: NOW + timedelta(minutes=1)
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: NOW + timedelta(minutes=1),
     )
     assert service.check(draft).valid
     saved = service.publish(draft)

@@ -2,16 +2,11 @@ from __future__ import annotations
 
 import copy
 import json
-import tempfile
 import unittest
-from contextlib import closing
 from datetime import date, timedelta
-from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
-from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import make_master_records
 
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
@@ -20,10 +15,6 @@ from baibai_engine.machine_analysis.observations.stocks.master_snapshot import (
     masters_from_payloads,
     validate_master_snapshot,
 )
-from baibai_engine.machine_analysis.observations.stocks.reader import (
-    read_master_snapshot,
-)
-from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
 
 
 class MasterSnapshotContractTests(unittest.TestCase):
@@ -99,63 +90,6 @@ class MasterSnapshotContractTests(unittest.TestCase):
         self.assertEqual(masters_from_payloads([validated.rows[0][2]])[0].sector_33, "情報・通信業")
 
 
-class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
-    def test_reader_does_not_refetch_to_hide_an_incompatible_store(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            with closing(open_connection(db)) as conn, conn:
-                conn.execute("PRAGMA user_version = 1")
-            with (
-                patch("requests.Session", side_effect=AssertionError("HTTP session constructed")),
-                self.assertRaises(SQLiteSchemaError),
-            ):
-                read_master_snapshot(db, as_of=date(2026, 5, 29))
-
-    def test_snapshot_selection_uses_exact_or_prior_but_never_future(self) -> None:
-        first = date(2026, 5, 29)
-        second = date(2026, 6, 30)
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            with closing(open_connection(db)) as conn, conn:
-                insert_master_rows(
-                    conn,
-                    [
-                        (first.isoformat(), "8000", "Old only", "Prime", "機械", "011"),
-                        (first.isoformat(), "7203", "Previous", "Prime", "機械", "011"),
-                        (second.isoformat(), "7203", "Current", "Prime", "機械", "011"),
-                    ],
-                )
-
-            first_snapshot = read_master_snapshot(db, as_of=first)
-            second_snapshot = read_master_snapshot(db, as_of=second)
-            assert first_snapshot is not None
-            assert second_snapshot is not None
-            self.assertEqual(first_snapshot.as_of, first)
-            self.assertEqual(second_snapshot.as_of, second)
-            self.assertEqual(set(first_snapshot.securities), {"7203", "8000"})
-            self.assertEqual(set(second_snapshot.securities), {"7203"})
-            self.assertEqual(first_snapshot.securities["7203"].name, "Previous")
-            self.assertEqual(second_snapshot.securities["7203"].name, "Current")
-            self.assertEqual(
-                read_master_snapshot(db, as_of=second - timedelta(days=1)), first_snapshot
-            )
-            self.assertIsNone(read_master_snapshot(db, as_of=first - timedelta(days=1)))
-
-    def test_reader_rejects_corrupt_native_code(self) -> None:
-        asof = date(2026, 5, 29)
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            with closing(open_connection(db)) as conn, conn:
-                insert_master_rows(
-                    conn, [(asof.isoformat(), "1000", "Stored", "Prime", "機械", "011")]
-                )
-                conn.execute(
-                    "UPDATE jquants_master_snapshots SET record_json=json_set(record_json,'$.Code','!')"
-                )
-            with self.assertRaisesRegex(JQuantsProviderError, "differs from its key"):
-                read_master_snapshot(db, as_of=asof)
-
-
 def test_indexed_master_never_stringifies_boolean_code_to_match_its_key():
     record = {
         "Code": True,
@@ -197,77 +131,3 @@ def test_invalid_stored_master_projection_is_a_source_error(field, missing):
     with pytest.raises(JQuantsProviderError, match="invalid security fields") as caught:
         masters_from_payloads([json.dumps(record)])
     assert isinstance(caught.value.__cause__, ValidationError)
-
-
-def test_finite_master_read_uses_latest_market_date_and_only_requested_primary_issues(tmp_path):
-    db = tmp_path / "market.sqlite"
-    first, latest = date(2026, 5, 29), date(2026, 6, 30)
-    with closing(open_connection(db)) as connection, connection:
-        insert_master_rows(
-            connection,
-            [
-                (first.isoformat(), "5678", "旧市場のみ", "Prime", "サービス業", "011"),
-                (latest.isoformat(), "12A4", "対象ETF", "ETF", "その他", "014"),
-            ],
-        )
-        connection.executemany(
-            "INSERT INTO jquants_master_snapshots VALUES (?, ?, ?)",
-            [(latest.isoformat(), "56781", "{broken"), (latest.isoformat(), "99990", "{broken")],
-        )
-    selected = read_master_snapshot(db, as_of=latest, tickers=("12a4", "12A4", "5678"))
-    assert selected is not None
-    assert selected.as_of == latest
-    assert list(selected.securities) == ["12A4"]
-    assert selected.securities["12A4"].name == "対象ETF"
-    assert not selected.securities["12A4"].is_common_stock
-    assert read_master_snapshot(db, as_of=latest, tickers=("5678",)).securities == {}
-    assert (
-        read_master_snapshot(db, as_of=first, tickers=("5678",)).securities["5678"].name
-        == "旧市場のみ"
-    )
-    with pytest.raises(JQuantsProviderError, match="valid JSON"):
-        read_master_snapshot(db, as_of=latest, tickers=("9999",))
-    with pytest.raises(JQuantsProviderError, match="valid JSON"):
-        read_master_snapshot(db, as_of=latest)
-
-    with closing(open_connection(db)) as connection, connection:
-        connection.execute(
-            "UPDATE jquants_master_snapshots SET record_json=json_set(record_json, '$.Code','99990') "
-            "WHERE security_code='12A40'"
-        )
-    with pytest.raises(JQuantsProviderError, match="differs from its key"):
-        read_master_snapshot(db, as_of=latest, tickers=("12A4",))
-
-
-def test_market_wide_master_refuses_a_record_that_claims_another_issues_code(tmp_path):
-    db = tmp_path / "market.sqlite"
-    as_of = date(2026, 6, 30)
-    with closing(open_connection(db)) as connection, connection:
-        insert_master_rows(
-            connection,
-            [
-                (as_of.isoformat(), "2331", "Company", "Prime", "機械", "011"),
-                (as_of.isoformat(), "9999", "Other", "Prime", "銀行業", "011"),
-            ],
-        )
-    current = read_master_snapshot(db, as_of=as_of)
-    assert current is not None
-    assert current.as_of == as_of
-    assert {ticker: row.sector_33 for ticker, row in current.securities.items()} == {
-        "2331": "機械",
-        "9999": "銀行業",
-    }
-
-    # The later-sorted storage key must not make its industry overwrite 2331.
-    with closing(open_connection(db)) as connection, connection:
-        connection.execute(
-            "UPDATE jquants_master_snapshots SET record_json=json_set(record_json, '$.Code','23310') "
-            "WHERE security_code='99990'"
-        )
-
-    scoped = read_master_snapshot(db, as_of=as_of, tickers=("2331",))
-    assert scoped is not None
-    assert scoped.securities == {"2331": current.securities["2331"]}
-    for tickers in (("9999",), None):
-        with pytest.raises(JQuantsProviderError, match="differs from its key"):
-            read_master_snapshot(db, as_of=as_of, tickers=tickers)

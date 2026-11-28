@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from mcp.types import CallToolResult
-from tests.helpers.tradingview import DAY, native_inputs, payload, store
+from tests.helpers.tradingview import DAY, payload, store
 
 from baibai_engine.data_collection.providers.tradingview.contract import (
     BATCH_TOOL,
@@ -19,10 +19,8 @@ from baibai_engine.machine_analysis.observations.external_assessments.tradingvie
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.tradingview.cli import main
-from baibai_jobs.integration.tradingview_handoff import export_handoff, import_handoff
+from baibai_jobs.integration.tradingview_receipts import diagnose_receipts
 from baibai_jobs.maintenance.tradingview_capture import retain_capture
-from baibai_jobs.maintenance.tradingview_rebuild import RebuildError, rebuild_from_receipts
-from baibai_jobs.observability.tradingview import SourceDataError
 
 SATURDAY = DAY + timedelta(days=1)
 RECEIVED = datetime(2026, 9, 19, 0, 5, tzinfo=UTC)
@@ -60,9 +58,8 @@ def capture_file(
     return path
 
 
-def test_receive_cli_keeps_native_result_before_weekend_partial_handoff(tmp_path, capsys):
+def test_receive_cli_keeps_the_explicit_native_result_without_projecting(tmp_path, capsys):
     source = weekend_store(tmp_path / "source.sqlite")
-    canonical = weekend_store(tmp_path / "canonical.sqlite")
     symbols = ("TSE:1000", "TSE:1001")
     body = payload(list(symbols), missing=["TSE:1001"])
     body["unknown_provider_metadata"] = {"unit": None, "period": None, "original": "そのまま"}
@@ -94,36 +91,13 @@ def test_receive_cli_keeps_native_result_before_weekend_partial_handoff(tmp_path
         assert saved.master_asof == DAY
         assert json.loads(saved.result_json)["structuredContent"] == body
         assert json.loads(saved.result_json)["_meta"] == {"native": True}
-    handoff_path = tmp_path / "handoff.sqlite"
-    remote, master, calendar = native_inputs(source, tmp_path, day=SATURDAY)
-    selected = export_handoff(
-        source,
-        handoff_path,
-        day=SATURDAY,
-        master_input=master,
-        calendar_input=calendar,
-        since=RECEIVED - timedelta(seconds=1),
-    )
-    applied = import_handoff(handoff_path, canonical, selected, store=remote)
-    assert applied.report["rows_added"] == 2
-    assert applied.report["remaining"] == 1
-    assert applied.report["unresolved"] == 1
-    with closing(open_connection(canonical)) as conn:
-        rows = conn.execute(
-            "SELECT ticker,fetch_status,eps_forecast_next_fy,quote_currency,"
-            "estimate_currency,estimate_unit,target_period_label,fetched_at_utc "
-            "FROM tradingview_forecast_snapshots ORDER BY ticker"
-        ).fetchall()
-        assert rows[0] == ("1000", "ok", -5, "JPY", None, None, None, RECEIVED.isoformat())
-        assert rows[1][0:3] == ("1001", "unresolved", None)
 
 
 @pytest.mark.parametrize("kind", ["tool_error", "malformed_business_payload"])
 def test_failed_native_result_stays_l1_without_replacing_l2(tmp_path, kind):
     path = weekend_store(tmp_path / "market.sqlite")
     success = capture_file(tmp_path, identity="good-call")
-    good = retain_capture(path, success)["receipt_id"]
-    rebuild_from_receipts(path, SATURDAY, [good])
+    assert retain_capture(path, success)["l2_updated"] is False
     with closing(open_connection(path)) as conn:
         before = conn.execute("SELECT * FROM tradingview_forecast_snapshots").fetchall()
     result = (
@@ -133,8 +107,11 @@ def test_failed_native_result_stays_l1_without_replacing_l2(tmp_path, kind):
     )
     bad_file = capture_file(tmp_path, result=result, identity="failed-call")
     bad = retain_capture(path, bad_file)["receipt_id"]
-    with pytest.raises(RebuildError):
-        rebuild_from_receipts(path, SATURDAY, [bad])
+    shape = diagnose_receipts(path, SATURDAY, [bad])
+    assert shape["selected_receipts"] == 1
+    assert shape["receipt_outcomes"] == (
+        {"provider_http_429": 1} if kind == "tool_error" else {"malformed_envelope": 1}
+    )
     with closing(open_connection(path)) as conn:
         assert conn.execute("SELECT count(*) FROM tradingview_source_receipts").fetchone() == (2,)
         assert conn.execute("SELECT * FROM tradingview_forecast_snapshots").fetchall() == before
@@ -156,8 +133,8 @@ def test_other_tool_result_is_not_relabelled_as_a_batch(tmp_path):
     path = weekend_store(tmp_path / "market.sqlite")
     captured = capture_file(tmp_path, tool_name="mcp_tv_get_forecasts")
     receipt_id = retain_capture(path, captured)["receipt_id"]
-    with pytest.raises(SourceDataError, match="unsupported tool"):
-        rebuild_from_receipts(path, SATURDAY, [receipt_id])
+    with pytest.raises(ValueError, match="fixed forecast request"):
+        diagnose_receipts(path, SATURDAY, [receipt_id])
     with closing(open_connection(path)) as conn:
         assert read_tool_results(conn, (receipt_id,))[0].tool_name == "mcp_tv_get_forecasts"
         assert conn.execute("SELECT count(*) FROM tradingview_forecast_snapshots").fetchone() == (

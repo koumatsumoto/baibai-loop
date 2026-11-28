@@ -30,14 +30,15 @@ def test_market_capture_workflow_is_retired() -> None:
         )
 
 
-def test_local_bulk_entry_is_removed_but_offline_rebuild_remains() -> None:
+def test_local_bulk_and_replay_commands_are_removed() -> None:
     for command in ("tradingview", "master-dependency"):
         with pytest.raises(SystemExit) as error:
             build_parser().parse_args([command])
         assert error.value.code == 2
-    with pytest.raises(SystemExit) as error:
-        archived_tradingview(["refresh"])
-    assert error.value.code == 2
+    for command in ("refresh", "rebuild"):
+        with pytest.raises(SystemExit) as error:
+            archived_tradingview([command])
+        assert error.value.code == 2
     assert (
-        build_parser().parse_args(["tradingview-source", "rebuild"]).command == "tradingview-source"
+        build_parser().parse_args(["tradingview-source", "receive"]).command == "tradingview-source"
     )

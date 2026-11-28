@@ -59,6 +59,7 @@ def test_correction_report_serving_and_preview_preserve_originals_and_ledger(rec
     preview = preview_current_terms(
         proposal_id=a.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(days=1),
     )
@@ -117,6 +118,7 @@ def test_human_report_reads_order_by_receipt_instant_without_changing_saved_reco
     preview = preview_current_terms(
         proposal_id=a.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(days=1),
     )
@@ -303,10 +305,16 @@ def test_active_completion_validates_exact_correction_as_of_and_never_redirects(
 
     case = backend_case(tmp_path)
     first = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(reviewed_proposal(case))
     wrong = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(minutes=1)
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED + timedelta(minutes=1),
     ).publish(reviewed_proposal(case, action="no_action", proposal_id=SECOND_PROPOSAL_ID))
     instant = PUBLISHED + timedelta(minutes=2)
     correction_time = instant if already_corrected else instant + timedelta(microseconds=1)

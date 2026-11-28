@@ -21,7 +21,12 @@ def test_normal_saved_buy_keeps_limit_specific_time_sensitivity(tmp_path, limit)
         limit_price_yen=limit, quantity=100, notional_yen=str(Decimal(limit) * 100)
     )
     draft = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     checked = service.check(draft)
     assert checked.valid
     saved = service.publish(draft)
@@ -92,9 +97,12 @@ def test_zero_downside_stays_total_loss_at_both_horizons(tmp_path):
     case.operations.record_assessment(
         case.operation.operation_id, case.pair.assessment_id, now=PREPARED
     )
-    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        reviewed_proposal(case)
-    )
+    TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    ).publish(reviewed_proposal(case))
     comparison = read_proposal_views(case.app).latest.proposal.items[0].saved_buy_comparison
     sensitivity = comparison.model_dump(mode="json").get("time_sensitivity")
     assert sensitivity is not None
@@ -106,9 +114,12 @@ def test_zero_downside_stays_total_loss_at_both_horizons(tmp_path):
 @pytest.mark.parametrize("mode", ["absent", "null"])
 def test_old_comparison_does_not_infer_time_sensitivity(tmp_path, mode):
     case = backend_case(tmp_path)
-    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        reviewed_proposal(case)
-    )
+    TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    ).publish(reviewed_proposal(case))
     view = read_proposal_views(case.app).latest.proposal
     raw = view.items[0].saved_buy_comparison.model_dump(mode="json")
     raw["time_sensitivity"] = None

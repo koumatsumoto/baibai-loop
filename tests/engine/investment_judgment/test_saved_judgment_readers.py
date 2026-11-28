@@ -75,7 +75,10 @@ def test_proposal_readers_reject_corrupt_saved_identity_and_reference_closure(tm
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
     proposal = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(proposal)
     with closing(sqlite3.connect(case.app)) as connection, connection:
         if mutation == "item-index":
@@ -116,6 +119,7 @@ def test_proposal_readers_reject_corrupt_saved_identity_and_reference_closure(tm
         lambda: preview_current_terms(
             db_path=case.app,
             proposal_id=proposal.proposal_id,
+            listing_reader=case.listing_reader,
             sqlite_path=case.market,
             now=PUBLISHED,
         ),
@@ -134,7 +138,10 @@ def test_invalid_latest_publication_is_not_hidden_by_a_valid_old_pair(tmp_path):
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
     proposal = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(proposal)
     document, review = pair_payload(review_number=90)
     newer = AssessmentStoreService(
@@ -164,9 +171,12 @@ def test_invalid_latest_publication_is_not_hidden_by_a_valid_old_pair(tmp_path):
 def test_original_held_assessment_keeps_original_price_and_pair(tmp_path):
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
-    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        proposal
-    )
+    TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    ).publish(proposal)
     reservation = ReservationEvent.model_validate(
         {
             "type": "reservation",
@@ -220,6 +230,7 @@ def test_original_held_assessment_keeps_original_price_and_pair(tmp_path):
         operation_id=case.operation.operation_id,
         proposal_id=proposal.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=current_time,
     )
@@ -249,6 +260,7 @@ def test_original_held_assessment_keeps_original_price_and_pair(tmp_path):
     preview = preview_current_terms(
         db_path=case.app,
         proposal_id=proposal.proposal_id,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=current_time,
     )

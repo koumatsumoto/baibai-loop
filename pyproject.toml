@@ -629,11 +629,8 @@ name = "source acquisition and receipt compositions do not enter investment judg
 type = "forbidden"
 source_modules = [
   "baibai_jobs.acquisition.external_assessments",
-  "baibai_jobs.maintenance.tradingview_context",
   "baibai_jobs.observability.tradingview",
   "baibai_jobs.acquisition.tradingview.cli",
-  "baibai_jobs.integration.tradingview_handoff",
-  "baibai_jobs.maintenance.tradingview_rebuild",
 ]
 forbidden_modules = [
   "baibai_engine.investment_judgment", "baibai_engine.portfolio",

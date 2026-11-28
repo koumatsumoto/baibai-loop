@@ -14,7 +14,7 @@ import sys
 from dataclasses import asdict
 from datetime import date, datetime
 from pathlib import Path
-from typing import TextIO
+from typing import TYPE_CHECKING, TextIO
 
 import yaml
 from pydantic import ValidationError
@@ -54,6 +54,12 @@ from baibai_engine.storage.paths import (
 from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.machine_analysis import run_store_path
 
+if TYPE_CHECKING:
+    from baibai_engine.investment_judgment.trade_proposal.inputs import ProposalListingReader
+    from baibai_engine.machine_analysis.observations.stocks.current_reader import (
+        CurrentListingSection,
+    )
+
 
 def _emit(payload: object, out: TextIO) -> None:
     yaml.safe_dump(payload, out, sort_keys=False, allow_unicode=True, default_flow_style=False)
@@ -69,6 +75,39 @@ def _growth_display_periods(value: str) -> int | None:
     except ValueError:
         pass
     raise argparse.ArgumentTypeError("use a positive period count or all")
+
+
+def _add_proposal_sources(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--db", type=Path)
+    parser.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
+    parser.add_argument(
+        "--current-listing-master",
+        type=Path,
+        metavar="PATH",
+        help="pinned local current listings; omitted means unconfirmed classification",
+    )
+
+
+def _proposal_listing_reader(path: Path | None) -> ProposalListingReader | None:
+    if path is None:
+        return None
+
+    def read() -> CurrentListingSection | None:
+        from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
+            read_local_listing_master,
+        )
+
+        try:
+            return read_local_listing_master(path).get("JP")
+        except (OSError, ValueError):
+            # The file can be private: don't print its path or validation payload.
+            print(
+                "warning: current listing master unreadable; classification unconfirmed",
+                file=sys.stderr,
+            )
+            return None
+
+    return read
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -209,8 +248,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     context.add_argument("--operation-id", required=True)
     context.add_argument("--proposal-id", required=True)
-    context.add_argument("--db", type=Path)
-    context.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
+    _add_proposal_sources(context)
     context.add_argument("--out", type=Path)
     allocation = subparsers.add_parser(
         "trade-proposal-compare-holdings",
@@ -224,15 +262,13 @@ def build_parser() -> argparse.ArgumentParser:
     for command in ("trade-proposal-check", "trade-proposal-publish"):
         child = subparsers.add_parser(command, help="check/publish a Trade Proposal")
         child.add_argument("draft", type=Path)
-        child.add_argument("--db", type=Path)
-        child.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
+        _add_proposal_sources(child)
     preview_parser = subparsers.add_parser(
         "trade-proposal-preview",
         help="read current conditions separately from saved proposal terms",
     )
     preview_parser.add_argument("--proposal-id", required=True)
-    preview_parser.add_argument("--db", type=Path)
-    preview_parser.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
+    _add_proposal_sources(preview_parser)
 
     return parser
 
@@ -396,6 +432,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     db_path=args.db,
                     sqlite_path=args.sqlite_path,
                     now=resolved_now,
+                    listing_reader=_proposal_listing_reader(args.current_listing_master),
                 )
                 if args.out is not None:
                     content = yaml.safe_dump(
@@ -467,6 +504,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     args.db,
                     sqlite_path=args.sqlite_path,
                     clock=None if now is None else lambda: resolved_now,
+                    listing_reader=_proposal_listing_reader(args.current_listing_master),
                 )
                 publishing = args.command == "trade-proposal-publish"
                 if publishing:
@@ -503,6 +541,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     db_path=args.db,
                     sqlite_path=args.sqlite_path,
                     now=resolved_now,
+                    listing_reader=_proposal_listing_reader(args.current_listing_master),
                 )
                 out.write(json.dumps(preview.payload(), ensure_ascii=False) + "\n")
             case _:  # pragma: no cover - argparse enforces the command set

@@ -46,7 +46,10 @@ def test_normal_saved_proposal_keeps_author_countercase_and_realization(tmp_path
         case.operation.operation_id, saved.assessment_id, now=PREPARED
     )
     proposal = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(reviewed_proposal(case, action=action))
 
     later_document, later_review = pair_payload(review_number=21)

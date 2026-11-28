@@ -25,14 +25,18 @@ SECOND = "investment-proposal-00000000-0000-4000-8000-000000000004"
 
 
 def _publish_first(case):
-    return TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        reviewed_proposal(case)
-    )
+    return TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    ).publish(reviewed_proposal(case))
 
 
 def _publish_second(case):
     return TradeProposalService(
         case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         clock=lambda: (PUBLISHED + timedelta(hours=1)).astimezone(UTC),
     ).publish(reviewed_proposal(case, action="no_action", proposal_id=SECOND))

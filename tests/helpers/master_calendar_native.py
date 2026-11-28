@@ -1,7 +1,8 @@
-"""他領域の公開fixtureにも、実nativeの暦・完全master原本を明示する。"""
+"""共通fixture用のnative暦と、その実行が固定した現行JP銘柄。"""
 
 import json
 import sqlite3
+from collections.abc import Sequence
 from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -16,10 +17,18 @@ from baibai_engine.data_collection.providers.jquants.calendar_native import (
     CalendarL1,
 )
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
-from baibai_engine.data_collection.providers.jquants.master_native import HEAD_KEY as MASTER_HEAD
-from baibai_engine.data_collection.providers.jquants.master_native import MasterAttempt, MasterL1
+from baibai_engine.machine_analysis.generation.inputs import PinnedGenerationMaster
+from baibai_engine.machine_analysis.observations.stocks.listing_master import (
+    JapanListingAttributes,
+    ListingMasterRow,
+    ListingSlice,
+)
+from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
+    CurrentListingMarket,
+    encode_current_listing_master,
+)
+from baibai_jobs.integration.listing_master_current import LISTING_MASTER_CURRENT_KEY
 from baibai_jobs.publication import snapshot_publication as publication
-from tests.helpers.screening_sqlite import make_master_records
 
 
 def seed_calendar(store, market: Path, directory: Path, *, as_of: date) -> CalendarL1:
@@ -76,43 +85,49 @@ def seed_calendar(store, market: Path, directory: Path, *, as_of: date) -> Calen
     return owner
 
 
-def seed_master(store, market: Path, directory: Path, *, as_of: date) -> MasterL1:
-    """既知fixtureの行を保ち、他領域testでも完全母集団の原本を使う。"""
-    owner = MasterL1(store, directory)
-    if store.head(MASTER_HEAD) is not None:
-        return owner
-    with closing(sqlite3.connect(market)) as connection:
-        raw = connection.execute(
-            "SELECT snapshot_date,record_json FROM jquants_master_snapshots ORDER BY snapshot_date,security_code"
-        ).fetchall()
-    grouped = {}
-    for day, payload in raw:
-        grouped.setdefault(day, []).append(json.loads(payload))
-    if not grouped:
-        grouped[as_of.isoformat()] = []
-    attempts = []
-    for day, rows in grouped.items():
-        # Master/calendar contract tests use their own exact raw attempts. Only
-        # unrelated public-page/EDINET/credit fixtures use this complete input.
-        identities = {row["Code"] for row in rows}
-        for row in make_master_records(date.fromisoformat(day)):
-            if len(rows) >= 2500:
-                break
-            if row["Code"] not in identities:
-                rows.append(row)
-                identities.add(row["Code"])
-        at = datetime.combine(date.fromisoformat(day), datetime.min.time(), tzinfo=UTC)
-        attempts.append(
-            MasterAttempt(
-                f"fixture-master-{day}",
-                date.fromisoformat(day),
-                at,
-                (JQuantsPage("master", {"date": day}, at, json.dumps({"data": rows}).encode()),),
-            )
+type FixtureCompany = tuple[str, str, str, str, str]
+
+
+def seed_listing_session(path: Path, day: date) -> None:
+    """Close the fixture's exact classification scope without filling any prices."""
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            "INSERT OR IGNORE INTO jquants_market_calendar VALUES (?, '1')", (day.isoformat(),)
         )
-    owner.initialize()
-    owner.commit(attempts)
-    return owner
+
+
+def pinned_jp_listing(
+    *,
+    as_of: date,
+    tickers: tuple[str, ...] = ("1301",),
+    companies: Sequence[FixtureCompany] | None = None,
+    received_at: datetime | None = None,
+    output: Path | None = None,
+) -> PinnedGenerationMaster:
+    if companies is None:
+        companies = tuple((ticker, "合成企業", "プライム", "卸売業", "011") for ticker in tickers)
+    section = CurrentListingMarket(
+        ListingSlice(
+            "JP",
+            as_of,
+            tuple(
+                ListingMasterRow(
+                    ("XTKS", f"{ticker}0"),
+                    name,
+                    "common_stock" if category == "011" else "etf",
+                    "listed",
+                    japan=JapanListingAttributes(category, segment, sector),
+                )
+                for ticker, name, segment, sector, category in sorted(companies)
+            ),
+        ),
+        "jquants-equities-master",
+        received_at or datetime.combine(as_of, datetime.min.time(), tzinfo=UTC),
+        len(companies),
+    )
+    if output is not None:
+        output.write_bytes(encode_current_listing_master({"JP": section}))
+    return PinnedGenerationMaster(section, f"{LISTING_MASTER_CURRENT_KEY}#JP")
 
 
 def configure_master_calendar_publication(monkeypatch):
@@ -123,7 +138,7 @@ def configure_master_calendar_publication(monkeypatch):
         if as_of is None:
             with closing(sqlite3.connect(kwargs["sqlite_path"])) as connection:
                 last = connection.execute(
-                    "SELECT MAX(day) FROM (SELECT snapshot_date AS day FROM jquants_master_snapshots UNION ALL SELECT traded_at AS day FROM jquants_daily_bars)"
+                    "SELECT MAX(traded_at) FROM jquants_daily_bars"
                 ).fetchone()[0]
             as_of = date.fromisoformat(last) if last else date(2026, 1, 5)
             kwargs["as_of"] = as_of
@@ -131,12 +146,6 @@ def configure_master_calendar_publication(monkeypatch):
             kwargs["store"],
             kwargs["sqlite_path"],
             kwargs["mirror_root"] / "fixture-calendar",
-            as_of=as_of,
-        )
-        seed_master(
-            kwargs["store"],
-            kwargs["sqlite_path"],
-            kwargs["mirror_root"] / "fixture-master",
             as_of=as_of,
         )
         return prepare(**kwargs)

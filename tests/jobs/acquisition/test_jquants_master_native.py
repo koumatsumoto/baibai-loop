@@ -29,7 +29,8 @@ def test_empty_then_nonempty_receipt_retries_without_l2_and_stops_when_fulfilled
     first = acquire_master_native(
         MasterL1(store, tmp_path / "empty"), start=DAY, end=DAY, client=empty, clock=lambda: AT
     )
-    assert first["changed"] == first["incomplete"] == 1
+    assert first.report["changed"] == first.report["incomplete"] == 1
+    assert first.exact_receipt is None
     nonempty = Client([{"Code": "13010"}], AT + timedelta(hours=1))
     second = acquire_master_native(
         MasterL1(store, tmp_path / "nonempty"),
@@ -38,13 +39,16 @@ def test_empty_then_nonempty_receipt_retries_without_l2_and_stops_when_fulfilled
         client=nonempty,
         clock=lambda: AT + timedelta(hours=1),
     )
-    assert second["changed"] == 1
-    assert second["incomplete"] == 0
+    assert second.report["changed"] == 1
+    assert second.report["incomplete"] == 0
+    assert second.exact_receipt is not None
+    assert second.exact_receipt.original.last_received_at == AT + timedelta(hours=1)
     unused = Client([])
     third = acquire_master_native(
         MasterL1(store, tmp_path / "fulfilled"), start=DAY, end=DAY, client=unused
     )
-    assert third["changed"] == third["incomplete"] == 0
+    assert third.report["changed"] == third.report["incomplete"] == 0
+    assert third.exact_receipt == second.exact_receipt
     assert unused.calls == []
 
 
@@ -62,7 +66,7 @@ def test_explicit_force_rechecks_same_day_for_tradingview_backfill(tmp_path):
             force=force,
             clock=lambda at=at: at,
         )
-        assert result["changed"] == 1
+        assert result.report["changed"] == 1
         assert len(client.calls) == 1
 
 

@@ -34,7 +34,12 @@ def test_normal_hold_quote_return_differs_from_original_assessment_price(tmp_pat
     case = backend_case(tmp_path, holding=True)
     seed_daily_bars(case.market, [("1234", "2026-10-14", float(quote), 1.0)])
     draft = _draft(case)
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     check = service.check(draft)
     assert check.valid
     saved = service.publish(draft)
@@ -70,7 +75,12 @@ def test_normal_hold_quote_return_differs_from_original_assessment_price(tmp_pat
 
 def test_intact_only_hold_does_not_upgrade_to_sufficient(tmp_path):
     case = backend_case(tmp_path, holding=True)
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     service.publish(_draft(case, sufficient=False))
     item = read_proposal_views(case.app).latest.proposal.items[0]
     assert item.model_dump(mode="json")["saved_hold_quote_comparison"] is None
@@ -93,7 +103,12 @@ def test_normal_hold_with_unavailable_calculation_stays_unknown(tmp_path, unavai
     raw = _draft(case, sufficient=False).payload()
     raw["items"][0]["return_calculation_unavailable_reason"] = unavailable
     draft = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(draft)
+    TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    ).publish(draft)
     item = read_proposal_views(case.app).latest.proposal.items[0]
     assert item.model_dump(mode="json")["saved_hold_quote_comparison"] is None
     assert item.return_calculation_unavailable_reason == unavailable
@@ -104,7 +119,10 @@ def test_normal_hold_with_unavailable_calculation_stays_unknown(tmp_path, unavai
 def test_historical_unknowns_are_not_backfilled_for_quote_comparison(tmp_path, missing):
     case = backend_case(tmp_path, holding=True)
     saved = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(_draft(case))
     item = saved.items[0]
     document = case.pair.document
@@ -136,9 +154,12 @@ def test_historical_unknowns_are_not_backfilled_for_quote_comparison(tmp_path, m
 
 def test_old_json_and_later_assessment_do_not_replace_saved_hold(tmp_path):
     case = backend_case(tmp_path, holding=True)
-    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        _draft(case)
-    )
+    TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    ).publish(_draft(case))
     first = read_proposal_views(case.app).latest.proposal
     raw = first.items[0].model_dump(mode="json")
     raw.pop("saved_hold_quote_comparison", None)
