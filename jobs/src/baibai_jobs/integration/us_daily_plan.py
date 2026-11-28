@@ -11,13 +11,13 @@ from baibai_engine.machine_analysis.observations.prices.us_sip_coverage import (
     plan_alpaca_sip_daily_batches,
 )
 from baibai_engine.machine_analysis.observations.stocks.listing_master import ListingKey
+from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
+    CurrentListingMarket,
+)
 from baibai_engine.machine_analysis.observations.stocks.us_universe import (
     cover_current_rakuten_catalog_targets,
 )
-from baibai_jobs.integration.listing_master_current import (
-    CurrentListingMarket,
-    read_current_rakuten_scope,
-)
+from baibai_jobs.integration.listing_master_current import read_current_rakuten_scope
 
 
 @dataclass(frozen=True, slots=True)
