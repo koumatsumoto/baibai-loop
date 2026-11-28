@@ -28,6 +28,20 @@ class AlpacaAsset:
     attributes: tuple[str, ...]
 
 
+def _display_name(raw: object) -> str | None:
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        # The display label is optional; the receipt still retains the original bytes.
+        name = raw if raw.isprintable() else "".join(char for char in raw if category(char) != "Cf")
+        visible = bool(name.strip())
+        if (visible or name != raw) and all(
+            char.isprintable() or category(char) == "Zs" for char in name
+        ):
+            return name if visible else None
+    raise ValueError("Alpaca Assets contains an invalid asset name")
+
+
 def parse_alpaca_us_assets(body: bytes) -> tuple[AlpacaAsset, ...]:
     """Normalize the named active-equity contract without inventing market or product types."""
     if type(body) is not bytes or not 0 < len(body) <= ASSETS_BODY_MAX_BYTES:
@@ -58,13 +72,7 @@ def parse_alpaca_us_assets(body: bytes) -> tuple[AlpacaAsset, ...]:
             or not isinstance(raw_id := row.get("id"), str)
         ):
             raise ValueError("Alpaca Assets contains an invalid active US equity row")
-        name = row.get("name")
-        if name is not None and (
-            not isinstance(name, str)
-            or not name.strip()
-            or any(not char.isprintable() and category(char) != "Zs" for char in name)
-        ):
-            raise ValueError("Alpaca Assets contains an invalid asset name")
+        name = _display_name(row.get("name"))
         try:
             asset_id = UUID(raw_id)
         except ValueError:
