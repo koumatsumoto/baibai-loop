@@ -13,7 +13,11 @@ from baibai_engine.data_collection.providers.alpaca import (
     BarsResponse,
     capture_daily_bars,
 )
-from baibai_engine.data_collection.providers.alpaca_calendar import AlpacaCalendarReading
+from baibai_engine.data_collection.providers.alpaca_calendar import (
+    AlpacaCalendarReading,
+    USRegularSession,
+)
+from baibai_engine.data_collection.transport.http import AcquisitionDeadlineExceeded
 from baibai_engine.machine_analysis.observations.prices.alpaca_normalization import (
     AlpacaDailyObservation,
 )
@@ -43,6 +47,7 @@ class USPriceBatchReceipt:
 class USDailyPriceCollection:
     plan: USDailyPricePlan
     receipts: tuple[USPriceBatchReceipt, ...]
+    session_close_at: datetime
 
     @property
     def fully_observed(self) -> bool:
@@ -59,6 +64,28 @@ class USDailyPriceCollection:
         )
 
 
+def latest_closed_us_session(
+    calendar: AlpacaCalendarReading,
+    *,
+    cutoff: datetime,
+) -> USRegularSession | None:
+    """Find the exact latest closed regular session in a calendar proving today's state."""
+    if cutoff.utcoffset() is None:
+        raise ValueError("US price acquisition requires a timezone-aware clock")
+    if (
+        calendar.problem is not None
+        or calendar.received_at is None
+        or calendar.received_at > cutoff
+        or calendar.is_open(cutoff.astimezone(_NY).date()) is None
+    ):
+        return None
+    return max(
+        (day for day in calendar.sessions if day.close_at <= cutoff),
+        key=lambda day: day.trading_date,
+        default=None,
+    )
+
+
 def collect_current_us_daily_prices(
     current: CurrentListingMarket | None,
     calendar: AlpacaCalendarReading,
@@ -67,41 +94,29 @@ def collect_current_us_daily_prices(
     clock: Callable[[], datetime],
     transport: Callable[[str], BarsResponse],
     expected_price_session: date | None = None,
+    closed_session_pin: bool = False,
+    wait_and_retry: Callable[[BarsCapture], bool] | None = None,
 ) -> USDailyPriceCollection | None:
     """Collect SIP raw USD observations after the latest confirmed NY regular close.
 
     Supply a complete authorized calendar covering the current NY date and an
-    already closed session, plus one pinned current research or broker scope. The
-    caller supplies the direct whole-response transport and owns any L1 handoff.
-    None means the scope was not ready; no request or fallback is attempted.
+    already closed session, plus one pinned listing scope. The caller owns any L1
+    handoff. None means the scope was not ready; no fallback is attempted.
     """
     cutoff = clock()
-    if cutoff.utcoffset() is None:
-        raise ValueError("US price acquisition requires a timezone-aware clock")
-    today_open = calendar.is_open(cutoff.astimezone(_NY).date())
-    if (
-        calendar.problem is not None
-        or calendar.received_at is None
-        or calendar.received_at > cutoff
-        or today_open is None
-    ):
-        return None
-    session = max(
-        (day for day in calendar.sessions if day.close_at <= cutoff),
-        key=lambda day: day.trading_date,
-        default=None,
-    )
+    session = latest_closed_us_session(calendar, cutoff=cutoff)
     if session is None or (
         expected_price_session is not None and session.trading_date != expected_price_session
     ):
         return None
     plan = plan_current_us_daily_prices(
         current,
-        today_open=today_open,
+        today_open=calendar.is_open(cutoff.astimezone(_NY).date()) is True,
         price_session=session.trading_date,
         price_close_at=session.close_at,
         cutoff=cutoff,
         adjustment="raw",
+        closed_session_pin=closed_session_pin,
     )
     if plan is None:
         return None
@@ -111,9 +126,18 @@ def collect_current_us_daily_prices(
     for offset, batch in enumerate(plan.batches, 1):
         capture = None
         if not stop:
-            capture = capture_daily_bars(
-                batch.query, request_id=f"us-daily-{attempt_id}-{offset}", transport=transport
-            )
+            request_id = f"us-daily-{attempt_id}-{offset}"
+            try:
+                capture = capture_daily_bars(
+                    batch.query, request_id=request_id, transport=transport
+                )
+                if wait_and_retry is not None and wait_and_retry(capture):
+                    # Restart a failed chain; never combine pages from two network attempts.
+                    capture = capture_daily_bars(
+                        batch.query, request_id=f"{request_id}-retry", transport=transport
+                    )
+            except AcquisitionDeadlineExceeded:
+                stop = True
         coverage = inspect_alpaca_sip_daily_batch(batch, capture)
         if capture is not None and capture.pages:
             finished_at = clock()
@@ -123,10 +147,10 @@ def collect_current_us_daily_prices(
                 not cutoff <= page.response.received_at <= finished_at for page in capture.pages
             ):
                 coverage = AlpacaSIPDailyCoverage(batch, (), "invalid_capture")
-            stop = capture.failure == "http_status" and capture.pages[-1].response.status_code in {
+            stop |= capture.failure == "http_status" and capture.pages[-1].response.status_code in {
                 401,
                 403,
                 429,
             }
         receipts.append(USPriceBatchReceipt(capture, coverage))
-    return USDailyPriceCollection(plan, tuple(receipts))
+    return USDailyPriceCollection(plan, tuple(receipts), session.close_at)

@@ -67,4 +67,6 @@
 | 企業判断、Review、提案、進捗、台帳 | 独立した[`baibai.sqlite`](../jobs/OPERATIONS.md#application-db-を反映する)（App）。Operationは保存した対象・根拠・進捗から再開する。未保存の旧世代を現在の値で補わない。 |
 | Webの表示 | [配信用の表示データ](../web/README.md#実装と配信)はAppと取得できたMarket観測から作る。単独の表示生成ではMarketが読めなくてもAppの内容を出せるが、未確認の時価は埋めない。`baibai-serving` のviewは派生物であり、正本ではない。 |
 
+米国の無調整SIP日足は、[native L1の同じ日付の受領](../engine/src/baibai_engine/data_collection/providers/alpaca_sip_native.py)を立会日とAlpaca銘柄IDで読む。受領済みの株価・株数と、応答に無い銘柄・取得未確認を分ける。日本株の日足テーブルやRunsへ価格履歴を複製せず、公式終値や分割調整済みの日足として扱わない。
+
 新規提案は今使う入力と必要な出典を確認し、過去の任意時点の再現を前提にしない。保存済み判断は保存当時の根拠を読む。Machineの公開・読戻し、市場受領の確定、Webの反映、新規提案の受入は各々別であり、一つの成功を別の成功とみなさない。

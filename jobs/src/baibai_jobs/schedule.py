@@ -11,8 +11,8 @@ _JST = timezone(timedelta(hours=9))
 # `cloud-daily-batch`'s cron in UTC (22:43 JST). A contract test pins this
 # constant against the workflow so both execution and observation use one clock.
 BATCH_SCHEDULED_FIRE_TIME = time(13, 43, tzinfo=UTC)
-# The separate cloud-market-sources US master slot, not a JST integration trigger.
-US_MASTER_SCHEDULED_FIRE_TIME = time(13, 43, tzinfo=UTC)
+# The US job shares the workflow slot but uses the New York trading clock.
+US_MASTER_SCHEDULED_FIRE_TIME = BATCH_SCHEDULED_FIRE_TIME
 ECONOMIC_SCHEDULED_FIRE_TIME = time(7, 43, tzinfo=UTC)
 EXTERNAL_ASSESSMENT_SCHEDULED_FIRE_TIME = time(10, 13, tzinfo=UTC)
 MARKET_SOURCE_SCHEDULES = {
@@ -70,6 +70,24 @@ def market_source_target_date(created_at: datetime, *, schedule: str, asof: str 
     return created_at.astimezone(_JST).date()
 
 
+def us_market_run_origin(created_at: datetime, now: datetime, *, scheduled: bool) -> datetime:
+    """Keep the original NY trade date on schedule delays and retries."""
+    if any(clock.utcoffset() is None for clock in (created_at, now)):
+        raise ValueError("US master refresh requires timezone-aware clocks")
+    created = created_at.astimezone(UTC)
+    if now.astimezone(UTC) < created:
+        raise ValueError("US master run creation clock is in the future")
+    pinned = created
+    if scheduled:
+        pinned = datetime.combine(created.date(), US_MASTER_SCHEDULED_FIRE_TIME)
+        if pinned > created:
+            pinned -= timedelta(days=1)
+    new_york = ZoneInfo("America/New_York")
+    if pinned.astimezone(new_york).date() != now.astimezone(new_york).date():
+        raise ValueError("US master run is no longer for the current New York date")
+    return pinned
+
+
 def us_master_refresh_date(
     created_at: datetime,
     now: datetime,
@@ -84,20 +102,8 @@ def us_master_refresh_date(
     GitHub can delay run creation itself; this policy never reconstructs an old run.
     Manual runs select their original NY date, never an arbitrary historical as-of.
     """
-    if any(clock.utcoffset() is None for clock in (created_at, now)):
-        raise ValueError("US master refresh requires timezone-aware clocks")
-    created = created_at.astimezone(UTC)
-    if now.astimezone(UTC) < created:
-        raise ValueError("US master run creation clock is in the future")
-    pinned = created
-    if scheduled:
-        pinned = datetime.combine(created.date(), US_MASTER_SCHEDULED_FIRE_TIME)
-        if pinned > created:
-            pinned -= timedelta(days=1)
-    new_york = ZoneInfo("America/New_York")
-    target = pinned.astimezone(new_york).date()
-    if target != now.astimezone(new_york).date():
-        raise ValueError("US master run is no longer for the current New York date")
+    pinned = us_market_run_origin(created_at, now, scheduled=scheduled)
+    target = pinned.astimezone(ZoneInfo("America/New_York")).date()
     status = is_open(target)
     if status is True:
         return target

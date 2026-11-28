@@ -55,6 +55,11 @@ class AlpacaHTTPReceipt:
     url: str = field(repr=False)
     response: BarsResponse
     headers: tuple[tuple[str, str], ...]
+    retry_after: str | None = field(default=None, repr=False)
+
+
+class AlpacaTransportReadError(OSError):
+    """The transport could not complete a read, not a rejected response contract."""
 
 
 def _require_whole_body(headers: Headers, size: int) -> None:
@@ -134,9 +139,14 @@ def receive_alpaca(
             else:
                 stamp = clock()
             return AlpacaHTTPReceipt(
-                url, BarsResponse(response.status_code, stamp, bytes(body)), headers
+                url,
+                BarsResponse(response.status_code, stamp, bytes(body)),
+                headers,
+                response.headers.get("Retry-After"),
             )
-    except (StreamError, TransportError, ValueError):
+    except (StreamError, TransportError):
+        raise AlpacaTransportReadError("Alpaca response could not be fully read") from None
+    except ValueError:
         raise OSError("Alpaca response could not be fully read") from None
 
 

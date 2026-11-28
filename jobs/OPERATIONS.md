@@ -101,6 +101,12 @@ uv run baibai-jobs snapshots hydrate \
 
 ParquetのSQLite由来をコードでは `sqlite_snapshot` と呼ぶ。公開済みParquetの `baibai.source_kind` に保存した `legacy_sqlite_import` は、既存objectのSHA・key・固定releaseの読取を変えないためそのまま使う。物理タグの変更は既存releaseの読取を含む別の契約移行とし、通常publishで既存objectを書き換えない。
 
+### 米国株の日次入力
+
+同じ[共通日次](../.github/workflows/cloud-daily-batch-current.yml)の `us-market` ジョブが、22:43 JSTの定期実行で米国株のL1を準備する。PaperのNY立会暦で短縮・休場も区別し、元runの開始枠で引け済みの立会について、引け前に取得済みの同日Alpaca銘柄マスターだけからSIP日足を保存する。確定済みの立会は取り直さず、受領・欠測・未確認の件数を分ける。その後、NY当日が立会日でまだ引け前なら同じ銘柄マスターファイルのUS区画のみ更新する。初回に前立会のマスターがない場合は、当日分を準備して次の立会取得から始める。今日のマスターで以前の立会を埋めない。
+
+手動は既存の日次に `-f us_market=true` を付けた場合だけ米国ジョブも動く。 `asof` は引き続き日本株用で、米国株だけの日付指定には使わない。米国株の失敗があっても、日本株ジョブは通常どおり独立して実行・通知する。全体runが失敗でも日本株の結果は `daily`、米国株は `us-market` を確認し、全体を重複起動しない。SIP保存は米国株のL2・提案・Web更新ではない。
+
 <a id="production-proposal-acceptance"></a>
 ## 本番データで新規の売買提案を受け入れる
 

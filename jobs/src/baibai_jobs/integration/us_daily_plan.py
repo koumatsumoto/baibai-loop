@@ -67,12 +67,15 @@ def plan_current_us_daily_prices(
     cutoff: datetime,
     adjustment: Literal["raw", "split"],
     price_close_at: datetime | None = None,
+    closed_session_pin: bool = False,
 ) -> USDailyPricePlan | None:
     """Use today's scope on an open NY day, even before its close.
 
     Use the explicitly supplied pin's source, not an automatic provider fallback.
     A weekend does not create a retroactive listing, broker decision or price.
     """
+    if closed_session_pin and (current is None or current.source != ALPACA_ASSETS_SOURCE):
+        return None
     if current is not None and current.source == ALPACA_ASSETS_SOURCE:
         return plan_current_alpaca_research_prices(
             current,
@@ -81,6 +84,7 @@ def plan_current_us_daily_prices(
             cutoff=cutoff,
             adjustment=adjustment,
             price_close_at=price_close_at,
+            closed_session_pin=closed_session_pin,
         )
     if cutoff.utcoffset() is None:
         raise ValueError("US daily price plan requires a timezone")
@@ -123,6 +127,7 @@ def plan_current_alpaca_research_prices(
     cutoff: datetime,
     adjustment: Literal["raw", "split"],
     price_close_at: datetime | None = None,
+    closed_session_pin: bool = False,
 ) -> USDailyPricePlan | None:
     """Plan explicit current research coverage without making broker-order claims."""
     if cutoff.utcoffset() is None:
@@ -130,15 +135,21 @@ def plan_current_alpaca_research_prices(
     today = cutoff.astimezone(_NY).date()
     if type(price_session) is not date or price_session > today:
         raise ValueError("price session cannot follow the current NY date")
+    allowed_listing_sessions = (
+        (price_session,)
+        if closed_session_pin
+        else ((today,) if today_open else (today, price_session))
+    )
     if (
         current is None
         or current.source != ALPACA_ASSETS_SOURCE
         or current.received_at > cutoff
-        or current.slice.session not in ((today,) if today_open else (today, price_session))
+        or current.slice.session not in allowed_listing_sessions
         or price_close_at is None
         or price_close_at.utcoffset() is None
         or price_close_at > cutoff
         or price_close_at.astimezone(_NY).date() != price_session
+        or (closed_session_pin and current.received_at > price_close_at)
     ):
         return None
     targets = [

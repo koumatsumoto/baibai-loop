@@ -25,10 +25,12 @@ class SavedObject:
     etag: str
 
 
-def read_private(store: ObjectStore, key: str) -> SavedObject | None:
+def read_private(
+    store: ObjectStore, key: str, *, max_bytes: int = MAX_PRIVATE_OBJECT_BYTES
+) -> SavedObject | None:
     # GET metadata belongs to that body; a final HEAD still detects a later version.
     if isinstance(store, CheckedObjectMetadataReader):
-        response = store.get_checked_object(key, max_bytes=MAX_PRIVATE_OBJECT_BYTES)
+        response = store.get_checked_object(key, max_bytes=max_bytes)
         if response is None:
             return None
         payload, before = response
@@ -37,14 +39,14 @@ def read_private(store: ObjectStore, key: str) -> SavedObject | None:
         if previous is None:
             return None
         before = previous
-        if not before.etag or not 0 < before.size <= MAX_PRIVATE_OBJECT_BYTES:
+        if not before.etag or not 0 < before.size <= max_bytes:
             raise LakePublishError("invalid private JSON object")
         payload = store.get_bytes(key)
     after = store.head(key)
     if (
         after is None
         or not before.etag
-        or not 0 < before.size <= MAX_PRIVATE_OBJECT_BYTES
+        or not 0 < before.size <= max_bytes
         or after.etag != before.etag
         or after.size != before.size
         or after.metadata.get("sha256") != before.metadata.get("sha256")
