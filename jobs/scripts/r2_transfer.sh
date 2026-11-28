@@ -371,7 +371,8 @@ upload_portfolio_views() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine [--daily-preflight]|hydrate-market-for-daily|pull-portfolio-market|pull-app|pull-indicators|push-indicators [--recheck-source SOURCE]...|push-app [--expect-bucket BUCKET [--proposal-id ID] [--check]]|upload-portfolio-views DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-machine [--daily-preflight]|hydrate-market-for-daily|pull-portfolio-market|pull-app|pull-indicators|push-indicators [--recheck-source SOURCE]...|upload-portfolio-views DIR}\n' "$0" >&2
+  printf 'App publication: jobs/scripts/publish.sh --help\n' >&2
 }
 
 validate_command() {

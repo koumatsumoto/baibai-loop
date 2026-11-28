@@ -471,6 +471,8 @@ def test_invalid_transfer_arguments_stop_before_helpers_or_credentials(
 
     assert completed.returncode == 2
     assert "usage:" in completed.stderr
+    assert "jobs/scripts/publish.sh --help" in completed.stderr
+    assert "push-app" not in completed.stderr
     assert not log.exists()
 
 
