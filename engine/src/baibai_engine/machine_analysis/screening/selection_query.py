@@ -103,9 +103,18 @@ def read_case_publication(
 
 
 def read_case_publication_from_connection(
-    connection: sqlite3.Connection, *, selection_id: str, known_at: datetime
+    connection: sqlite3.Connection,
+    *,
+    selection_id: str,
+    known_at: datetime,
+    expected_generation_id: str | None = None,
 ) -> tuple[datetime, str, ScreeningSelection] | None:
-    row = _publication_data(connection, selection_id=selection_id, known_at=known_at)
+    row = _publication_data(
+        connection,
+        selection_id=selection_id,
+        known_at=known_at,
+        expected_generation_id=expected_generation_id,
+    )
     if row is None:
         return None
     _, actual_time, generation, compressed = row
@@ -129,6 +138,7 @@ def _publication_data(
     before_as_of: date | None = None,
     as_of: date | None = None,
     known_at: datetime | None = None,
+    expected_generation_id: str | None = None,
 ) -> tuple[str, datetime, GenerationMetadata, bytes] | None:
     header = find_publication_header(
         connection,
@@ -136,6 +146,7 @@ def _publication_data(
         before_as_of=before_as_of,
         as_of=as_of,
         known_at=known_at,
+        expected_generation_id=expected_generation_id,
     )
     if header is None:
         return None
@@ -163,6 +174,7 @@ def find_publication_header(
     before_as_of: date | None = None,
     as_of: date | None = None,
     known_at: datetime | None = None,
+    expected_generation_id: str | None = None,
 ) -> tuple[str, str, str, str, str] | None:
     """一覧と明示詳細で同じ時計・同じ発行物を選ぶ。本文は読まない。"""
     if known_at is not None and known_at.utcoffset() is None:
@@ -182,4 +194,8 @@ def find_publication_header(
             "cutoff": known_at.isoformat() if known_at else None,
         },
     ).fetchone()
-    return None if row is None else (row[0], row[1], row[2], row[3], row[4])
+    if row is None:
+        return None
+    if expected_generation_id is not None and row[2] != expected_generation_id:
+        raise ValueError("screening selection differs from the chosen generation")
+    return row[0], row[1], row[2], row[3], row[4]

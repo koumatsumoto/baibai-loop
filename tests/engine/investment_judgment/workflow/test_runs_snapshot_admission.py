@@ -14,7 +14,7 @@ from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
 from tests.helpers.retained_model_generation import seed_generation
 
-from baibai_engine.investment_judgment.workflow import case_screening
+from baibai_engine.investment_judgment.workflow import case_screening, selection_query
 from baibai_engine.investment_judgment.workflow.operation import service
 from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
@@ -243,3 +243,72 @@ def test_identical_replacement_preserves_frozen_payload_and_projection(
     )
     assert prepare("replacement") == first
     assert replacements == []
+
+
+@pytest.mark.parametrize("reader", ["context", "prepare"])
+@pytest.mark.parametrize("case", ["wrong_owner", "same_owner", "future_wrong_owner", "absent"])
+def test_explicit_selection_checks_visible_owner_before_reading_body(
+    tmp_path, monkeypatch, reader, case
+):
+    runs = tmp_path / "runs"
+    draft = seed_runs(runs, edition="current")
+    with closing(sqlite3.connect(runs)) as connection, connection:
+        connection.execute(
+            "UPDATE screening_selection SET payload_gzip=?,published_at=? WHERE selection_id=?",
+            (
+                b"broken body",
+                (NOW + timedelta(seconds=1) if case == "future_wrong_owner" else NOW).isoformat(),
+                draft.screening_selection_id,
+            ),
+        )
+    if case == "absent":
+        draft = draft.model_copy(update={"screening_selection_id": "not-found"})
+    elif case != "same_owner":
+        # A real other generation exists in this same Runs DB.
+        draft = draft.model_copy(update={"generation_id": "fixed-synthetic"})
+
+    statements = []
+    owner = selection_query if reader == "context" else selected_prepare
+    original_connect = owner.connect_runs_read_only
+
+    def traced(path):
+        connection = original_connect(path)
+        connection.set_trace_callback(statements.append)
+        return connection
+
+    monkeypatch.setattr(owner, "connect_runs_read_only", traced)
+    error = gzip.BadGzipFile if case == "same_owner" else ValueError
+    expected = (
+        "Not a gzipped file"
+        if case == "same_owner"
+        else "unknown or not yet published screening selection"
+        if reader == "context" and case in {"future_wrong_owner", "absent"}
+        else "screening selection differs from the chosen generation"
+    )
+
+    def read():
+        if reader == "context":
+            selection_query.load_generated_selection_context(
+                request=draft.request,
+                generation_id=draft.generation_id,
+                screening_selection_id=draft.screening_selection_id,
+                research_as_of=draft.research_as_of,
+                known_at=draft.input_known_at,
+                runs_path=runs,
+                db_path=tmp_path / "app",
+            )
+        else:
+            selected_prepare.prepare_selected_workspace(
+                draft=draft,
+                runs_path=runs,
+                db_path=tmp_path / "app",
+                workspace=tmp_path / "workspace",
+                now=NOW,
+            )
+
+    with pytest.raises(error, match=expected):
+        read()
+    assert statements
+    assert any("payload_gzip" in sql for sql in statements) == (case == "same_owner")
+    assert not (tmp_path / "app").exists()
+    assert not (tmp_path / "workspace").exists()

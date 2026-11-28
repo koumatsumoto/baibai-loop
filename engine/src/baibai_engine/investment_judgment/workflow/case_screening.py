@@ -45,9 +45,13 @@ def read_case_screening_from_connection(
     *,
     subjects: tuple[str, ...],
     known_at: datetime,
+    expected_generation_id: str | None = None,
 ) -> tuple[datetime, CaseScreening] | None:
     published = read_case_publication_from_connection(
-        connection, selection_id=selection_id, known_at=known_at
+        connection,
+        selection_id=selection_id,
+        known_at=known_at,
+        expected_generation_id=expected_generation_id,
     )
     if published is None:
         return None

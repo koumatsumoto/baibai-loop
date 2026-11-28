@@ -112,8 +112,9 @@ def _generated_selection(
                 draft.screening_selection_id,
                 known_at=draft.input_known_at,
                 subjects=subjects,
+                expected_generation_id=draft.generation_id,
             )
-            if publication is None or publication[1].generation_id != draft.generation_id:
+            if publication is None:
                 raise ValueError("screening selection differs from the chosen generation")
         models = read_research_model_inputs_from_connection(
             runs, draft.generation_id, targets=subjects
