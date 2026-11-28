@@ -22,6 +22,7 @@ def _context(case):
         proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(minutes=3),
     )
@@ -128,7 +129,12 @@ def test_explicitly_bound_new_pair_uses_its_value_not_the_old_value(tmp_path):
 def test_old_saved_no_action_exact_read_and_retry_are_not_a_current_projection(tmp_path):
     case = backend_case(tmp_path)
     draft = reviewed_proposal(case, action="no_action")
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     saved = service.publish(draft)
     _new_pair(case, unresolved=True)
     original = case.app.read_bytes()

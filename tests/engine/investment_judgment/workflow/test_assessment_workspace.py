@@ -351,7 +351,10 @@ def _revised_workspace(tmp_path):
     prepared = backend_case(tmp_path)
     db, operation_id = prepared.app, prepared.operation.operation_id
     proposal = TradeProposalService(
-        db, sqlite_path=prepared.market, clock=lambda: PUBLISHED
+        db,
+        listing_reader=prepared.listing_reader,
+        sqlite_path=prepared.market,
+        clock=lambda: PUBLISHED,
     ).publish(reviewed_proposal(prepared, action="no_action"))
     workspace = tmp_path / "workspace"
     resume_selected_workspace(operation_id=operation_id, workspace=workspace, db_path=db, now=NOW)

@@ -312,6 +312,7 @@ def test_confirmed_conversion_connects_portfolio_and_new_proposal_inputs(tmp_pat
             tickers=(),
             proposal_id="",
             now=NOW,
+            current_listing=None,
             sqlite_path=market,
             budget_min_yen=200000,
             budget_max_yen=300000,
@@ -653,7 +654,10 @@ def test_share_conversion_never_rewrites_the_original_proposal(tmp_path):
 
     case = backend_case(tmp_path, holding=True)
     saved = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(reviewed_proposal(case, action="hold"))
     original = saved.model_dump(mode="json")
     original_sha = proposal_draft_sha256(saved)

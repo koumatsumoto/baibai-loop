@@ -75,6 +75,7 @@ def _collect(app, market):
             tickers=(),
             proposal_id="",
             now=NOW,
+            current_listing=None,
             sqlite_path=market,
             budget_min_yen=200000,
             budget_max_yen=300000,

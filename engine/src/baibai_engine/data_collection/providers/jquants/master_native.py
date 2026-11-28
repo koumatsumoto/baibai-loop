@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Sequence
+from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,12 @@ class MasterAttempt(FullDayAttempt):
 class FixedMasterL1(FixedFullDayL1):
     contract = _CONTRACT
     attempt_type = MasterAttempt
+
+
+@dataclass(frozen=True, slots=True)
+class ExactMasterReceipt:
+    fixed: FixedMasterL1
+    original: RetainedRequest
 
 
 def is_master_for_day(request: JQuantsRequest, day: date) -> bool:
@@ -94,20 +101,26 @@ def unfulfilled_master_days(
 ) -> tuple[date, ...]:
     """Verify only requested master dates, sharing immutable packs within this read."""
     requested = tuple(sorted(set(days)))
+    complete = {day for day, _ in resolved_master_requests(store, fixed, days=requested)}
+    return tuple(day for day in requested if day not in complete)
+
+
+def resolved_master_requests(
+    store: ObjectStore, fixed: FixedMasterL1, *, days: Sequence[date]
+) -> Iterator[tuple[date, RetainedRequest]]:
+    """Yield the actual adopted members for resolved dates in one pack walk."""
     scopes = fixed.value()["scopes"]
-    complete: set[date] = set()
-    for item in fixed.requests(store, days=requested):
+    requested = frozenset(days)
+    for item in fixed.requests(store, days=days):
         if (request := item.request) is None:
             continue
         day = date.fromisoformat(request.params["date"])
-        # Verifying a shared pack is not proof that its member belongs to every
-        # scope pointing to it. Do not let two dates fulfill one another.
-        if scopes.get(day.isoformat(), {}).get("adopted") == item.request_id and request.records():
-            complete.add(day)
-    return tuple(
-        day
-        for day in requested
-        if day not in complete
-        or scopes.get(day.isoformat(), {}).get("failure")
-        or scopes.get(day.isoformat(), {}).get("held")
-    )
+        scope = scopes.get(day.isoformat(), {})
+        # A verified pack cannot make one date's member satisfy a different date.
+        if (
+            day in requested
+            and scope.get("adopted") == item.request_id
+            and not (scope.get("failure") or scope.get("held"))
+            and request.records()
+        ):
+            yield day, item

@@ -13,12 +13,14 @@ from baibai_engine.machine_analysis.observations.stocks.listing_master import (
     ObservedListing,
     VerifiedListingEvent,
 )
+from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
+    NasdaqDirectoryVersion,
+)
 from baibai_engine.storage.objects.json import MAX_PRIVATE_OBJECT_BYTES
 from baibai_engine.storage.objects.r2 import LakePublishError, RemoteObject
 from baibai_jobs.integration.listing_master_current import (
     LISTING_MASTER_CURRENT_KEY,
     ListingUpdateStatus,
-    NasdaqDirectoryVersion,
     read_current_listing_master,
     refresh_current_listing_master,
 )

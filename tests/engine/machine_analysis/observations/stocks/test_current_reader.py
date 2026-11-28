@@ -8,7 +8,6 @@ from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
-from pydantic import TypeAdapter
 from tests.helpers.screening_sqlite import make_master_records
 
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
@@ -22,11 +21,15 @@ from baibai_engine.machine_analysis.observations.stocks.listing_master import (
     ListingSlice,
     refresh_listing_slice,
 )
+from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
+    CurrentListingMarket,
+    decode_current_listing_master,
+    encode_current_listing_master,
+)
 from baibai_engine.machine_analysis.observations.stocks.master_snapshot import (
     normalize_master_record,
 )
 from baibai_engine.primitives.time import JST
-from baibai_jobs.integration.listing_master_current import CurrentListingMarket
 
 _THU = date(2026, 11, 26)
 _FRI = date(2026, 11, 27)
@@ -298,8 +301,7 @@ def test_existing_jp_master_projection_matches_the_shared_serialized_section(cal
         None, market="JP", session=_FRI, observations=capture.observations, complete=True
     ).slice
     entry = CurrentListingMarket(new, "jquants", capture.received_at, len(capture.observations))
-    codec = TypeAdapter(dict[str, CurrentListingMarket])
-    pinned = codec.validate_json(codec.dump_json({"JP": entry}), strict=True, extra="forbid")
+    pinned = decode_current_listing_master(encode_current_listing_master({"JP": entry}))
     actual = read_current_jp_master(
         pinned["JP"], calendar=calendar, as_of=_FRI, evaluation_time=_RECEIVED
     )

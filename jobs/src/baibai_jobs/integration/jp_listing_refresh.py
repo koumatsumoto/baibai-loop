@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from datetime import date, datetime
 from typing import Literal
 
@@ -11,10 +11,7 @@ from baibai_engine.data_collection.providers.jquants.calendar_native import (
     verify_calendar_selection,
 )
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsRequest
-from baibai_engine.data_collection.providers.jquants.master_native import (
-    FixedMasterL1,
-    read_master_requests,
-)
+from baibai_engine.data_collection.providers.jquants.master_native import ExactMasterReceipt
 from baibai_engine.machine_analysis.generation.calendar_inputs import calendar_day_session
 from baibai_engine.machine_analysis.observations.stocks.jquants_listing import normalize_jp_listings
 from baibai_engine.machine_analysis.observations.stocks.listing_master import (
@@ -37,13 +34,13 @@ def refresh_current_jp_listings(
     session: date,
     evaluated_at: datetime,
     calendar: FixedCalendarL1,
-    load_master: Callable[[], FixedMasterL1],
+    master: ExactMasterReceipt | None,
     verified_events: Iterable[VerifiedListingEvent] = (),
 ) -> JPListingRefreshStatus:
     """Apply only the caller's selected current cycle and only after native verification.
 
     A confirmed closure skips the master; it never means "use the closest old
-    master". This reads existing originals without saving a fixed-input copy.
+    master". Acquisition already read the exact original; do not replay that pack.
     """
     if evaluated_at.utcoffset() is None:
         raise ValueError("current JP listing refresh requires an evaluation timezone")
@@ -63,9 +60,7 @@ def refresh_current_jp_listings(
     if not session_is_open:
         return "closed"
 
-    request, received_at = _exact_master_request(
-        store, load_master(), session=session, evaluated_at=evaluated_at
-    )
+    request, received_at = _exact_master_request(master, session=session, evaluated_at=evaluated_at)
     capture = normalize_jp_listings(request.pages, session=session)
     events = tuple(verified_events)
     if any(
@@ -87,15 +82,15 @@ def refresh_current_jp_listings(
 
 
 def _exact_master_request(
-    store: ListingMasterStore,
-    fixed: FixedMasterL1,
+    exact: ExactMasterReceipt | None,
     *,
     session: date,
     evaluated_at: datetime,
 ) -> tuple[JQuantsRequest, datetime]:
+    if exact is None:
+        raise ValueError("current JP listing master requires a resolved exact-date receipt")
     day = session.isoformat()
-    head = fixed.value()
-    scope = head["scopes"].get(day, {})
+    scope = exact.fixed.value()["scopes"].get(day, {})
     adopted = scope.get("adopted")
     if not adopted or scope.get("failure") or scope.get("held"):
         raise ValueError("current JP listing master requires a resolved exact-date receipt")
@@ -104,12 +99,7 @@ def _exact_master_request(
             clock = datetime.fromisoformat(stamp)
             if clock.utcoffset() is None or clock > evaluated_at:
                 raise ValueError("native JP master head is later than the evaluation clock")
-    retained = tuple(
-        read_master_requests(store, scopes={day: scope}, receipts=head["receipts"], days=(session,))
-    )
-    if len(retained) != 1:
-        raise ValueError("native JP master lacks one unambiguous original receipt")
-    receipt = retained[0]
+    receipt = exact.original
     if (
         receipt.request_id != adopted
         or receipt.first_query != {"date": day}

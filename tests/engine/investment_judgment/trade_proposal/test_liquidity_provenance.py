@@ -86,6 +86,7 @@ def test_current_cli_context_and_draft_keep_saved_windows_and_publish(case, tmp_
                 case.operation.operation_id,
                 "--db",
                 str(case.app),
+                *case.listing_args,
                 "--sqlite-path",
                 str(case.market),
                 "--out",
@@ -111,7 +112,10 @@ def test_current_cli_context_and_draft_keep_saved_windows_and_publish(case, tmp_
     proposal = helper.reviewed_proposal(case)
     assert proposal.payload()["liquidity_context"] == [row]
     service = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: helper.PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: helper.PUBLISHED,
     )
     assert service.check(proposal).valid
     assert service.publish(proposal).liquidity_context == proposal.liquidity_context
@@ -124,7 +128,10 @@ def test_current_cli_context_and_draft_keep_saved_windows_and_publish(case, tmp_
 def test_source_present_windows_cannot_be_omitted_from_a_new_draft(case, omitted_fields):
     proposal = _signed_omission(case, omitted_fields)
     service = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: helper.PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: helper.PUBLISHED,
     )
     with pytest.raises(ProposalConflictError, match="liquidity differs"):
         service.check(proposal)
@@ -146,7 +153,10 @@ def test_new_draft_can_publish_with_genuinely_missing_source_fields(case):
     assert ("price_window_end" in observed) == ("resolved_date" in price)
     assert ("turnover_window" in observed) == ("turnover_window" in price)
     service = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: helper.PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: helper.PUBLISHED,
     )
     assert service.check(proposal).valid
     assert service.publish(proposal).liquidity_context == proposal.liquidity_context
@@ -160,7 +170,9 @@ def test_existing_legacy_proposal_is_read_and_retried_without_rewriting(
 ):
     proposal = _signed_omission(case, omitted_fields)
     clock = helper.PUBLISHED
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: clock)
+    service = TradeProposalService(
+        case.app, listing_reader=case.listing_reader, sqlite_path=case.market, clock=lambda: clock
+    )
     # 旧writerの窓の照合だけを模擬し、保存された本文・hash・索引には触れない。
     with monkeypatch.context() as old_writer:
         old_writer.setattr(
@@ -184,6 +196,7 @@ def test_existing_legacy_proposal_is_read_and_retried_without_rewriting(
         preview_current_terms(
             proposal_id=proposal.proposal_id,
             db_path=case.app,
+            listing_reader=case.listing_reader,
             sqlite_path=case.market,
             now=helper.PUBLISHED + timedelta(minutes=5),
         ).status
@@ -217,7 +230,10 @@ def test_saved_selection_still_rejects_changed_liquidity(case, legacy_draft, fie
     raw["liquidity_context"][0][field] = value
     changed = helper.bind_review(raw, {case.pair.assessment_id: case.pair.document})
     service = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: helper.PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: helper.PUBLISHED,
     )
     with pytest.raises(ProposalConflictError, match="liquidity differs"):
         service.check(changed)
@@ -250,7 +266,10 @@ def test_proposal_keeps_the_saved_turnover_window(case, field, value):
     raw["liquidity_context"][0]["turnover_window"][field] = value
     changed = helper.bind_review(raw, {case.pair.assessment_id: case.pair.document})
     service = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: helper.PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: helper.PUBLISHED,
     )
     with pytest.raises(ProposalConflictError, match="liquidity differs"):
         service.check(changed)

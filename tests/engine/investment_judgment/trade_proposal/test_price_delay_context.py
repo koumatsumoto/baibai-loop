@@ -70,6 +70,7 @@ def test_buy_context_check_and_preview_keep_price_specific_delay_without_new_gat
         proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PREPARED,
     )
@@ -86,7 +87,12 @@ def test_buy_context_check_and_preview_keep_price_specific_delay_without_new_gat
         == "300000"
     )
 
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     calls.clear()
     checked = service.check(draft)
     assert calls == ["basis", "economic_inputs"]
@@ -110,6 +116,7 @@ def test_buy_context_check_and_preview_keep_price_specific_delay_without_new_gat
     preview = preview_current_terms(
         proposal_id=saved.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(minutes=1),
     )
@@ -157,7 +164,12 @@ def test_holding_comparison_keeps_actual_quote_and_author_floor_separate(tmp_pat
             terms_unavailable_reasons=[],
         )
     draft = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     checked = service.check(draft)
     assert checked.valid
     calculations = checked.calculations["1234"]
@@ -174,6 +186,7 @@ def test_holding_comparison_keeps_actual_quote_and_author_floor_separate(tmp_pat
     preview = preview_current_terms(
         proposal_id=saved.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(minutes=1),
     )

@@ -56,7 +56,10 @@ def test_new_proposal_review_cannot_precede_its_exact_assessment_review(
     proposal = reviewed_proposal(case, action=action)
     assert proposal.review.reviewed_at < case.pair.review.reviewed_at < PUBLISHED
     service = proposal_service.TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     )
     before = case.app.read_bytes()
     for require_review in (False, True):
@@ -83,7 +86,10 @@ def test_completed_assessment_may_be_saved_after_proposal_review(
     assert case.pair.review.reviewed_at <= proposal.review.reviewed_at < case.pair.published_at
     ledger = LedgerStoreService(case.app).load()
     service = proposal_service.TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     )
     assert service.check(proposal).valid
     saved = service.publish(proposal)
@@ -101,7 +107,10 @@ def test_saved_proposal_predating_assessment_review_keeps_hash_readback_and_retr
     )
     proposal = reviewed_proposal(case)
     service = proposal_service.TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     )
     check = proposal_service._check_validated_proposal
 
@@ -119,7 +128,10 @@ def test_saved_proposal_predating_assessment_review_keeps_hash_readback_and_retr
     assert not service.check(proposal).valid
     assert read_saved_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == saved
     retry = proposal_service.TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PREPARED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PREPARED,
     ).publish(proposal)
     assert retry == saved
     assert retry.review.draft_sha256 == proposal_draft_sha256(retry) == digest

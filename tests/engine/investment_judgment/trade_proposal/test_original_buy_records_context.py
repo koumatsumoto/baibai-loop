@@ -44,11 +44,17 @@ def _ref(proposal):
 
 def _setup(tmp_path, *, scope="review_positions", linked="erroneous", before_proposal=False):
     case = backend_case(tmp_path)
-    a = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        reviewed_proposal(case)
-    )
+    a = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    ).publish(reviewed_proposal(case))
     b = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(minutes=1)
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED + timedelta(minutes=1),
     ).publish(reviewed_proposal(case, proposal_id=B))
     case.operations.complete(
         case.operation.operation_id,
@@ -137,6 +143,7 @@ def _context(fixture, *, now=NOW):
         proposal_id=PROPOSAL_ID,
         operation_id=fixture.operation.operation_id,
         db_path=fixture.case.app,
+        listing_reader=fixture.case.listing_reader,
         sqlite_path=fixture.case.market,
         now=now,
     )
@@ -186,9 +193,12 @@ def test_original_buy_correction_is_separate_from_saved_basis_and_executed_posit
         == 1
     )
     assert read_saved_proposal(proposal_id=f.b.proposal_id, db_path=f.case.app) == f.b
-    retry = TradeProposalService(f.case.app, sqlite_path=f.case.market, clock=lambda: NOW).publish(
-        f.b
-    )
+    retry = TradeProposalService(
+        f.case.app,
+        listing_reader=f.case.listing_reader,
+        sqlite_path=f.case.market,
+        clock=lambda: NOW,
+    ).publish(f.b)
     assert retry == f.b
     assert f.case.app.read_bytes() == snapshot
 

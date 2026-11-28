@@ -36,7 +36,6 @@ def build_dashboard(
     """Build the app's first view without performing storage I/O directly."""
 
     now = datetime.now(JST)
-    today = now.date()
 
     try:
         portfolio = ledger.snapshot(now=now)
@@ -59,7 +58,7 @@ def build_dashboard(
     if snapshot.holdings:
         try:
             security_names = market.security_names(
-                as_of=today, tickers=tuple(holding.ticker for holding in snapshot.holdings)
+                at=now, tickers=tuple(holding.ticker for holding in snapshot.holdings)
             )
         except (OSError, JQuantsProviderError, SQLiteSchemaError, sqlite3.Error) as error:
             _LOGGER.warning(

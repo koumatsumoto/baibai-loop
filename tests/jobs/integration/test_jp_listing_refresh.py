@@ -15,17 +15,24 @@ from baibai_engine.data_collection.providers.jquants.calendar_native import (
     CalendarL1,
 )
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
-from baibai_engine.data_collection.providers.jquants.master_native import MasterAttempt, MasterL1
+from baibai_engine.data_collection.providers.jquants.master_native import (
+    ExactMasterReceipt,
+    MasterAttempt,
+    MasterL1,
+    resolved_master_requests,
+)
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.stocks.listing_master import (
     ObservedListing,
     VerifiedListingEvent,
 )
+from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
+    NASDAQ_DIRECTORY_SOURCE,
+)
 from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_jobs.integration.jp_listing_refresh import refresh_current_jp_listings
 from baibai_jobs.integration.listing_master_current import (
     LISTING_MASTER_CURRENT_KEY,
-    NASDAQ_DIRECTORY_SOURCE,
     NasdaqDirectoryVersion,
     read_current_listing_master,
     refresh_current_listing_master,
@@ -89,12 +96,14 @@ def _owners(tmp_path):
 
 
 def _refresh(store, calendar, master, *, day=_DAY, evaluated_at=_AT, events=()):
+    fixed = master.fixed()
+    resolved = list(resolved_master_requests(store, fixed, days=(day,)))
     return refresh_current_jp_listings(
         store,
         session=day,
         evaluated_at=evaluated_at,
         calendar=calendar.fixed(),
-        load_master=master.fixed,
+        master=ExactMasterReceipt(fixed, resolved[0][1]) if resolved else None,
         verified_events=events,
     )
 
@@ -179,12 +188,9 @@ def test_calendar_does_not_load_master_or_write_before_proving_open(tmp_path, ca
         evaluated_at = _EARLY
     store.put_keys.clear()
 
-    def load_master():
-        pytest.fail("selected master was loaded before calendar/clock approval")
-
     def run():
         return refresh_current_jp_listings(
-            store, session=_DAY, evaluated_at=evaluated_at, calendar=fixed, load_master=load_master
+            store, session=_DAY, evaluated_at=evaluated_at, calendar=fixed, master=None
         )
 
     if case in {"closed", "futures-only"}:
@@ -235,7 +241,10 @@ def test_invalid_native_master_cannot_replace_last_good_current(tmp_path, case, 
             last_attempt_at=_EARLY.isoformat(),
             changed_at=_EARLY.isoformat(),
         )
+    member_day = _PREV if case == "wrong-day" else _DAY
+    resolved = list(resolved_master_requests(store, fixed, days=(member_day,)))
     fixed = replace(fixed, payload=json.dumps(head).encode())
+    exact = ExactMasterReceipt(fixed, resolved[0][1]) if resolved else None
     store.put_keys.clear()
     with pytest.raises(exception, match=match):
         refresh_current_jp_listings(
@@ -243,7 +252,7 @@ def test_invalid_native_master_cannot_replace_last_good_current(tmp_path, case, 
             session=_DAY,
             evaluated_at=_AT,
             calendar=calendar.fixed(),
-            load_master=lambda: fixed,
+            master=exact,
         )
     assert store.values[LISTING_MASTER_CURRENT_KEY] == before
     assert not store.put_keys

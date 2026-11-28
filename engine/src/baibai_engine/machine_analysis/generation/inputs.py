@@ -8,9 +8,10 @@ from collections import defaultdict
 from collections.abc import Callable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import ExitStack, closing
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from functools import partial
+from hashlib import sha256
 from math import isfinite
 from pathlib import Path
 
@@ -83,8 +84,13 @@ from baibai_engine.machine_analysis.observations.prices.price_reader import (
     _adjustment_events_from_rows,
 )
 from baibai_engine.machine_analysis.observations.stocks.contracts import MasterSnapshot
+from baibai_engine.machine_analysis.observations.stocks.current_reader import (
+    CurrentListingSection,
+    read_current_jp_master,
+)
 from baibai_engine.machine_analysis.observations.stocks.reader import read_master_snapshot
 from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS
+from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.storage.snapshots.writer import SealedSQLiteSnapshot
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
@@ -103,6 +109,28 @@ class FinancialModelInput:
 
     identity: InputSnapshot
     documents: Sequence[JQuantsFinancialSummary]
+
+
+@dataclass(frozen=True, slots=True)
+class PinnedGenerationMaster:
+    """The one current JP section read by the integration owner, with its identity."""
+
+    section: CurrentListingSection
+    reference: str
+
+    def input_identity(self) -> InputSnapshot:
+        # Hash only the selected section, not a simultaneous US update or a saved copy.
+        descriptor = {
+            "session": self.section.slice.session.isoformat(),
+            "received_at": self.section.received_at.isoformat(),
+            "slice_sha256": sha256(canonical_json(asdict(self.section.slice)).encode()).hexdigest(),
+        }
+        return InputSnapshot(
+            kind="current_listing_master",
+            reference=self.reference,
+            descriptor=descriptor,
+            sha256=sha256(canonical_json(descriptor).encode()).hexdigest(),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -255,6 +283,26 @@ def _schedule_price_read(
     return pending
 
 
+def _legacy_generation_master(
+    path: Path, as_of: date, identity: InputSnapshot | None
+) -> MasterSnapshot | None:
+    master_as_of: date | None = as_of
+    if identity is not None and identity.kind == "current_listing_master":
+        raise ValueError("current listing master identity requires its pinned section")
+    if identity is not None and identity.descriptor is not None:
+        summary = identity.descriptor.get("summary")
+        basis = summary.get("master_basis_date") if isinstance(summary, dict) else None
+        if isinstance(basis, str):
+            assert isinstance(summary, dict)
+            selected = summary.get("snapshot_date")
+            master_as_of = date.fromisoformat(selected) if isinstance(selected, str) else None
+            if date.fromisoformat(basis) > as_of or (
+                master_as_of is not None and master_as_of > date.fromisoformat(basis)
+            ):
+                raise ValueError("master basis cannot be later than generation as-of")
+    return None if master_as_of is None else read_master_snapshot(path, as_of=master_as_of)
+
+
 def read_and_generate_models(
     *,
     generation_id: str,
@@ -271,6 +319,7 @@ def read_and_generate_models(
     comparison_evidence: SavedComparisonEvidence | None = None,
     price_identity: InputSnapshot | None = None,
     master_identity: InputSnapshot | None = None,
+    current_master: PinnedGenerationMaster | None = None,
     calendar_identity: InputSnapshot | None = None,
     margin_alerts_identity: InputSnapshot | None = None,
     margin_interest_identity: InputSnapshot | None = None,
@@ -292,19 +341,22 @@ def read_and_generate_models(
     ):
         raise ValueError("EDINET input was selected after the generation seal or clock")
     path = market_snapshot.path
-    master_as_of: date | None = as_of
-    if master_identity is not None and master_identity.descriptor is not None:
-        summary = master_identity.descriptor.get("summary")
-        basis = summary.get("master_basis_date") if isinstance(summary, dict) else None
-        if isinstance(basis, str):
-            assert isinstance(summary, dict)
-            selected = summary.get("snapshot_date")
-            master_as_of = date.fromisoformat(selected) if isinstance(selected, str) else None
-            if date.fromisoformat(basis) > as_of or (
-                master_as_of is not None and master_as_of > date.fromisoformat(basis)
-            ):
-                raise ValueError("master basis cannot be later than generation as-of")
-    master = None if master_as_of is None else read_master_snapshot(path, as_of=master_as_of)
+    if current_master is None:
+        master = _legacy_generation_master(path, as_of, master_identity)
+    else:
+        if master_identity is not None:
+            raise ValueError("generation requires one current listing master identity")
+        with closing(connect_read_only(path)) as connection:
+            connection.execute("BEGIN")
+            master = read_current_jp_master(
+                current_master.section,
+                calendar=connection,
+                as_of=as_of,
+                evaluation_time=min(evaluation_time, market_snapshot.sealed_at),
+            )
+        if master is None:
+            raise ValueError("current JP master does not match the generation seal and session")
+        master_identity = current_master.input_identity()
     if tickers is None:
         if master is None:
             raise ValueError("all-company generation requires a master snapshot")
@@ -453,7 +505,10 @@ def read_and_generate_models(
         monex_fiscal_eps=fiscal_eps,
         market_context={
             "market": build_market_snapshot(
-                sqlite_path=path, asof_date=as_of, prepared=price_inputs.prepared
+                sqlite_path=path,
+                asof_date=as_of,
+                prepared=price_inputs.prepared,
+                current_master_only=current_master is not None,
             ),
             "benchmark_trend": None
             if price_inputs.prepared.benchmark_trend is None
@@ -466,6 +521,10 @@ def read_and_generate_models(
         },
         securities_context=price_inputs.contexts,
         market_context_revision="shared-market-context-v20-classified-sector-peers",
-        shared_market_context_revision="shared-market-context-v22-breadth-price-date-membership",
+        shared_market_context_revision=(
+            "shared-market-context-v23-current-listing-breadth"
+            if current_master is not None
+            else "shared-market-context-v22-breadth-price-date-membership"
+        ),
         growth_start=growth_start,
     )

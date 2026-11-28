@@ -48,9 +48,12 @@ NOW = datetime.fromisoformat("2026-10-16T18:00:00+09:00")
 @pytest.fixture
 def portfolio_lake(tmp_path, monkeypatch, request):
     case = backend_case(tmp_path / "source", holding=True)
-    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        reviewed_proposal(case, action="hold")
-    )
+    TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    ).publish(reviewed_proposal(case, action="hold"))
     PortfolioOutcomeStore(case.app).publish(_publication())
     missing = getattr(request, "param", "none")
     seed_daily_bars(

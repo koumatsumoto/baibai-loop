@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
@@ -67,8 +67,9 @@ from baibai_engine.machine_analysis.observations.disclosures.tender_filing_looku
     TenderFilingLookup,
     read_tender_filing_references,
 )
-from baibai_engine.machine_analysis.observations.stocks.reader import (
-    read_master_snapshot,
+from baibai_engine.machine_analysis.observations.stocks.current_reader import (
+    CurrentListingSection,
+    read_current_jp_master,
 )
 from baibai_engine.portfolio.holdings.market_observations import (
     OrderSessionBounds,
@@ -103,6 +104,7 @@ DEFAULT_BUDGET_MAX_YEN = 300_000
 PROPOSAL_TERMS_POLICY_REVISION = "reviewed-price-case-and-author-terms-v2"
 
 type _ReportedBuy = tuple[str, TradeProposal]
+type ProposalListingReader = Callable[[], CurrentListingSection | None]
 
 
 def proposal_input_policy_id() -> str:
@@ -185,6 +187,17 @@ def proposal_market_snapshot(
         yield None
 
 
+def pin_proposal_listing(
+    listing_reader: ProposalListingReader | None,
+    *,
+    market_connection: sqlite3.Connection | None,
+) -> CurrentListingSection | None:
+    """Read the current listing section once for this proposal operation."""
+    return (
+        listing_reader() if listing_reader is not None and market_connection is not None else None
+    )
+
+
 def collect_proposal_inputs(
     connection: sqlite3.Connection,
     *,
@@ -194,6 +207,7 @@ def collect_proposal_inputs(
     sqlite_path: Path,
     budget_min_yen: int,
     budget_max_yen: int,
+    current_listing: CurrentListingSection | None,
     market_connection: sqlite3.Connection | EllipsisType | None = ...,
     original_buys: dict[str, _ReportedBuy] | None = None,
 ) -> ProposalInputs:
@@ -250,15 +264,15 @@ def collect_proposal_inputs(
                             source_ref="jquants_daily_bars",
                         )
                     )
-        # Classification must not observe a later correction than the saved quotes.
         master = (
             None
             if market_connection is None or not relevant_tickers
-            else read_master_snapshot(
-                sqlite_path,
+            else read_current_jp_master(
+                current_listing,
+                calendar=market_connection,
                 as_of=now.astimezone(JST).date(),
+                evaluation_time=now,
                 tickers=relevant_tickers,
-                connection=market_connection,
             )
         )
     portfolio = summarize_portfolio(ledger, state, prices)
@@ -646,6 +660,7 @@ def build_proposal_context(
     sqlite_path: Path,
     now: datetime,
     proposal_id: str,
+    listing_reader: ProposalListingReader | None = None,
 ) -> ProposalAuthoringContext:
     proposal_id = TypeAdapter(ProposalId).validate_python(proposal_id, strict=True)
     with (
@@ -678,6 +693,9 @@ def build_proposal_context(
             sqlite_path=sqlite_path,
             budget_min_yen=DEFAULT_BUDGET_MIN_YEN,
             budget_max_yen=DEFAULT_BUDGET_MAX_YEN,
+            current_listing=pin_proposal_listing(
+                listing_reader, market_connection=market_connection
+            ),
             market_connection=market_connection,
             original_buys=original_buys if scope.targets[0].purpose == "holding" else None,
         )

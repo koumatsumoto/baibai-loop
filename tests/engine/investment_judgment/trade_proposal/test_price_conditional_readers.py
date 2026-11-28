@@ -31,9 +31,12 @@ _NEXT_ID = "investment-proposal-00000000-0000-4000-8000-000000000006"
 @pytest.fixture
 def signed_history(tmp_path):
     case = backend_case(tmp_path)
-    a = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        reviewed_proposal(case)
-    )
+    a = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    ).publish(reviewed_proposal(case))
 
     def termless(number, *, code, economic_decision=None):
         raw = a.payload()
@@ -78,6 +81,7 @@ def test_current_preview_does_not_report_an_author_ceiling_as_a_saved_order(sign
             str(case.app),
             "--sqlite-path",
             str(case.market),
+            *case.listing_args,
         )
         row = output["items"][0]
         assert output["saved_proposal_id"] == record.proposal_id

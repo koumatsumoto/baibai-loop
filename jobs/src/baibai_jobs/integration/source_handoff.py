@@ -12,7 +12,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.primitives.jquants_calendar import cash_equity_open
+from baibai_engine.primitives.time import JST
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
@@ -310,8 +312,12 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
         write_json_atomic(directory / "price-native-result.json", native_result)
     from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
     from baibai_jobs.acquisition.jquants_master_native import acquire_master_native
+    from baibai_jobs.integration.jp_listing_refresh import refresh_current_jp_listings
 
+    listing_result = {"status": "not_current_session"}
+    listing_ok = True
     if provider_halted:
+        listing_result = {"status": "provider_halted"}
         master_result = {"halted": 1, "status": "provider_halted"}
         master_ok = False
     else:
@@ -327,18 +333,36 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
                     end=asof,
                     client=master_client,
                 )
-            master_result = dict(acquired_master)
-            provider_halted = bool(acquired_master.get("halted", 0))
-            master_ok = not bool(
-                acquired_master["failed"]
-                or acquired_master["held"]
-                or acquired_master["incomplete"]
-            )
+                master_result = dict(acquired_master.report)
+                provider_halted = bool(master_result.get("halted", 0))
+                master_ok = not bool(
+                    master_result["failed"] or master_result["held"] or master_result["incomplete"]
+                )
+                evaluated_at = datetime.now(UTC)
+                if provider_halted:
+                    listing_result = {"status": "provider_halted"}
+                elif asof == evaluated_at.astimezone(JST).date():
+                    try:
+                        listing_result = {
+                            "status": refresh_current_jp_listings(
+                                master_store,
+                                session=asof,
+                                evaluated_at=evaluated_at,
+                                calendar=calendar_fixed,
+                                master=acquired_master.exact_receipt if master_ok else None,
+                            ),
+                        }
+                    except (ValueError, JQuantsProviderError) as error:
+                        listing_ok = False
+                        listing_result = {"status": "unavailable", "error": type(error).__name__}
         except LakePublishError:
             raise
         except Exception as error:
             master_ok = False
             master_result = {"error": type(error).__name__}
+            if asof == datetime.now(JST).date():
+                listing_ok = False
+                listing_result = {"status": "unavailable", "error": type(error).__name__}
     directory.mkdir(parents=True, exist_ok=True)
     write_json_atomic(directory / "master-native-result.json", master_result)
     from baibai_engine.data_collection.providers.jquants.margin_alerts_native import (
@@ -460,6 +484,7 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
             "asof": asof.isoformat(),
             "native_l1": True,
             "acquisition": {"status": "skipped_non_business_day" if skipped else "native_l1"},
+            "listing_master_current": listing_result,
             "independent_l1": {
                 "daily_bars": native_result,
                 "master": master_result,
@@ -470,7 +495,15 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
             },
         },
     )
-    return price_ok and master_ok and calendar_ok and alerts_ok and shorts_ok and interest_ok
+    return (
+        price_ok
+        and master_ok
+        and calendar_ok
+        and alerts_ok
+        and shorts_ok
+        and interest_ok
+        and listing_ok
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:

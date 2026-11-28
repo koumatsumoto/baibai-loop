@@ -125,18 +125,21 @@ def build_market_snapshot(
     min_breadth_sample: int = DEFAULT_MIN_BREADTH_SAMPLE,
     prepared: PreparedMarketContext | None = None,
     use_latest_cached_day: bool = False,
+    current_master_only: bool = False,
 ) -> dict[str, object]:
     """Assemble the market snapshot as of ``asof_date``.
 
     ``points`` walks weekly evaluation dates from oldest to ``asof_date`` so a
     reader sees how trend and breadth evolved; ``sectors``
     aggregates per-sector returns and breadth at ``asof_date`` only. Market breadth
-    uses common-stock membership from the latest master at or before the
-    benchmark's actual price date, not the weekly evaluation date.
+    uses common-stock membership at the benchmark's actual price date. A
+    current-only generation also needs exact matching membership for sector metrics.
     A raw store read can instead resolve its latest cached price day through
     ``asof_date`` on the same snapshot as the observations.
     """
     if prepared is None:
+        if current_master_only:
+            raise ValueError("current market breadth requires a pinned market context")
         raw = read_store_if_written(
             sqlite_path,
             lambda: _read_snapshot_inputs(
@@ -175,6 +178,7 @@ def build_market_snapshot(
             benchmark=series_by_ticker.get(benchmark_ticker),
             asof_date=asof_date,
             master=master,
+            current_master_only=current_master_only,
         )
     return calculate_market_snapshot(
         asof_date=asof_date,
@@ -184,6 +188,7 @@ def build_market_snapshot(
         master=master,
         masters_by_date=masters_by_date,
         series_by_ticker=series_by_ticker,
+        require_exact_sector_date=current_master_only,
     )
 
 
@@ -204,13 +209,16 @@ def _breadth_masters(
     asof_date: date,
     master: MasterSnapshot | None,
     connection: sqlite3.Connection | None = None,
+    current_master_only: bool = False,
 ) -> dict[date, MasterSnapshot | None]:
     if benchmark is None:
         return {}
 
     @cache
     def at_close(day: date) -> MasterSnapshot | None:
-        # The current master may already be bound by the Generation input.
+        if current_master_only:
+            return master if master is not None and master.as_of == day else None
+        # The master may already be bound by the Generation input.
         if day == asof_date:
             return master
         return read_master_snapshot(path, as_of=day, connection=connection)

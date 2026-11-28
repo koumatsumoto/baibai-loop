@@ -39,13 +39,17 @@ def _snapshot(path):
 def test_preview_separates_actual_quote_and_saved_limit_without_writes(tmp_path):
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
-    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        proposal
-    )
+    TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    ).publish(proposal)
     before = _snapshot(case.app)
     preview = preview_current_terms(
         proposal_id=proposal.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(minutes=5),
     )
@@ -61,7 +65,10 @@ def test_current_quote_change_does_not_change_saved_terms_hash_or_fixed_adv(tmp_
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
     proposal = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(proposal)
     before = _snapshot(case.app)
     with closing(sqlite3.connect(case.market)) as connection, connection:
@@ -69,6 +76,7 @@ def test_current_quote_change_does_not_change_saved_terms_hash_or_fixed_adv(tmp_
     preview = preview_current_terms(
         proposal_id=proposal.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(minutes=5),
     )
@@ -87,13 +95,17 @@ def test_current_quote_change_does_not_change_saved_terms_hash_or_fixed_adv(tmp_
 def test_changed_target_session_blocks_preview_without_mutating_saved_terms(tmp_path):
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
-    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        proposal
-    )
+    TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    ).publish(proposal)
     before = _snapshot(case.app)
     preview = preview_current_terms(
         proposal_id=proposal.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(days=2),
     )
@@ -124,7 +136,10 @@ def test_target_session_controls_planned_quantity_but_not_per_share_valuation(
     case = backend_case(tmp_path)
     draft = reviewed_proposal(case)
     saved = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(draft)
     target = saved.items[0].terms.target_session
     now = PUBLISHED + timedelta(minutes=5)
@@ -139,14 +154,18 @@ def test_target_session_controls_planned_quantity_but_not_per_share_valuation(
                 "UPDATE jquants_market_calendar SET holiday_division='0' WHERE day=?",
                 (target.isoformat(),),
             )
-    checked = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: now).check(
-        draft
-    )
+    checked = TradeProposalService(
+        case.app, listing_reader=case.listing_reader, sqlite_path=case.market, clock=lambda: now
+    ).check(draft)
     with closing(sqlite3.connect(case.market)) as connection, connection:
         connection.execute("UPDATE jquants_daily_bars SET close=900")
     before = _snapshot(case.app)
     preview = preview_current_terms(
-        proposal_id=saved.proposal_id, db_path=case.app, sqlite_path=case.market, now=now
+        proposal_id=saved.proposal_id,
+        db_path=case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        now=now,
     )
     row = preview.items[0]
     assert row["saved_terms"] == saved.items[0].terms.model_dump(mode="json")
@@ -181,9 +200,12 @@ def test_preview_reports_current_budget_warnings_separately_from_saved_terms(tmp
 
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
-    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        proposal
-    )
+    TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    ).publish(proposal)
     before = _snapshot(case.app)
     saved_warnings = list(proposal.items[0].terms.warnings)
     assert "budget_guide_under" not in saved_warnings
@@ -192,6 +214,7 @@ def test_preview_reports_current_budget_warnings_separately_from_saved_terms(tmp
     preview = preview_current_terms(
         proposal_id=proposal.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(minutes=5),
     )
@@ -206,9 +229,12 @@ def test_preview_reports_current_budget_warnings_separately_from_saved_terms(tmp
 def test_preview_does_not_require_active_operation_or_compare_current_progress(tmp_path):
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case, action="no_action")
-    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        proposal
-    )
+    TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    ).publish(proposal)
     case.operations.complete(
         case.operation.operation_id,
         proposal_id=proposal.proposal_id,
@@ -220,6 +246,7 @@ def test_preview_does_not_require_active_operation_or_compare_current_progress(t
         preview_current_terms(
             proposal_id=proposal.proposal_id,
             db_path=case.app,
+            listing_reader=case.listing_reader,
             sqlite_path=case.market,
             now=PUBLISHED + timedelta(minutes=5),
         ).status
@@ -234,11 +261,17 @@ def test_nontrading_preview_reports_new_assessment_without_replacing_saved_decis
 ):
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case, action=action)
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     saved = service.publish(proposal)
     before = preview_current_terms(
         proposal_id=saved.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(minutes=1),
     )
@@ -259,6 +292,7 @@ def test_nontrading_preview_reports_new_assessment_without_replacing_saved_decis
     preview = preview_current_terms(
         proposal_id=saved.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(minutes=3),
     )
@@ -277,7 +311,10 @@ def test_nontrading_preview_reports_new_assessment_without_replacing_saved_decis
 def test_nontrading_preview_uses_existing_instant_order_not_text_or_id_order(tmp_path):
     case = backend_case(tmp_path)
     saved = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(reviewed_proposal(case, action="no_action"))
     prior = case.pair.assessment_id
     for number, instant in (
@@ -292,6 +329,7 @@ def test_nontrading_preview_uses_existing_instant_order_not_text_or_id_order(tmp
     preview = preview_current_terms(
         proposal_id=saved.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(minutes=5),
     )
@@ -313,7 +351,10 @@ def test_other_ticker_and_unreferenced_defer_do_not_replace_saved_assessment(
             now=PREPARED,
         )
     saved = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(reviewed_proposal(case, action="defer" if unreferenced else "no_action"))
     document, review = pair_payload(ticker="1234" if unreferenced else "5678", review_number=3)
     AssessmentStoreService(
@@ -327,6 +368,7 @@ def test_other_ticker_and_unreferenced_defer_do_not_replace_saved_assessment(
     preview = preview_current_terms(
         proposal_id=saved.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(minutes=5),
     )
@@ -356,12 +398,16 @@ def test_preview_checks_saved_remaining_reward_after_valuation_becomes_old(
         }
         proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     proposal = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(proposal)
     before = _snapshot(case.app)
     preview = preview_current_terms(
         proposal_id=proposal.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(days=1),
     )
@@ -394,6 +440,7 @@ def test_rate_and_horizon_flow_through_context_publication_and_preview(
         proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED,
     )
@@ -413,13 +460,19 @@ def test_rate_and_horizon_flow_through_context_publication_and_preview(
         "calculation_at_maximum_price"
     ]["maximum_price_yen"]
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     assert service.check(proposal).valid
     proposal = service.publish(proposal)
     before = _snapshot(case.app)
     preview = preview_current_terms(
         proposal_id=proposal.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(minutes=5),
     )
@@ -445,6 +498,7 @@ def test_rate_and_horizon_flow_through_context_publication_and_preview(
     changed = preview_current_terms(
         proposal_id=proposal.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(minutes=6),
     )
@@ -489,7 +543,12 @@ def test_saved_quantity_is_revalidated_without_resizing_when_cash_changes(
     raw = reviewed_proposal(case).payload()
     raw["items"][0]["terms"].update(quantity=selected, notional_yen=str(selected * 1000))
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     check = service.check(proposal)
     assert check.valid
     assert check.calculations["1234"]["quantity"] == selected
@@ -515,6 +574,7 @@ def test_saved_quantity_is_revalidated_without_resizing_when_cash_changes(
     preview = preview_current_terms(
         proposal_id=proposal.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED + timedelta(minutes=5),
     )

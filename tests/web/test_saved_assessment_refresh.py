@@ -63,7 +63,10 @@ def test_saved_refresh_keeps_remaining_period_distribution_and_exact_prior(tmp_p
         )
         draft = bind_review(raw, {saved.assessment_id: saved.document})
     proposal = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(draft)
     later_document, later_review = pair_payload(review_number=21)
     AssessmentStoreService(
@@ -101,9 +104,12 @@ def test_saved_refresh_keeps_remaining_period_distribution_and_exact_prior(tmp_p
 @pytest.mark.parametrize("legacy", [False, True])
 def test_absent_refresh_is_not_filled_from_review_or_valuation(tmp_path, legacy):
     case = backend_case(tmp_path)
-    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        reviewed_proposal(case, action="no_action")
-    )
+    TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    ).publish(reviewed_proposal(case, action="no_action"))
     view = read_proposal_views(case.app).latest.proposal.items[0].assessment
     payload = view.model_dump(mode="json")
     if legacy:

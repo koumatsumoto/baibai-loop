@@ -112,7 +112,12 @@ def _sell_terms():
 
 
 def _service(case):
-    return TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    return TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
 
 
 def _legacy_proposal(case, draft):
@@ -198,6 +203,7 @@ def test_legacy_exact_retry_survives_but_context_and_preview_do_not_reapply_arit
         proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED,
     )
@@ -205,6 +211,7 @@ def test_legacy_exact_retry_survives_but_context_and_preview_do_not_reapply_arit
     preview = preview_current_terms(
         proposal_id=saved.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=PUBLISHED,
     )

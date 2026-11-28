@@ -47,9 +47,9 @@ def _publish(case, number=1, *, action="hold", stamp=PUBLISHED):
             ],
         )
         draft = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    return TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: stamp).publish(
-        draft
-    )
+    return TradeProposalService(
+        case.app, listing_reader=case.listing_reader, sqlite_path=case.market, clock=lambda: stamp
+    ).publish(draft)
 
 
 def _context(case, capsys, when, *options, scope="review_positions"):

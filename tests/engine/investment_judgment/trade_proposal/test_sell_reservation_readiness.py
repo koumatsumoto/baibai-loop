@@ -93,7 +93,12 @@ def test_invalidation_sale_requires_primary_evidence_for_its_own_thesis(tmp_path
         case_reassessment_reason="合成：査読済み仮説の根拠を再確認した。",
     )
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     ledger = LedgerStoreService(case.app)
     ledger_before = ledger.load_with_head()
     before = case.app.read_bytes()
@@ -110,7 +115,11 @@ def test_invalidation_sale_requires_primary_evidence_for_its_own_thesis(tmp_path
         seed_proposal(case.app, saved)
     before_preview = case.app.read_bytes()
     preview = preview_current_terms(
-        proposal_id=saved.proposal_id, db_path=case.app, sqlite_path=case.market, now=PUBLISHED
+        proposal_id=saved.proposal_id,
+        db_path=case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        now=PUBLISHED,
     )
     assert preview.status == ("unchanged" if link_primary else "blocked")
     row = preview.items[0]
@@ -141,7 +150,12 @@ def test_invalidation_sale_only_records_unconfirmed_remaining_reward(tmp_path, s
         remaining_reward=None if status is None else {"status": status, "reason": "合成の見返り"},
     )
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     ledger = LedgerStoreService(case.app)
     ledger_before = ledger.load_with_head()
     before = case.app.read_bytes()
@@ -210,7 +224,12 @@ def test_same_ticker_order_blocks_new_sell_terms_but_preserves_economic_sell(tmp
     assert concrete.inputs.quotes[0].price_yen == Decimal(1100)
     assert concrete.inputs.active_reservations[0].reservation_id == "synthetic-working-order"
     assert concrete.inputs.available_cash_yen == (130000 if side == "buy" else 210000)
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     ledger_before = store.load_with_head()
     before = case.app.read_bytes()
     validation = service.check(concrete)
@@ -245,7 +264,12 @@ def test_current_order_only_blocks_preview_and_keeps_saved_ready_proposal(
     raw = reviewed_proposal(case, action="sell").payload()
     raw["items"][0].update(terms=dict(SELL_TERMS), terms_unavailable_reasons=[])
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     # A normal quote, confirmed units, classification and session permit the full sale.
     assert service.check(proposal).valid
     published = service.publish(proposal)
@@ -273,11 +297,14 @@ def test_current_order_only_blocks_preview_and_keeps_saved_ready_proposal(
     preview = preview_current_terms(
         proposal_id=published.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=now,
     )
     assert read_saved_proposal(proposal_id=published.proposal_id, db_path=case.app) == published
-    current_service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: now)
+    current_service = TradeProposalService(
+        case.app, listing_reader=case.listing_reader, sqlite_path=case.market, clock=lambda: now
+    )
     assert current_service.publish(published) == published
     assert case.app.read_bytes() == before
     assert preview.status == ("blocked" if blocked else "changed")
@@ -373,7 +400,12 @@ def test_partial_sell_stays_active_past_expiry_until_reported_cancel_and_new_inp
     )
     concrete = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     assert concrete.items[0].position.quantity == 200
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     assert [reason.code for reason in service.check(concrete).blockers] == [
         "active_reservation_exists"
     ]
@@ -396,13 +428,16 @@ def test_partial_sell_stays_active_past_expiry_until_reported_cancel_and_new_inp
     )
     assert cancelled is not None
     apply_draft(store, cancelled, human_confirmed=True)
-    current_service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: now)
+    current_service = TradeProposalService(
+        case.app, listing_reader=case.listing_reader, sqlite_path=case.market, clock=lambda: now
+    )
     with pytest.raises(ProposalConflictError, match="input facts changed"):
         current_service.check(concrete)
     context = build_proposal_context(
         proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=now,
     )
@@ -424,6 +459,7 @@ def test_partial_sell_stays_active_past_expiry_until_reported_cancel_and_new_inp
     preview = preview_current_terms(
         proposal_id=published.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=now,
     )

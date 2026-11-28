@@ -11,15 +11,18 @@ import tempfile
 import time
 from collections.abc import Callable, Sequence
 from contextlib import closing
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from baibai_engine.cli.environment import load_project_env
 from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
 from baibai_engine.data_collection.providers.jquants.master_native import (
+    ExactMasterReceipt,
     MasterAttempt,
     MasterL1,
     plan_master_days,
+    resolved_master_requests,
     unfulfilled_master_days,
 )
 from baibai_engine.primitives.time import JST
@@ -33,6 +36,12 @@ from baibai_jobs.acquisition.jquants_full_day_native import (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class MasterNativeAcquisition:
+    report: dict[str, int]
+    exact_receipt: ExactMasterReceipt | None = None
+
+
 def acquire_master_native(
     owner: MasterL1,
     *,
@@ -42,7 +51,7 @@ def acquire_master_native(
     force: bool = False,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     sleep: Callable[[float], None] = time.sleep,
-) -> dict[str, int]:
+) -> MasterNativeAcquisition:
     """Keep full raw empty receipts, while leaving their requested dates unfulfilled."""
     days = plan_master_days(owner.store, owner.resume(), start=start, end=end)
     if force:
@@ -57,8 +66,16 @@ def acquire_master_native(
         clock=clock,
         sleep=sleep,
     )
-    result["incomplete"] = len(plan_master_days(owner.store, owner.fixed(), start=start, end=end))
-    return result
+    fixed = owner.fixed()
+    requested = tuple(start + timedelta(days=offset) for offset in range((end - start).days + 1))
+    resolved: set[date] = set()
+    exact_receipt = None
+    for day, receipt in resolved_master_requests(owner.store, fixed, days=requested):
+        resolved.add(day)
+        if start == end:
+            exact_receipt = ExactMasterReceipt(fixed, receipt)
+    result["incomplete"] = len(requested) - len(resolved)
+    return MasterNativeAcquisition(result, exact_receipt)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -98,7 +115,7 @@ def _acquire_dates(asofs: Sequence[date]) -> int:
             for day in days:
                 result = acquire_master_native(
                     MasterL1(store, work / day.isoformat()), start=day, end=day, client=client
-                )
+                ).report
                 reports[day.isoformat()] = result
                 if result["halted"] or result["failed"] or result["held"]:
                     break
@@ -184,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
             with closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as client:
                 report = acquire_master_native(
                     owner, start=args.start, end=args.end, client=client, force=args.force
-                )
+                ).report
             print(json.dumps(report, sort_keys=True))
             return int(bool(report["failed"] or report["held"] or report["incomplete"]))
     except Exception as error:

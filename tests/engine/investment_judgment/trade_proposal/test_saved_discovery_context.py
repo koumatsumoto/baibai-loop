@@ -287,7 +287,10 @@ def test_discovery_nonmatch_does_not_change_reviewed_action_or_exact_retry(
     case = helper.backend_case(tmp_path, holding=holding)
     draft = helper.reviewed_proposal(case, action="hold" if holding else "buy")
     service = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: helper.PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: helper.PUBLISHED,
     )
     assert service.check(draft).valid
     saved = service.publish(draft)
@@ -296,6 +299,7 @@ def test_discovery_nonmatch_does_not_change_reviewed_action_or_exact_retry(
         proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=helper.PREPARED,
     ).payload()

@@ -17,9 +17,14 @@ from baibai_engine.data_collection.providers.nasdaq_symbols import (
     USListing,
     USSymbolDirectory,
 )
+from baibai_engine.machine_analysis.observations.stocks.listing_master import (
+    ListingKey,
+    ListingMasterRow,
+)
 
 _NY = ZoneInfo("America/New_York")
 _BUYABLE_VENUES: dict[str, PrimaryUSVenue] = {"NASDAQ": "XNAS", "NYSE": "XNYS"}
+_BROKER_EXCHANGE_BY_MIC: dict[str, str] = {venue: name for name, venue in _BUYABLE_VENUES.items()}
 # NYSE CQS .A/.B are regular classes; preferred and warrant suffixes are distinct.
 # The primary native name is display text and can omit "Common Stock" (e.g. LEN.B).
 _NYSE_BROKER_CLASS = re.compile(r"([A-Z]+) ([AB])")
@@ -220,12 +225,45 @@ def cover_rakuten_us_ordinary_shares(
     scope = tuple(directories)
     if not scope or len({directory.file for directory in scope}) != len(scope):
         raise ValueError("missing or repeated Nasdaq Trader directory")
+    return _cover_rakuten_listings(rows, (row for directory in scope for row in directory.listings))
+
+
+def cover_current_rakuten_catalog_targets(
+    targets: Iterable[tuple[ListingKey, str]],
+    *,
+    listings: Iterable[ListingMasterRow],
+) -> tuple[RakutenUSCoverageRow, ...]:
+    """Use the shared symbol/issue rules with already-bound current broker targets."""
+    rows: list[RakutenOrdinaryRow] = []
+    for key, ticker in targets:
+        exchange = _BROKER_EXCHANGE_BY_MIC.get(key[0])
+        if exchange is None or rakuten_listing_key(ticker, exchange) != key:
+            raise ValueError("current Rakuten target must identify the exact exchange listing")
+        rows.append(RakutenOrdinaryRow(ticker, exchange, "buyable"))
+    supported_listings = (
+        USListing(
+            cast("PrimaryUSVenue", row.key[0]),
+            row.key[1],
+            row.security_name,
+            row.issue_type == "fund",
+        )
+        for row in listings
+        if row.listing_state == "listed"
+        and row.key[0] in _BROKER_EXCHANGE_BY_MIC
+        and row.issue_type in ("fund", "not_flagged_fund")
+        and row.security_name is not None
+    )
+    return _cover_rakuten_listings(rows, supported_listings)
+
+
+def _cover_rakuten_listings(
+    rows: Iterable[RakutenOrdinaryRow], native_listings: Iterable[USListing]
+) -> tuple[RakutenUSCoverageRow, ...]:
     listings: dict[str, dict[PrimaryUSVenue, USListing]] = {}
     covered_venues: set[PrimaryUSVenue] = set()
-    for directory in scope:
-        for native_listing in directory.listings:
-            covered_venues.add(native_listing.venue)
-            listings.setdefault(native_listing.ticker, {})[native_listing.venue] = native_listing
+    for listing_row in native_listings:
+        covered_venues.add(listing_row.venue)
+        listings.setdefault(listing_row.ticker, {})[listing_row.venue] = listing_row
     seen: set[tuple[str, str]] = set()
     results: list[RakutenUSCoverageRow] = []
     for row in rows:

@@ -29,7 +29,6 @@ def setup(tmp_path, monkeypatch, client):
     )
 
     for module, method in (
-        (jquants_master_native, "acquire_master_native"),
         (jquants_price_native, "acquire_price_native"),
         (jquants_margin_alerts_native, "acquire_margin_alerts_native"),
         (jquants_short_sale_reports_native, "acquire_short_sale_reports_native"),
@@ -45,6 +44,13 @@ def setup(tmp_path, monkeypatch, client):
                 "remaining": {"unknown_calendar_days": [], "unknown_incomplete_requests": []},
             },
         )
+    monkeypatch.setattr(
+        jquants_master_native,
+        "acquire_master_native",
+        lambda *a, **kw: jquants_master_native.MasterNativeAcquisition(
+            {"failed": 0, "held": 0, "incomplete": 0}
+        ),
+    )
     monkeypatch.setattr(handoff, "Boto3R2Store", lambda **_: store)
     monkeypatch.setattr(http, "JQuantsHTTP", lambda *_: client)
     return store

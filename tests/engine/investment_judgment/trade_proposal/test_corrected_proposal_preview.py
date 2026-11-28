@@ -41,6 +41,7 @@ def _preview(case, proposal, *, now=NOW):
     return preview_current_terms(
         proposal_id=proposal.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=now,
     )
@@ -73,10 +74,16 @@ def _draft(case, action, proposal_id=PROPOSAL_ID):
 def test_corrected_exact_proposal_is_history_not_currently_applicable(tmp_path, action):
     case = backend_case(tmp_path, holding=action in {"hold", "sell"}, broken=action == "sell")
     original = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(_draft(case, action))
     wrong = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(minutes=1)
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED + timedelta(minutes=1),
     ).publish(_draft(case, action, proposal_id=WRONG_ID))
     baseline = _preview(case, wrong)
     original_baseline = _preview(case, original)
@@ -140,12 +147,18 @@ def test_corrected_exact_proposal_is_history_not_currently_applicable(tmp_path, 
 def test_human_non_purchase_report_and_newer_proposal_do_not_invalidate_old_buy(tmp_path):
     case = backend_case(tmp_path)
     original = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
     ).publish(reviewed_proposal(case, action="buy"))
     baseline = _preview(case, original)
     assert baseline.status == "unchanged"
     TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED + timedelta(minutes=1)
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED + timedelta(minutes=1),
     ).publish(reviewed_proposal(case, action="no_action", proposal_id=WRONG_ID))
     report = ProposalRecordService(case.app, clock=lambda: NOW).report(
         HumanProposalReportDraft(

@@ -188,7 +188,10 @@ def test_selection_questions_do_not_change_reviewed_action_or_exact_retry(tmp_pa
     action = "hold" if holding else "buy"
     draft = helper.reviewed_proposal(case, action=action)
     service = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: helper.PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: helper.PUBLISHED,
     )
     assert service.check(draft).valid
     saved = service.publish(draft)
@@ -197,6 +200,7 @@ def test_selection_questions_do_not_change_reviewed_action_or_exact_retry(tmp_pa
         proposal_id=PROPOSAL_ID,
         operation_id=case.operation.operation_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=helper.PREPARED,
     ).payload()

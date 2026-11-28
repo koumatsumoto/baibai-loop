@@ -115,6 +115,7 @@ def _sector_table(
     sector_by_ticker: dict[str, str],
     asof_date: date,
     benchmark_ticker: str,
+    required_observation_date: date | None,
 ) -> list[dict[str, object]]:
     benchmark = series_by_ticker.get(benchmark_ticker)
     observation_date = benchmark.last_date_on(asof_date) if benchmark is not None else None
@@ -128,7 +129,10 @@ def _sector_table(
             ),
             default=None,
         )
-    if observation_date is None:
+    if observation_date is None or (
+        required_observation_date is not None and observation_date != required_observation_date
+    ):
+        # Current membership cannot classify an earlier price cross-section.
         return []
     grouped: dict[str, list[_Series]] = {}
     for ticker, series in series_by_ticker.items():
@@ -193,8 +197,9 @@ def calculate_market_snapshot(
     master: MasterSnapshot | None,
     masters_by_date: Mapping[date, MasterSnapshot | None],
     series_by_ticker: Mapping[str, _Series],
+    require_exact_sector_date: bool = False,
 ) -> dict[str, object]:
-    """評価点に対応する価格日基準のbreadth用masterとは別に、業種表は評価日のmasterを使う。"""
+    """各評価点の市場breadthは価格日基準。現行マスターでの業種表も同じ価格日を要求する。"""
     point_dates = [
         asof_date - timedelta(days=7 * offset) for offset in range(history_weeks - 1, -1, -1)
     ]
@@ -240,5 +245,8 @@ def calculate_market_snapshot(
             sector_by_ticker=sector_by_ticker,
             asof_date=asof_date,
             benchmark_ticker=benchmark_ticker,
+            required_observation_date=master.as_of
+            if require_exact_sector_date and master is not None
+            else None,
         ),
     }

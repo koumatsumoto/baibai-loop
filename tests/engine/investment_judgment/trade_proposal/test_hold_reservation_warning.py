@@ -58,7 +58,10 @@ def test_normal_hold_keeps_same_ticker_zero_cash_reservation_visible_without_blo
         )
     draft = helper.bind_review(raw, {case.pair.assessment_id: case.pair.document})
     service = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: helper.PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: helper.PUBLISHED,
     )
     ledger_before = LedgerStoreService(case.app).load_with_head()
     result = service.check(draft)
@@ -86,7 +89,10 @@ def test_warning_uses_matching_reservation_not_side_or_cash_amount(tmp_path, sid
     draft = helper.reviewed_proposal(case, action="hold")
     ledger_before = store.load_with_head()
     service = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: helper.PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: helper.PUBLISHED,
     )
     assert service.check(draft).valid
     saved = service.publish(draft)
@@ -123,7 +129,10 @@ def test_expiry_alone_does_not_clear_recorded_reservation_warning(tmp_path):
     assert draft.inputs.active_reservations
     assert WARNING in draft.warnings
     service = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: helper.PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: helper.PUBLISHED,
     )
     assert service.check(draft).valid
 
@@ -133,7 +142,10 @@ def test_reported_cancellation_changes_current_warning_not_saved_hold(tmp_path):
     store = _order(case)
     draft = helper.reviewed_proposal(case, action="hold")
     service = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: helper.PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: helper.PUBLISHED,
     )
     saved = service.publish(draft)
     assert WARNING in saved.warnings
@@ -142,7 +154,11 @@ def test_reported_cancellation_changes_current_warning_not_saved_hold(tmp_path):
     ledger_before = store.load_with_head()
     before = case.app.read_bytes()
     preview = preview_current_terms(
-        proposal_id=saved.proposal_id, db_path=case.app, sqlite_path=case.market, now=now
+        proposal_id=saved.proposal_id,
+        db_path=case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        now=now,
     )
     assert preview.status == "changed"
     assert preview.current_inputs.active_reservations == ()
@@ -158,7 +174,10 @@ def test_reported_cancellation_changes_current_warning_not_saved_hold(tmp_path):
 def test_later_order_is_current_warning_not_retroactive_saved_warning(tmp_path):
     case = helper.backend_case(tmp_path, holding=True)
     service = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: helper.PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: helper.PUBLISHED,
     )
     saved = service.publish(helper.reviewed_proposal(case, action="hold"))
     assert saved.warnings == ()
@@ -167,7 +186,11 @@ def test_later_order_is_current_warning_not_retroactive_saved_warning(tmp_path):
     ledger_before = store.load_with_head()
     before = case.app.read_bytes()
     preview = preview_current_terms(
-        proposal_id=saved.proposal_id, db_path=case.app, sqlite_path=case.market, now=now
+        proposal_id=saved.proposal_id,
+        db_path=case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        now=now,
     )
     assert preview.status == "changed"
     assert WARNING in preview.warnings
@@ -184,7 +207,10 @@ def test_legacy_warningless_hold_read_retry_are_immutable_but_new_draft_is_reche
 ):
     case = helper.backend_case(tmp_path, holding=True, active_sell=True)
     service = TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: helper.PUBLISHED
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: helper.PUBLISHED,
     )
 
     def legacy_warnings(*args, **kwargs):
@@ -206,6 +232,7 @@ def test_legacy_warningless_hold_read_retry_are_immutable_but_new_draft_is_reche
     preview = preview_current_terms(
         proposal_id=saved.proposal_id,
         db_path=case.app,
+        listing_reader=case.listing_reader,
         sqlite_path=case.market,
         now=helper.PUBLISHED,
     )

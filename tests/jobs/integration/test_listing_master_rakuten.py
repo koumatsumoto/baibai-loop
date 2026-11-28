@@ -218,7 +218,7 @@ def test_broker_cas_never_follows_an_exchange_key_reused_by_a_new_security():
     store.before_put = competing_exchange_reuse
     assert _attach(store, advanced, binding) == "stale"
     assert read_current_listing_master(store)["US"].rakuten == previous
-    assert _read(store).rows == tuple(r for r in previous.rows if r.listing_key != _US.key)
+    assert _read(store) is None  # Exact remaining IDs no longer prove the whole intersection.
     assert set(store.values) == {LISTING_MASTER_CURRENT_KEY}
 
 
@@ -303,3 +303,65 @@ def test_an_unsupported_source_row_has_no_expectation_to_be_attached():
     scope = _read(store)
     assert scope.catalog_count == 3
     assert {row.broker_symbol for row in scope.rows} == {"AAA", "BW", "BRK B"}
+
+
+def test_existing_broker_scope_does_not_authorize_a_newly_active_same_day_listing():
+    store = _store()
+    announced = ObservedListing(("XNAS", "NEXT"), "Recognized after capture", "not_flagged_fund")
+    initial = _snapshot()
+    capture = parse_rakuten_ordinary_snapshot(
+        _CATALOG + "NEXT,NASDAQ\n",
+        catalog_mode="cash_ordinary_tradable",
+        effective_session=_DAY,
+        catalog_received_at=_CATALOG_AT,
+        reported_count=3,
+        exclusions_csv=_EXCLUDED,
+        exclusions_received_at=_EXCLUSIONS_AT,
+        exclusions_reported_count=2,
+    )
+    bound = _bindings(store, initial)
+    assert _attach(store, capture, bound) == "updated"
+    previous = _read(store)
+    assert previous is not None
+    assert previous.catalog_count == 3
+    assert len(previous.rows) == 3
+    assert (
+        _refresh(store, "US", (_US, _BW, _CLASS, announced), received=_AT + timedelta(minutes=20))
+        == "updated"
+    )
+    assert _read(store) is None
+    stored = read_current_listing_master(store)["US"]
+    assert stored.rakuten == previous  # Preserve evidence internally, not as a qualified scope.
+    current_id = next(row.instrument_id for row in stored.slice.rows if row.key == announced.key)
+    assert current_id is not None
+    new_pair = replace(capture, catalog_received_at=_AT + timedelta(minutes=21))
+    newly_bound = RakutenListingBinding(announced.key, current_id, capture.rows[-1])
+    assert _attach(store, new_pair, (*bound, newly_bound)) == "updated"
+    current = _read(store)
+    assert current is not None
+    assert current.active_listing_sha256 != previous.active_listing_sha256
+    assert (
+        next(row for row in current.rows if row.listing_key == announced.key).state
+        == "catalog_target"
+    )
+
+
+def test_refresh_without_supported_active_identity_change_keeps_scope_current():
+    store = _store()
+    assert _attach(store, _snapshot()) == "updated"
+    previous = _read(store)
+    unrelated = ObservedListing(("XASE", "OTHER"), "Outside US broker matching", "not_flagged_fund")
+    notice = VerifiedListingEvent(
+        "listed", ("XNAS", "FUTURE"), _DAY + timedelta(days=3), "official fixture"
+    )
+    assert (
+        _refresh(
+            store,
+            "US",
+            (_US, _BW, _CLASS, unrelated),
+            received=_AT + timedelta(minutes=20),
+            events=(notice,),
+        )
+        == "updated"
+    )
+    assert _read(store) == previous

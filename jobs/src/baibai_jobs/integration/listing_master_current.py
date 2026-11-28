@@ -1,52 +1,59 @@
-"""Publish one current Market listing master without re-publishing Machine."""
+"""Read and publish the current Market listing master independently of Machine."""
 
 from __future__ import annotations
 
-import re
+import argparse
+import os
+import sys
 from collections.abc import Callable, Iterable
+from contextlib import closing
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
-from typing import Annotated, Literal, Protocol
-from zoneinfo import ZoneInfo
+from hashlib import sha256
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from typing import Literal, Protocol
 
-from pydantic import Field, TypeAdapter
-
-from baibai_engine.data_collection.providers.nasdaq_symbols import (
-    DirectoryFile,
-    directory_creation_minute,
-)
 from baibai_engine.machine_analysis.observations.stocks.listing_master import (
     ListingKey,
     ListingMarket,
-    ListingSlice,
     ObservedListing,
     VerifiedListingEvent,
     refresh_listing_slice,
 )
+from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
+    LISTING_MASTER_MAX_BYTES,
+    RAKUTEN_SCOPE_ZONE,
+    CurrentListingMarket,
+    CurrentRakutenScope,
+    NasdaqDirectoryVersion,
+    RakutenBrokerRow,
+    RakutenBrokerState,
+    checked_nasdaq_directory_versions,
+    decode_current_listing_master,
+    encode_current_listing_master,
+)
 from baibai_engine.machine_analysis.observations.stocks.us_universe import (
     RakutenOrdinaryRow,
     RakutenOrdinarySnapshot,
-    RakutenRestriction,
     RakutenRestrictionRow,
     rakuten_listing_key,
 )
+from baibai_engine.primitives.json import encode_json
+from baibai_engine.storage.filesystem import fsync_directory, write_bytes_atomic
 from baibai_engine.storage.objects.json import put_private
 from baibai_engine.storage.objects.r2 import (
+    Boto3R2Store,
     CheckedObjectMetadataReader,
     LakeCASConflict,
     ObjectStore,
+    R2OperationStopped,
+    RemoteObject,
 )
 
-NASDAQ_DIRECTORY_SOURCE = "nasdaq-trader"
 LISTING_MASTER_CURRENT_KEY = "market/listing-master/current.json"
-# This one object contains both complete name lists, not a small marker.
-_MAX_BYTES = 8_000_000
-_RAKUTEN_NY = ZoneInfo("America/New_York")
 
 type ListingUpdateStatus = Literal["updated", "unchanged", "stale"]
-
-
-type RakutenBrokerState = Literal["catalog_target"] | RakutenRestriction
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,47 +65,6 @@ class RakutenListingBinding:
     observation: RakutenOrdinaryRow | RakutenRestrictionRow
 
 
-@dataclass(frozen=True, slots=True)
-class RakutenBrokerRow:
-    listing_key: ListingKey
-    instrument_id: str
-    broker_symbol: str
-    state: RakutenBrokerState
-
-
-@dataclass(frozen=True, slots=True)
-class CurrentRakutenScope:
-    """Current broker facts only. Use the date/cutoff-aware read, not the raw attachment."""
-
-    effective_session: date
-    catalog_received_at: datetime
-    exclusions_received_at: datetime
-    catalog_count: int
-    exclusions_count: int
-    rows: tuple[RakutenBrokerRow, ...]
-
-    def __post_init__(self) -> None:
-        if (
-            self.catalog_count < 1
-            or self.exclusions_count < 0
-            or any(
-                clock.utcoffset() is None
-                or clock.astimezone(_RAKUTEN_NY).date() != self.effective_session
-                for clock in self.clocks
-            )
-            or len({row.listing_key for row in self.rows}) != len(self.rows)
-        ):
-            raise ValueError("invalid current Rakuten scope")
-        object.__setattr__(self, "catalog_received_at", self.catalog_received_at.astimezone(UTC))
-        object.__setattr__(
-            self, "exclusions_received_at", self.exclusions_received_at.astimezone(UTC)
-        )
-
-    @property
-    def clocks(self) -> tuple[datetime, datetime]:
-        return self.catalog_received_at, self.exclusions_received_at
-
-
 _RAKUTEN_STATES: dict[str, RakutenBrokerState] = {
     "buyable": "catalog_target",
     "sell_only": "sell_only",
@@ -108,44 +74,6 @@ _RAKUTEN_STATES: dict[str, RakutenBrokerState] = {
 
 class ListingMasterStore(ObjectStore, CheckedObjectMetadataReader, Protocol):
     """Use acknowledged conditional PUTs (Boto3R2Store with verify_put_with_head=False)."""
-
-
-@dataclass(frozen=True, slots=True)
-class NasdaqDirectoryVersion:
-    """Current provider wall minute plus exact received bytes identity, per file."""
-
-    file: DirectoryFile
-    creation_stamp: str
-    sha256: str
-
-    @property
-    def native_minute(self) -> datetime:
-        return directory_creation_minute(self.creation_stamp)
-
-
-def _checked_directory_versions(
-    versions: tuple[NasdaqDirectoryVersion, ...] | None,
-    *,
-    market: ListingMarket,
-    source: str,
-    session: date,
-) -> tuple[NasdaqDirectoryVersion, ...] | None:
-    if market != "US":
-        if versions is not None:
-            raise ValueError("Nasdaq directory versions require the US market")
-        return None
-    if (
-        source != NASDAQ_DIRECTORY_SOURCE
-        or versions is None
-        or len(versions) != 2
-        or {version.file for version in versions} != {"nasdaqlisted.txt", "otherlisted.txt"}
-    ):
-        raise ValueError("US listing master requires native directory versions for both files")
-    if any(version.native_minute.date() != session for version in versions):
-        raise ValueError("US listing directory native creation date does not match the session")
-    if any(re.fullmatch(r"[0-9a-f]{64}", version.sha256) is None for version in versions):
-        raise ValueError("invalid Nasdaq directory SHA-256")
-    return tuple(sorted(versions, key=lambda version: version.file))
 
 
 def _is_directory_rollback(
@@ -163,56 +91,26 @@ def _is_directory_rollback(
     return rollback
 
 
-@dataclass(frozen=True, slots=True)
-class CurrentListingMarket:
-    slice: ListingSlice
-    source: str
-    received_at: datetime
-    received_count: int
-    nasdaq_directories: Annotated[
-        tuple[NasdaqDirectoryVersion, ...] | None, Field(exclude_if=lambda value: value is None)
-    ] = None
-    rakuten: Annotated[
-        CurrentRakutenScope | None, Field(exclude_if=lambda scope: scope is None)
-    ] = None
-
-    def __post_init__(self) -> None:
-        if (
-            not self.source.strip()
-            or self.received_at.utcoffset() is None
-            or self.received_count < 1
-        ):
-            raise ValueError("invalid current listing master source, receipt or count")
-        if self.rakuten is not None and self.slice.market != "US":
-            raise ValueError("Rakuten scope belongs to US listings only")
-        object.__setattr__(self, "received_at", self.received_at.astimezone(UTC))
-        object.__setattr__(
-            self,
-            "nasdaq_directories",
-            _checked_directory_versions(
-                self.nasdaq_directories,
-                market=self.slice.market,
-                source=self.source,
-                session=self.slice.session,
-            ),
+def _get_current(
+    store: CheckedObjectMetadataReader, *, single_attempt: bool = False
+) -> tuple[bytes, RemoteObject] | None:
+    if single_attempt and isinstance(store, Boto3R2Store):
+        return store.get_checked_object(
+            LISTING_MASTER_CURRENT_KEY,
+            max_bytes=LISTING_MASTER_MAX_BYTES,
+            single_attempt=True,
         )
-
-
-_FILE = TypeAdapter(dict[ListingMarket, CurrentListingMarket])
+    return store.get_checked_object(LISTING_MASTER_CURRENT_KEY, max_bytes=LISTING_MASTER_MAX_BYTES)
 
 
 def _read(
     store: CheckedObjectMetadataReader,
 ) -> tuple[dict[ListingMarket, CurrentListingMarket], str | None]:
-    saved = store.get_checked_object(LISTING_MASTER_CURRENT_KEY, max_bytes=_MAX_BYTES)
+    saved = _get_current(store)
     if saved is None:
         return {}, None
     body, metadata = saved
-    # A stale worker must not discard new fields in the other market.
-    current = _FILE.validate_json(body, strict=True, extra="forbid")
-    if not current or any(market != entry.slice.market for market, entry in current.items()):
-        raise ValueError("current listing master does not match its market sections")
-    return current, metadata.etag
+    return decode_current_listing_master(body), metadata.etag
 
 
 def read_current_listing_master(
@@ -220,6 +118,24 @@ def read_current_listing_master(
 ) -> dict[ListingMarket, CurrentListingMarket]:
     """Read the one current file; a market with no successful update is absent."""
     return _read(store)[0]
+
+
+def pin_current_listing_master(store: CheckedObjectMetadataReader, *, output: Path) -> None:
+    """Create a run-private copy once so every consumer sees the same checked bytes."""
+    if output.exists(follow_symlinks=False):
+        raise FileExistsError("the run's listing master is already pinned")
+    saved = _get_current(store, single_attempt=True)
+    if saved is None:
+        raise FileNotFoundError("the current listing master is not published")
+    payload, _ = saved
+    decode_current_listing_master(payload)
+    output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with TemporaryDirectory(dir=output.parent, prefix=".listing-master-") as directory:
+        staged = Path(directory) / "current.json"
+        write_bytes_atomic(staged, payload)
+        staged.chmod(0o600)
+        output.hardlink_to(staged)
+    fsync_directory(output.parent)
 
 
 def refresh_current_listing_master(
@@ -244,7 +160,7 @@ def refresh_current_listing_master(
     if complete is not True:
         raise ValueError("incomplete listing capture cannot replace current")
     received_at = received_at.astimezone(UTC)
-    versions = _checked_directory_versions(
+    versions = checked_nasdaq_directory_versions(
         nasdaq_directories, market=market, source=source, session=session
     )
     rows, events = tuple(observations), tuple(verified_events)
@@ -307,14 +223,14 @@ def _update_market(
         if replacement == prior:
             return "unchanged"
         current[market] = replacement
-        payload = _FILE.dump_json(dict(sorted(current.items())))
+        payload = encode_current_listing_master(current)
         try:
             put_private(
                 store,
                 LISTING_MASTER_CURRENT_KEY,
                 payload,
                 previous_etag=etag,
-                max_bytes=_MAX_BYTES,
+                max_bytes=LISTING_MASTER_MAX_BYTES,
             )
         except LakeCASConflict:
             if last_attempt:
@@ -328,8 +244,14 @@ def _active_ids(current: CurrentListingMarket) -> dict[ListingKey, str]:
     return {
         row.key: row.instrument_id
         for row in current.slice.rows
-        if row.listing_state == "listed" and row.instrument_id is not None
+        if row.key[0] in ("XNAS", "XNYS")
+        and row.listing_state == "listed"
+        and row.instrument_id is not None
     }
+
+
+def _active_listing_sha256(active: dict[ListingKey, str]) -> str:
+    return sha256(encode_json(sorted(active.items())).encode()).hexdigest()
 
 
 def _current_us_slice(
@@ -339,31 +261,16 @@ def _current_us_slice(
         current is not None
         and current.slice.market == "US"
         and current.slice.session == expected_session
-        and cutoff.astimezone(_RAKUTEN_NY).date() == expected_session
+        and cutoff.astimezone(RAKUTEN_SCOPE_ZONE).date() == expected_session
         and current.received_at <= cutoff
     )
 
 
-def _bound_rakuten_scope(
+def _bound_rakuten_rows(
     snapshot: RakutenOrdinarySnapshot,
     *,
     bindings: Iterable[RakutenListingBinding],
-    expected_session: date,
-    cutoff: datetime,
-) -> CurrentRakutenScope:
-    if (
-        snapshot.catalog_mode != "cash_ordinary_tradable"
-        or snapshot.exclusions_received_at is None
-        or snapshot.exclusions_reported_count is None
-    ):
-        raise ValueError("a complete Rakuten catalog and restrictions capture are required")
-    if snapshot.effective_session != expected_session:
-        raise ValueError("Rakuten capture has a different NY session")
-    if any(
-        clock.utcoffset() is None or clock > cutoff
-        for clock in (snapshot.catalog_received_at, snapshot.exclusions_received_at)
-    ):
-        raise ValueError("Rakuten receipt is unzoned or after the cutoff")
+) -> tuple[RakutenBrokerRow, ...]:
     available: set[RakutenOrdinaryRow | RakutenRestrictionRow] = {
         *snapshot.rows,
         *snapshot.restriction_only,
@@ -387,20 +294,13 @@ def _bound_rakuten_scope(
                 _RAKUTEN_STATES[state],
             )
         )
-    return CurrentRakutenScope(
-        expected_session,
-        snapshot.catalog_received_at,
-        snapshot.exclusions_received_at,
-        snapshot.reported_count,
-        snapshot.exclusions_reported_count,
-        tuple(sorted(rows, key=lambda row: row.listing_key)),
-    )
+    return tuple(sorted(rows, key=lambda row: row.listing_key))
 
 
 def read_current_rakuten_scope(
     current: CurrentListingMarket | None, *, expected_session: date, cutoff: datetime
 ) -> CurrentRakutenScope | None:
-    """Expose broker facts only on the requested current US session and exact active IDs."""
+    """Return a complete broker intersection for this active US listing set or None."""
     if cutoff.utcoffset() is None:
         raise ValueError("Rakuten cutoff requires a timezone")
     if current is None or not _current_us_slice(
@@ -411,10 +311,11 @@ def read_current_rakuten_scope(
     if scope is None or scope.effective_session != expected_session or max(scope.clocks) > cutoff:
         return None
     active = _active_ids(current)
-    return replace(
-        scope,
-        rows=tuple(row for row in scope.rows if active.get(row.listing_key) == row.instrument_id),
-    )
+    if scope.active_listing_sha256 != _active_listing_sha256(active) or any(
+        active.get(row.listing_key) != row.instrument_id for row in scope.rows
+    ):
+        return None  # A cached set cannot tell us whether newly active keys were matched.
+    return scope
 
 
 def refresh_current_us_rakuten_scope(
@@ -428,11 +329,20 @@ def refresh_current_us_rakuten_scope(
     """Replace only broker facts from a complete current pair; never create exchange listings."""
     if cutoff.utcoffset() is None:
         raise ValueError("Rakuten cutoff requires a timezone")
-    if snapshot is None:
+    if (
+        snapshot is None
+        or snapshot.catalog_mode != "cash_ordinary_tradable"
+        or snapshot.exclusions_received_at is None
+        or snapshot.exclusions_reported_count is None
+    ):
         raise ValueError("a complete Rakuten catalog and restrictions capture are required")
-    scope = _bound_rakuten_scope(
-        snapshot, bindings=bindings, expected_session=expected_session, cutoff=cutoff
-    )
+    if snapshot.effective_session != expected_session:
+        raise ValueError("Rakuten capture has a different NY session")
+    catalog_at, exclusions_at = snapshot.catalog_received_at, snapshot.exclusions_received_at
+    catalog_count, exclusions_count = snapshot.reported_count, snapshot.exclusions_reported_count
+    if any(clock.utcoffset() is None or clock > cutoff for clock in (catalog_at, exclusions_at)):
+        raise ValueError("Rakuten receipt is unzoned or after the cutoff")
+    bound = _bound_rakuten_rows(snapshot, bindings=bindings)
     native_rows: tuple[RakutenOrdinaryRow | RakutenRestrictionRow, ...] = (
         *snapshot.rows,
         *snapshot.restriction_only,
@@ -442,10 +352,10 @@ def refresh_current_us_rakuten_scope(
         for row in native_rows
         if (key := rakuten_listing_key(row.ticker, row.exchange)) is not None
     }
-    bound_keys = {row.listing_key for row in scope.rows}
+    bound_keys = {row.listing_key for row in bound}
     negatives = {
         (row.listing_key, row.instrument_id, row.state)
-        for row in scope.rows
+        for row in bound
         if row.state != "catalog_target"
     }
 
@@ -455,10 +365,19 @@ def refresh_current_us_rakuten_scope(
         ):
             return None
         active = _active_ids(current)
-        if any(active.get(row.listing_key) != row.instrument_id for row in scope.rows):
+        if any(active.get(row.listing_key) != row.instrument_id for row in bound):
             return None
         if active.keys() & captured_keys != bound_keys:
             raise ValueError("Rakuten bindings must cover all active matched observations")
+        scope = CurrentRakutenScope(
+            expected_session,
+            catalog_at,
+            exclusions_at,
+            catalog_count,
+            exclusions_count,
+            _active_listing_sha256(active),
+            bound,
+        )
         previous = current.rakuten
         if previous is not None and previous.effective_session == expected_session:
             if any(new < old for new, old in zip(scope.clocks, previous.clocks, strict=True)):
@@ -474,3 +393,21 @@ def refresh_current_us_rakuten_scope(
         return replace(current, rakuten=scope)
 
     return _update_market(store, "US", prepare)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="現行銘柄マスターを今回の処理用に固定する。")
+    parser.add_argument("--output", required=True, type=Path, help="この実行専用の未作成ファイル")
+    args = parser.parse_args(argv)
+    try:
+        bucket = os.environ.get("R2_STORES_BUCKET") or "baibai-stores"
+        with closing(Boto3R2Store(bucket=bucket)) as store:
+            pin_current_listing_master(store, output=args.output)
+    except (Exception, R2OperationStopped) as error:
+        print(f"listing master pin failed: {type(error).__name__}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

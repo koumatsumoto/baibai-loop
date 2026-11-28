@@ -311,7 +311,12 @@ def test_saved_external_per_analyst_forecast_is_a_model_price_not_a_recommendati
         payload=external.model_dump(mode="json"),
     )
     case = backend_case(tmp_path, models=(model,))
-    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    service = TradeProposalService(
+        case.app,
+        listing_reader=case.listing_reader,
+        sqlite_path=case.market,
+        clock=lambda: PUBLISHED,
+    )
     service.publish(reviewed_proposal(case, action="no_action"))
     before = case.app.read_bytes()
     view = read_proposal_views(case.app).latest.proposal

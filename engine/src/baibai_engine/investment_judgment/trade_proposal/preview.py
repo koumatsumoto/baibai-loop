@@ -241,7 +241,12 @@ def _preview_holding(
 
 
 def preview_current_terms(
-    *, proposal_id: str, db_path: Path | None, sqlite_path: Path, now: datetime
+    *,
+    proposal_id: str,
+    db_path: Path | None,
+    sqlite_path: Path,
+    now: datetime,
+    listing_reader: input_reader.ProposalListingReader | None = None,
 ) -> CurrentProposalPreview:
     """保存limitと実quoteの再試算を分ける。再発行/最新runへの付替えは行わない。"""
     if now.utcoffset() is None:
@@ -265,6 +270,9 @@ def preview_current_terms(
             sqlite_path=sqlite_path,
             budget_min_yen=input_reader.DEFAULT_BUDGET_MIN_YEN,
             budget_max_yen=input_reader.DEFAULT_BUDGET_MAX_YEN,
+            current_listing=input_reader.pin_proposal_listing(
+                listing_reader, market_connection=market_connection
+            ),
             market_connection=market_connection,
         )
         changes: list[GateReason] = []

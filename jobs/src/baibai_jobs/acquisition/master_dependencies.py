@@ -114,7 +114,7 @@ def prepare_tradingview_master(
                 end=basis,
                 client=client,
                 force=True,
-            )
+            ).report
             if outcome["failed"] or outcome["held"] or outcome["incomplete"]:
                 raise MasterDependencyUnavailable("native master acquisition remains unresolved")
         if retained is not None:
