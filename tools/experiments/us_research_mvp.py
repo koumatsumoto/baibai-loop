@@ -688,12 +688,14 @@ def _label(value: object) -> str:
     return " ".join(value.split()).replace("`", "'")
 
 
-def _research_scope(bundle: _Record) -> tuple[list[_Record], tuple[str, ...], datetime]:
+def _fixed_scope(
+    bundle: _Record, *, max_subjects: int
+) -> tuple[list[_Record], tuple[str, ...], datetime]:
     if bundle["schema"] != _SCHEMA:
         raise ValueError("unknown fixed receipt schema")
     subjects = bundle["subjects"]
-    if not isinstance(subjects, list) or not 1 <= len(subjects) <= 3:
-        raise ValueError("choose one to three fixed research subjects")
+    if not isinstance(subjects, list) or not 1 <= len(subjects) <= max_subjects:
+        raise ValueError(f"choose between 1 and {max_subjects} fixed research subjects")
     symbols = tuple(subject["symbol"] for subject in subjects)
     cutoff = _clock(bundle["cutoff"])
     # Validate the native labels even if there is no usable page.
@@ -702,7 +704,7 @@ def _research_scope(bundle: _Record) -> tuple[list[_Record], tuple[str, ...], da
 
 
 def _accept_iex_session(bundle: _Record, load: _Loader, *, expected: date) -> tuple[str, bool]:
-    _, symbols, cutoff = _research_scope(bundle)
+    _, symbols, cutoff = _fixed_scope(bundle, max_subjects=4)
     observations, problem = _alpaca(bundle["alpaca"], symbols, load, cutoff)
     lines = [
         "# 米国株 IEX取引日確認（発注なし）",
@@ -728,7 +730,7 @@ def _accept_iex_session(bundle: _Record, load: _Loader, *, expected: date) -> tu
 
 def render_research(bundle: _Record, load: _Loader, *, synthetic: bool) -> str:
     """Compose actual provider adapters without executing a provider request or writing state."""
-    subjects, symbols, cutoff = _research_scope(bundle)
+    subjects, symbols, cutoff = _fixed_scope(bundle, max_subjects=3)
     observations, problem = _alpaca(bundle["alpaca"], symbols, load, cutoff)
     origin = (
         "合成fixture。実データ・売買判断ではない。"

@@ -114,7 +114,7 @@ uv run --offline python -m tools.experiments.us_research_mvp --bundle /private/m
 
 ### 入力例
 
-1〜3銘柄。`file` はmanifestと同じディレクトリのファイル名。下の値は形状の例で、実受領ではない。
+通常の調査は1〜3銘柄。`--accept-iex-session` は、最大4銘柄を一括指定した受領も、元の銘柄・順序と全ページを保ったまま確認できる。`file` はmanifestと同じディレクトリのファイル名。下の値は形状の例で、実受領ではない。
 
 `cutoff` と受領・公表等の時刻は、時差を `Z` または `±HH:MM` で指定し、マイクロ秒単位に正確に表せること。小数7桁目以降がすべて0なら読めるが、端数は切り捨てず受け付けない。
 
