@@ -114,12 +114,14 @@ def load_generated_selection_context(
         # 最新は一度だけ解決する。旧本文を読む権限を暗黙の最新IDに引き継がない。
         if resolve_publication:
             index = read_discovery_index_from_connection(
-                runs, selection_id=screening_selection_id, as_of=as_of, known_at=known_at
+                runs,
+                selection_id=screening_selection_id,
+                as_of=as_of,
+                known_at=known_at,
+                expected_generation_id=generation_id,
             )
             if index.status == "no_publication" and screening_selection_id is not None:
                 raise ValueError("unknown or not yet published screening selection")
-            if generation_id is not None and index.generation_id != generation_id:
-                raise ValueError("screening selection differs from the chosen generation")
             if index.status != "publication_without_index" or not (
                 screening_selection_id is not None and (not overview or comparison_tickers)
             ):
@@ -201,8 +203,9 @@ def load_generated_selection_context(
                 screening_selection_id,
                 subjects=tuple(sorted(detail_targets)),
                 known_at=known_at,
+                expected_generation_id=generation_id,
             )
-            if fixed is None or fixed[1].generation_id != generation_id:
+            if fixed is None:
                 raise ValueError("screening publication unavailable for the chosen generation")
             finite_evidence = _archived_subject_evidence(fixed[0], fixed[1], detail_targets)
         models = (

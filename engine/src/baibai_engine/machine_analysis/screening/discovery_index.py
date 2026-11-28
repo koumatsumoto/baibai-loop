@@ -55,13 +55,18 @@ def read_discovery_index_from_connection(
     selection_id: str | None = None,
     as_of: date | None = None,
     known_at: datetime | None = None,
+    expected_generation_id: str | None = None,
 ) -> DiscoveryIndexRead:
     """呼出元の読取transactionで公表物を一度だけ選ぶ。Noneは未作成。"""
     if (
         connection is None
         or (
             header := find_publication_header(
-                connection, selection_id=selection_id, as_of=as_of, known_at=known_at
+                connection,
+                selection_id=selection_id,
+                as_of=as_of,
+                known_at=known_at,
+                expected_generation_id=expected_generation_id,
             )
         )
         is None
