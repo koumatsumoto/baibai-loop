@@ -49,7 +49,7 @@ function renderableProposal(proposal: USProposalView | null | undefined) {
   if (!proposal || proposal.currency !== 'USD' || (proposal.action !== 'no_action' && proposal.action !== 'defer')) return null
   // Only check the fields the page renders. Missing serving data is not a saved null,
   // and the browser does not recalculate the comparison or select a replacement price.
-  const { official_close: close, iex_band: band, cutoff_at, reviewed_at, published_at, comparison, comparison_horizon_et: horizon } = proposal
+  const { comparison_price: close, iex_band: band, cutoff_at, reviewed_at, published_at, comparison, comparison_horizon_et: horizon } = proposal
   const invalidComparison = comparison === null
     ? horizon !== null || proposal.action === 'no_action'
     : !close || !hasText(horizon) || comparison?.cash_basis !== 'same_usd_no_interest_tax_or_fees'
@@ -58,7 +58,7 @@ function renderableProposal(proposal: USProposalView | null | undefined) {
     proposal.share_class, proposal.reason, proposal.revisit_when, proposal.session_et].every(hasText)
     || ![cutoff_at, reviewed_at, published_at].every(hasZonedClock)
     || (close !== null && (!hasDecimalText(close?.price_usd) || !hasZonedClock(close.observed_at)
-      || (close.origin !== 'listing_exchange'
+      || (close.origin !== 'listing_exchange' && close.origin !== 'alpaca_sip_daily_close'
         && (close.origin !== 'alpaca_sip_nasdaq_official_close' || proposal.venue !== 'XNAS'))))
     || (band !== null && (!band || !Number.isInteger(band.observations) || band.observations <= 0
       || ![band.first_session_et, band.last_session_et].every(hasText)
@@ -77,7 +77,7 @@ function CashComparison({ comparison, horizon, cash }: {
   return <>
     <p className="break-words text-muted-foreground">
       比較の終期（米東部時間）：<time dateTime={horizon}>{horizon}</time>。
-      この無調整終値1株分のUSD {cash}を無利息のUSD現金で持つ場合との比較です。
+      上記の基準価格1株分のUSD {cash}を無利息のUSD現金で持つ場合との比較です。
       税・費用・為替は含めません。仮定に基づく比較で、株価予測・口座残高・注文条件ではありません。
     </p>
     <div className="grid min-w-0 gap-3 sm:grid-cols-2">
@@ -105,9 +105,13 @@ export function USProposal({ state, above, historyUnavailable }: {
   if (state.kind === 'loading') return <LoadingPage label="米国株の判断を読み込んでいます" />
   const view = state.kind === 'loaded' ? state.data : null
   const proposal = view?.status === 'ready' ? renderableProposal(view.proposal) : null
-  const relayedClose = proposal?.official_close?.origin === 'alpaca_sip_nasdaq_official_close'
-  const officialCloseLabel = relayedClose ? 'Nasdaqの無調整公式終値（Alpaca SIP経由）' : '取引所の無調整終値'
-  const officialCloseClockLabel = relayedClose ? '終値データの受領時刻（JST）' : '終値の取得時刻（JST）'
+  const price = proposal?.comparison_price
+  const daily = price?.origin === 'alpaca_sip_daily_close'
+  const relayed = price?.origin === 'alpaca_sip_nasdaq_official_close'
+  const priceLabel = daily ? 'Alpaca SIPの無調整日足終値'
+    : relayed ? 'Nasdaqの無調整公式終値（Alpaca SIP経由）'
+      : price ? '取引所の無調整終値' : '比較の基準価格'
+  const priceClockLabel = daily || relayed ? '終値データの受領時刻（JST）' : '終値の取得時刻（JST）'
   return (
     <PageShell title="米国株の判断" lead="保存済みの米ドル（USD）建て判断です。注文・口座操作はできません。" width="reading" above={above}>
       {historyUnavailable && proposal !== null && <p role="status" className="text-sm text-muted-foreground">履歴を読み取れません。以下は最新の保存判断です。</p>}
@@ -138,25 +142,26 @@ export function USProposal({ state, above, historyUnavailable }: {
                 <div><dt>情報締切（JST）</dt><dd className="text-muted-foreground"><SavedTime value={proposal.cutoff_at} /></dd></div>
                 <div><dt>対象立会日（米東部時間）</dt><dd className="text-muted-foreground"><time dateTime={proposal.session_et}>{proposal.session_et}</time></dd></div>
                 <div>
-                  <dt>{officialCloseLabel}</dt>
-                  <dd className="break-words text-muted-foreground">{proposal.official_close === null ? '未確認' : `USD ${proposal.official_close.price_usd} / 株`}</dd>
-                  {proposal.official_close !== null && <dd className="text-muted-foreground">{officialCloseClockLabel}：<SavedTime value={proposal.official_close.observed_at} /></dd>}
+                  <dt>{priceLabel}</dt>
+                  <dd className="break-words text-muted-foreground">{price ? `USD ${price.price_usd} / 株` : '未確認'}</dd>
+                  {price && <dd className="text-muted-foreground">{priceClockLabel}：<SavedTime value={price.observed_at} /></dd>}
+                  {daily && <dd className="text-muted-foreground">取引所の公式終値・約定値とは別です。</dd>}
                 </div>
-                <div>
+                {(!daily || proposal.iex_band !== null) && <div>
                   <dt>Alpaca IEXの分割調整済み観測</dt>
                   <dd className="break-words text-muted-foreground">{proposal.iex_band === null ? '未確認' : `${proposal.iex_band.first_session_et}〜${proposal.iex_band.last_session_et}（米東部時間）に${proposal.iex_band.observations}件の観測、USD ${proposal.iex_band.low_usd}〜${proposal.iex_band.high_usd} / 株`}</dd>
-                  {proposal.iex_band !== null && <dd className="break-words text-muted-foreground">期間末尾：USD {proposal.iex_band.last_usd} / 株（取引所終値とは別）</dd>}
-                </div>
+                  {proposal.iex_band !== null && <dd className="break-words text-muted-foreground">期間末尾：USD {proposal.iex_band.last_usd} / 株（比較の基準価格とは別）</dd>}
+                </div>}
               </dl>
             </section>
             <section className="grid min-w-0 gap-2 border-t pt-4">
               <h4 className="font-medium">同期間のUSD現金との比較</h4>
-              {proposal.comparison !== null && proposal.comparison_horizon_et !== null && proposal.official_close !== null
-                ? <CashComparison comparison={proposal.comparison} horizon={proposal.comparison_horizon_et} cash={proposal.official_close.price_usd} />
+              {proposal.comparison !== null && proposal.comparison_horizon_et !== null && price
+                ? <CashComparison comparison={proposal.comparison} horizon={proposal.comparison_horizon_et} cash={price.price_usd} />
                 : <p className="text-muted-foreground">
-                    比較未確定。{proposal.official_close === null
-                      ? '比較の起点となる公式終値は未確認です。IEXの観測値では代用していません。'
-                      : '公式終値は確認済みです。基本・下方ケースとUSD現金を同じ終期で比べた結果は、この判断にはありません。'}
+                    比較未確定。{price
+                      ? '比較の基準価格は確認済みです。基本・下方ケースとUSD現金を同じ終期で比べた結果は、この判断にはありません。'
+                      : '比較の基準価格は未確認です。IEXの観測値では代用していません。'}
                   </p>}
             </section>
             <USReportPerspectives perspectives={readablePerspectives(proposal.model_perspectives) ? proposal.model_perspectives : null} />

@@ -9,9 +9,11 @@ from pydantic import BaseModel, WithJsonSchema
 from baibai_web.readmodel.perspective_vocabulary import PerspectiveAssessment, PerspectiveModel
 
 
-class USProposalOfficialCloseView(BaseModel):
+class USProposalComparisonPriceView(BaseModel):
     price_usd: Decimal
-    origin: Literal["listing_exchange", "alpaca_sip_nasdaq_official_close"]
+    origin: Literal[
+        "listing_exchange", "alpaca_sip_nasdaq_official_close", "alpaca_sip_daily_close"
+    ]
     observed_at: datetime
 
 
@@ -74,7 +76,7 @@ class USProposalView(BaseModel):
     reason: str
     revisit_when: str
     model_perspectives: list[USProposalPerspectiveView]
-    official_close: USProposalOfficialCloseView | None
+    comparison_price: USProposalComparisonPriceView | None
     iex_band: USProposalIexBandView | None
     comparison_horizon_et: date | None
     comparison: USProposalComparisonView | None

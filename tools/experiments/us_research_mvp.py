@@ -19,6 +19,8 @@ from zoneinfo import ZoneInfo
 from httpx2 import ByteStream, Headers, MockTransport, Request, Response
 
 from baibai_engine.data_collection.providers.alpaca import (
+    AlpacaBarsFeed,
+    BarsCapture,
     BarsResponse,
     DailyBarsQuery,
     capture_daily_bars,
@@ -181,17 +183,25 @@ def _ticker_identity(
         return "sec_identity:invalid_fixed_submissions"
 
 
-def _alpaca(
-    spec: _Record, symbols: tuple[str, ...], load: _Loader, cutoff: datetime
-) -> tuple[tuple[AlpacaDailyObservation, ...], str | None]:
+def _fixed_alpaca_capture(
+    spec: _Record,
+    symbols: tuple[str, ...],
+    load: _Loader,
+    cutoff: datetime,
+    *,
+    adjustment: Literal["raw", "split"] = "split",
+    feed: AlpacaBarsFeed = "iex",
+) -> BarsCapture | str:
     try:
         pages = spec["pages"]
         if not isinstance(pages, list) or not pages:
-            return (), "alpaca_receipt_missing"
+            return "alpaca_receipt_missing"
         # Even an empty terminal page defines completeness. Do not read future bodies.
         if any(_clock(page["received_at"]) > cutoff for page in pages):
-            return (), "alpaca_chain_not_yet_received"
-        query = DailyBarsQuery(symbols, _day(spec["start"]), _day(spec["end"]), "-", "split")
+            return "alpaca_chain_not_yet_received"
+        query = DailyBarsQuery(
+            symbols, _day(spec["start"]), _day(spec["end"]), "-", adjustment, feed=feed
+        )
         receipts = iter(pages)
 
         def recorded_response(url: str) -> BarsResponse:
@@ -209,11 +219,23 @@ def _alpaca(
             query, request_id=spec["request_id"], transport=recorded_response
         )
         if capture.failure is not None:
-            return (), f"alpaca_incomplete:{capture.failure}"
+            return f"alpaca_incomplete:{capture.failure}"
         if next(receipts, None) is not None:
-            return (), "alpaca_invalid_fixed_receipt"
-        return normalize_alpaca_daily_bars(capture), None
+            return "alpaca_invalid_fixed_receipt"
+        return capture
     except (KeyError, TypeError, ValueError, OSError, ArithmeticError):
+        return "alpaca_invalid_fixed_receipt"
+
+
+def _alpaca(
+    spec: _Record, symbols: tuple[str, ...], load: _Loader, cutoff: datetime
+) -> tuple[tuple[AlpacaDailyObservation, ...], str | None]:
+    capture = _fixed_alpaca_capture(spec, symbols, load, cutoff)
+    if isinstance(capture, str):
+        return (), capture
+    try:
+        return normalize_alpaca_daily_bars(capture), None
+    except (ValueError, ArithmeticError):
         return (), "alpaca_invalid_fixed_receipt"
 
 
@@ -990,6 +1012,20 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _adjacent_loader(manifest: Path) -> _Loader:
+    root = manifest.resolve().parent
+
+    def read_native(name: str) -> bytes:
+        if Path(name).name != name or name in ("", ".", ".."):
+            raise ValueError("provider body file must be adjacent to the manifest")
+        path = (root / name).resolve()
+        if path.parent != root:
+            raise ValueError("provider body file escapes the designated directory")
+        return path.read_bytes()
+
+    return read_native
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -1004,16 +1040,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             bundle, fixtures = _fixture()
             report = render_research(bundle, fixtures.__getitem__, synthetic=True)
         else:
-            root = manifest.resolve().parent
-
-            def read_native(name: str) -> bytes:
-                if Path(name).name != name or name in ("", ".", ".."):
-                    raise ValueError("provider body file must be adjacent to the manifest")
-                path = (root / name).resolve()
-                if path.parent != root:
-                    raise ValueError("provider body file escapes the designated directory")
-                return path.read_bytes()
-
+            read_native = _adjacent_loader(manifest)
             bundle = json.loads(
                 manifest.read_text(encoding="utf-8"), object_pairs_hook=_unique_manifest_object
             )

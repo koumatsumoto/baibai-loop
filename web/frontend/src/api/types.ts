@@ -607,6 +607,12 @@ export interface SavedValueRealizationView {
 
 export type USProposalComparisonAmount = string
 
+export interface USProposalComparisonPriceView {
+  price_usd: string
+  origin: 'listing_exchange' | 'alpaca_sip_nasdaq_official_close' | 'alpaca_sip_daily_close'
+  observed_at: string
+}
+
 export interface USProposalComparisonScenarioView {
   terminal_value_usd_per_share: USProposalComparisonAmount
   eligible_distributions_usd_per_share: USProposalComparisonAmount
@@ -639,12 +645,6 @@ export interface USProposalIexBandView {
   last_usd: string
 }
 
-export interface USProposalOfficialCloseView {
-  price_usd: string
-  origin: 'listing_exchange' | 'alpaca_sip_nasdaq_official_close'
-  observed_at: string
-}
-
 export interface USProposalPerspectiveSourceView {
   label: string
   observed_at: string
@@ -672,7 +672,7 @@ export interface USProposalView {
   reason: string
   revisit_when: string
   model_perspectives: USProposalPerspectiveView[]
-  official_close: USProposalOfficialCloseView | null
+  comparison_price: USProposalComparisonPriceView | null
   iex_band: USProposalIexBandView | null
   comparison_horizon_et: string | null
   comparison: USProposalComparisonView | null

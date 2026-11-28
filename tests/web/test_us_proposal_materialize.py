@@ -281,7 +281,7 @@ def test_projection_uses_exact_formal_proof_no_hidden_body_or_legacy_change(
         "reason": "現金比較で見送り。",
         "revisit_when": "一次資料と価格を確認する。",
         "model_perspectives": perspectives,
-        "official_close": {
+        "comparison_price": {
             "price_usd": "100.50",
             "origin": "listing_exchange",
             "observed_at": "2026-06-03T13:00:00Z",
@@ -351,7 +351,7 @@ def test_projection_keeps_verified_sip_origin_distinct_and_omits_the_raw_receipt
     assert proposal["proposal_id"] == saved.decision.proposal_id
     assert proposal["draft_sha256"] == saved.review.draft_sha256
     assert proposal["currency"] == "USD"
-    assert proposal["official_close"] == {
+    assert proposal["comparison_price"] == {
         "origin": "alpaca_sip_nasdaq_official_close",
         "price_usd": "100.5000",
         "observed_at": "2026-06-03T13:00:00Z",
@@ -416,7 +416,7 @@ def test_saved_comparison_is_not_computed_from_action_or_todays_price(tmp_path, 
                     schema = defs[ref.rsplit("/", 1)[-1]]
                 assert re.fullmatch(schema["pattern"], value)
     else:
-        assert view["official_close"] is None
+        assert view["comparison_price"] is None
         assert view["iex_band"]["last_usd"] == "118.40"
         assert view["comparison_horizon_et"] is None
         assert view["comparison"] is None
@@ -448,7 +448,7 @@ def test_proposals_share_snapshot_even_with_a_concurrent_us_append(tmp_path, moc
     assert us.proposal is not None
     assert us.proposal.proposal_id == first.decision.proposal_id
     assert us.proposal.action == "defer"
-    assert us.proposal.official_close is None
+    assert us.proposal.comparison_price is None
     assert us.proposal.comparison_horizon_et is None
     assert us.proposal.comparison is None
     assert us.history.status == "ready"

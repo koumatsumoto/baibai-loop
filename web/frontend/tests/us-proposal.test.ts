@@ -74,7 +74,7 @@ it.each(['no_action', 'defer'] as const)('shows the SIP receipt and its own USD 
     proposal: {
       ...fixture.proposal,
       action,
-      official_close: { origin: 'alpaca_sip_nasdaq_official_close', price_usd: '100.5000', observed_at: received },
+      comparison_price: { origin: 'alpaca_sip_nasdaq_official_close', price_usd: '100.5000', observed_at: received },
       comparison: {
         ...fixture.proposal.comparison,
         base: {
@@ -97,7 +97,7 @@ it.each(['no_action', 'defer'] as const)('shows the SIP receipt and its own USD 
   expect(html).toContain('Alpaca IEXの分割調整済み観測')
   expect(html).toContain('期間末尾：USD 101.03')
   expect(html).toContain(action === 'no_action' ? '見送り' : '判断保留')
-  expect(html).toContain('この無調整終値1株分のUSD 100.5000')
+  expect(html).toContain('上記の基準価格1株分のUSD 100.5000')
   expect(html).toContain('USD +1.0E-13')
   expect(html).toContain('USD 0E-14')
   expect(html).not.toContain('取引所の無調整終値')
@@ -105,15 +105,39 @@ it.each(['no_action', 'defer'] as const)('shows the SIP receipt and its own USD 
   expect(html).not.toMatch(/<button|<form|href|JPY/)
 })
 
+it.each(['XNAS', 'XNYS'] as const)('uses the raw SIP daily close for %s without claiming an exchange official close', venue => {
+  if (fixture.proposal === null) throw new Error('test fixture requires a proposal')
+  const data: LatestUSProposalView = {
+    ...fixture,
+    proposal: {
+      ...fixture.proposal,
+      venue,
+      comparison_price: { origin: 'alpaca_sip_daily_close', price_usd: '100.50', observed_at: '2026-11-27T18:33:00Z' },
+      iex_band: null,
+    },
+  }
+  const html = renderToStaticMarkup(createElement(USProposal, { state: { kind: 'loaded', data } }))
+  expect(html).toContain('見送り')
+  expect(html).toContain('Alpaca SIPの無調整日足終値')
+  expect(html).toContain('対象立会日（米東部時間）')
+  expect(html).toContain('終値データの受領時刻（JST）')
+  expect(html).toContain('取引所の公式終値・約定値とは別です。')
+  expect(html).toContain('上記の基準価格1株分のUSD 100.50')
+  expect(html).not.toContain('取引所の無調整終値')
+  expect(html).not.toContain('Nasdaqの無調整公式終値')
+  expect(html).not.toContain('Alpaca IEXの分割調整済み観測')
+  expect(html).not.toContain('比較未確定')
+})
+
 it('does not copy the IEX price into the official-close slot for a deferred decision', () => {
   if (fixture.proposal === null) throw new Error('test fixture requires a proposal')
   const data: LatestUSProposalView = {
     ...fixture,
-    proposal: { ...fixture.proposal, action: 'defer', official_close: null, comparison_horizon_et: null, comparison: null, unresolved: ['取引所終値を確認できていない。'] },
+    proposal: { ...fixture.proposal, action: 'defer', comparison_price: null, comparison_horizon_et: null, comparison: null, unresolved: ['取引所終値を確認できていない。'] },
   }
   const html = renderToStaticMarkup(createElement(USProposal, { state: { kind: 'loaded', data } }))
   expect(html).toContain('判断保留')
-  expect(html).toMatch(/取引所の無調整終値<\/dt><dd[^>]*>未確認<\/dd>/)
+  expect(html).toMatch(/比較の基準価格<\/dt><dd[^>]*>未確認<\/dd>/)
   expect(html).toContain('USD 90.900〜125.03')
   expect(html).toContain('取引所終値を確認できていない。')
   expect(html).not.toContain('見送り')
@@ -192,19 +216,19 @@ it.each([
   ['partial root', {}],
   ['other market currency', { ...fixture.proposal, currency: 'JPY' }],
   ['unknown action', { ...fixture.proposal, action: 'buy' }],
-  ['missing nested close', { ...fixture.proposal, official_close: undefined }],
-  ['unknown official origin', { ...fixture.proposal, official_close: { ...fixture.proposal?.official_close, origin: 'other_feed' } }],
-  ['missing official origin', { ...fixture.proposal, official_close: { ...fixture.proposal?.official_close, origin: undefined } }],
-  ['SIP Nasdaq origin with a non-Nasdaq listing', { ...fixture.proposal, venue: 'XNYS', official_close: { ...fixture.proposal?.official_close, origin: 'alpaca_sip_nasdaq_official_close' } }],
-  ['incomplete no-action basis', { ...fixture.proposal, official_close: null, comparison_horizon_et: null }],
+  ['missing nested close', { ...fixture.proposal, comparison_price: undefined }],
+  ['unknown official origin', { ...fixture.proposal, comparison_price: { ...fixture.proposal?.comparison_price, origin: 'other_feed' } }],
+  ['missing official origin', { ...fixture.proposal, comparison_price: { ...fixture.proposal?.comparison_price, origin: undefined } }],
+  ['SIP Nasdaq origin with a non-Nasdaq listing', { ...fixture.proposal, venue: 'XNYS', comparison_price: { ...fixture.proposal?.comparison_price, origin: 'alpaca_sip_nasdaq_official_close' } }],
+  ['incomplete no-action basis', { ...fixture.proposal, comparison_price: null, comparison_horizon_et: null }],
   ['unusable saved clock', { ...fixture.proposal, published_at: 'unknown' }],
   ['unusable information cutoff', { ...fixture.proposal, cutoff_at: 'unknown' }],
   ['unusable formal review clock', { ...fixture.proposal, reviewed_at: 'unknown' }],
-  ['unusable official acquisition time', { ...fixture.proposal, official_close: { ...fixture.proposal?.official_close, observed_at: 'unknown' } }],
+  ['unusable official acquisition time', { ...fixture.proposal, comparison_price: { ...fixture.proposal?.comparison_price, observed_at: 'unknown' } }],
   ['unusable IEX last', { ...fixture.proposal, iex_band: { ...fixture.proposal?.iex_band, last_usd: 101.03 } }],
   ['stale absent comparison', { ...fixture.proposal, action: 'defer', comparison: undefined }],
   ['missing horizon with a comparison', { ...fixture.proposal, action: 'defer', comparison_horizon_et: null }],
-  ['comparison without its own official close', { ...fixture.proposal, action: 'defer', official_close: null }],
+  ['comparison without its own official close', { ...fixture.proposal, action: 'defer', comparison_price: null }],
   ['unsaved comparison basis', { ...fixture.proposal, comparison: { ...fixture.proposal?.comparison, cash_basis: 'interest_bearing' } }],
   ['broken scenario value', { ...fixture.proposal, comparison: { ...fixture.proposal?.comparison, base: { ...fixture.proposal?.comparison?.base, difference_from_cash_usd_per_share: 'unknown' } } }],
 ])('treats a ready response with %s as unreadable without inventing a decision', (_label, proposal) => {
