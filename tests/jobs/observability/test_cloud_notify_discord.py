@@ -685,7 +685,7 @@ def test_source_failure_notice_separates_acquisition_projection_and_extraction()
         ]
     }
     assert discord.render_source_failures(report) == [
-        "source不備: synthetic / 受領2・投影1・意味抽出1件 / 統合要確認"
+        "要確認: synthetic / 取得失敗2件・投影失敗1件・意味抽出失敗1件 / 統合要確認"
     ]
 
 
@@ -711,7 +711,7 @@ def test_successful_integration_with_retained_http_failures_is_degraded_not_clea
         },
     )
     assert "[DEGRADED]" in message
-    assert "受領1・投影0・意味抽出0件" in message
+    assert "取得失敗1件・投影失敗0件・意味抽出失敗0件" in message
     assert "[OK]" not in message
 
 
@@ -729,7 +729,7 @@ def test_non_http_acquisition_issue_is_not_lost_after_successful_raw_integration
         ]
     }
     assert discord.render_source_failures(report) == [
-        "source不備: synthetic / 受領0・投影0・意味抽出0件 / document_redirect_cycle"
+        "要確認: synthetic / 取得失敗0件・投影失敗0件・意味抽出失敗0件 / document_redirect_cycle"
     ]
 
 

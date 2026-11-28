@@ -152,7 +152,9 @@ if [[ "$1 $2" == "s3api put-object" ]]; then
   fi
   cp "$body" "${AWS_FAKE_STATE}/put-${slug}" || exit 97
   printf 'x' >> "${AWS_FAKE_STATE}/generation-${slug}"
-  if [[ -n "$wants_etag" && -z "${AWS_FAKE_MISSING_PUT_ETAG:-}" ]]; then
+  if [[ -n "$wants_etag" && -n "${AWS_FAKE_PUT_ETAG_OVERRIDE:-}" ]]; then
+    printf '%s\\n' "$AWS_FAKE_PUT_ETAG_OVERRIDE"
+  elif [[ -n "$wants_etag" && -z "${AWS_FAKE_MISSING_PUT_ETAG:-}" ]]; then
     object_etag "$slug"
   fi
   exit 0
@@ -210,9 +212,15 @@ for argument in "$@"; do
     baibai_jobs.integration.native_source_merge) script=merge ;;
     baibai_jobs.observability.repository_layout) script=layout ;;
     baibai_jobs.publication.lease) script=lease ;;
+    baibai_engine.cli.app_publish_preflight) script=app_preflight ;;
   esac
 done
 case "${script}" in
+  app_preflight)
+    [[ "$4" == baibai_engine.cli.app_publish_preflight && -f "$5" && "$5" == */.r2-transfer.*/baibai.sqlite ]] || exit 97
+    printf '%s\\n' "$6" > "$AWS_FAKE_STATE/proposal-id-checked"
+    [[ "${FAKE_PROPOSAL_REJECT:-0}" != "1" ]]
+    ;;
   lease)
     printf 'verify %s\\n' "$R2_STORES_BUCKET" >> "$AWS_FAKE_STATE/lease-checks"
     handle=""

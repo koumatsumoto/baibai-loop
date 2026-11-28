@@ -226,7 +226,7 @@ pull_indicators() {
 }
 
 push_key_if_version() {
-  local key="$1" expected_version="$2" current_version
+  local key="$1" expected_version="$2" proposal_id="${3:-}" check_only="${4:-false}" current_version
   local body started snapshot_seconds uploaded_version
   current_version="$(remote_version "${key}")"
   if [[ "${current_version}" != "${expected_version}" ]]; then
@@ -239,6 +239,14 @@ push_key_if_version() {
   started="${SECONDS}"
   snapshot_sqlite "$(store_path "${key}")" "${body}"
   snapshot_seconds="$((SECONDS - started))"
+  if [[ -n "${proposal_id}" ]]; then
+    (cd "${repo_root}" && uv run python -m baibai_engine.cli.app_publish_preflight "${body}" "${proposal_id}")
+  fi
+  if [[ "${check_only}" == true ]]; then
+    printf 'App check passed: s3://%s/%s; proposal=%s; no upload or dispatch\n' \
+      "${stores_bucket}" "${key}" "${proposal_id:-not-applicable}"
+    return 0
+  fi
   started="${SECONDS}"
   if [[ "${key}" == "indicators.sqlite" ]]; then verify_publication_lease; fi
   # The precheck avoids a snapshot after an already visible race. Only this PUT's
@@ -253,8 +261,8 @@ push_key_if_version() {
   if [[ "${key}" == "baibai.sqlite" ]]; then
     # A later HEAD could observe a different writer and authorize a stale copy.
     clear_pulled_versions "${key}"
-    if [[ -z "${uploaded_version}" || "${uploaded_version}" == "None" ]]; then
-      printf 'application uploaded but no ETag returned; pull before next update\n' >&2
+    if ! etag_body "${uploaded_version}" >/dev/null 2>&1; then
+      printf 'application uploaded but no usable ETag returned; check the remote App before retrying\n' >&2
       return 1
     fi
     record_pulled_version "${key}" "${uploaded_version}"
@@ -363,7 +371,8 @@ upload_portfolio_views() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine [--daily-preflight]|hydrate-market-for-daily|pull-portfolio-market|pull-app|pull-indicators|push-indicators [--recheck-source SOURCE]...|push-app|upload-portfolio-views DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-machine [--daily-preflight]|hydrate-market-for-daily|pull-portfolio-market|pull-app|pull-indicators|push-indicators [--recheck-source SOURCE]...|upload-portfolio-views DIR}\n' "$0"
+  printf 'App publication: jobs/scripts/publish.sh --help\n'
 }
 
 validate_command() {
@@ -385,7 +394,18 @@ validate_command() {
     hydrate-market-for-daily)
       [[ $# -eq 1 && -n "${PUBLICATION_LEASE_HANDLE:-}" ]]
       ;;
-    pull-app|pull-portfolio-market|pull-indicators|push-app)
+    push-app)
+      shift
+      [[ $# -eq 0 ]] && return 0
+      [[ $# -ge 2 && "$1" == "--expect-bucket" && "$2" =~ ^[a-z0-9][a-z0-9-]+$ ]] || return 1
+      shift 2
+      if [[ "${1:-}" == "--proposal-id" ]]; then
+        [[ $# -ge 2 && "$2" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]] || return 1
+        shift 2
+      fi
+      [[ $# -eq 0 || ( $# -eq 1 && "$1" == "--check" ) ]]
+      ;;
+    pull-app|pull-portfolio-market|pull-indicators)
       [[ $# -eq 1 ]]
       ;;
     *)
@@ -394,8 +414,13 @@ validate_command() {
   esac
 }
 
+if [[ $# -eq 1 && ( "$1" == "-h" || "$1" == "--help" ) ]]; then
+  usage
+  exit 0
+fi
+
 # A mistyped or removed command must stop before helpers or credentials.
-validate_command "$@" || { usage; exit 2; }
+validate_command "$@" || { usage >&2; exit 2; }
 (cd "${repo_root}" && uv run python -m baibai_jobs.observability.repository_layout)
 load_credentials
 stores_bucket="${R2_STORES_BUCKET:-baibai-stores}"
@@ -440,8 +465,20 @@ case "${1:-}" in
     push_key_if_version indicators.sqlite "${indicator_version}"
     ;;
   push-app)
+    shift
+    proposal_id="" check_only=false
+    if [[ $# -gt 0 ]]; then
+      if [[ "${stores_bucket}" != "$2" ]]; then
+        printf 'refusing App publish: expected bucket %s; check your R2_STORES_BUCKET setting\n' \
+          "$2" >&2
+        exit 2
+      fi
+      shift 2
+      if [[ "${1:-}" == "--proposal-id" ]]; then proposal_id="$2"; shift 2; fi
+      if [[ "${1:-}" == "--check" ]]; then check_only=true; fi
+    fi
     app_version="$(pulled_version baibai.sqlite)"
-    push_key_if_version baibai.sqlite "${app_version}"
+    push_key_if_version baibai.sqlite "${app_version}" "${proposal_id}" "${check_only}"
     ;;
   upload-portfolio-views)
     [[ "${GITHUB_ACTIONS:-}" == "true" ]] || {
@@ -452,7 +489,7 @@ case "${1:-}" in
     upload_portfolio_views "$2"
     ;;
   *)
-    usage
+    usage >&2
     exit 2
     ;;
 esac

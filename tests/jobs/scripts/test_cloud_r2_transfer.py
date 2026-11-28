@@ -214,10 +214,14 @@ def test_application_can_publish_again_using_its_put_response(tmp_path: Path) ->
     assert '--if-match "etag-put-1"' in puts[1]
 
 
-def test_application_put_without_etag_removes_stale_marker(tmp_path: Path) -> None:
+@pytest.mark.parametrize("ack", ["", "null", '"broken'])
+def test_application_put_without_usable_etag_removes_stale_marker(tmp_path: Path, ack: str) -> None:
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
-    env["AWS_FAKE_MISSING_PUT_ETAG"] = "1"
+    if ack:
+        env["AWS_FAKE_PUT_ETAG_OVERRIDE"] = ack
+    else:
+        env["AWS_FAKE_MISSING_PUT_ETAG"] = "1"
     generation = Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag"
     generation.write_text('"etag-stable"\n')
     result = subprocess.run(
@@ -229,7 +233,7 @@ def test_application_put_without_etag_removes_stale_marker(tmp_path: Path) -> No
         text=True,
     )
     assert result.returncode != 0
-    assert "application uploaded but no ETag returned" in result.stderr
+    assert "application uploaded but no usable ETag returned" in result.stderr
     assert not generation.exists()
     assert (Path(env["AWS_FAKE_STATE"]) / "generation-baibai.sqlite").exists()
 
@@ -416,6 +420,9 @@ def test_indicator_push_uploads_nothing_when_the_merge_refuses(tmp_path: Path) -
     [
         (),
         ("unknown-command",),
+        ("--help",),
+        ("-h",),
+        ("--help", "extra"),
         ("pull-app", "extra"),
         ("pull-machine", "extra"),
         ("pull-portfolio-market", "extra"),
@@ -442,7 +449,7 @@ def test_indicator_push_uploads_nothing_when_the_merge_refuses(tmp_path: Path) -
         ("upload-portfolio-views", "views", "extra"),
     ],
 )
-def test_invalid_transfer_arguments_stop_before_helpers_or_credentials(
+def test_transfer_usage_stops_before_helpers_or_credentials(
     tmp_path: Path, args: tuple[str, ...]
 ) -> None:
     root = _fake_repo(tmp_path)
@@ -465,8 +472,17 @@ def test_invalid_transfer_arguments_stop_before_helpers_or_credentials(
         text=True,
     )
 
-    assert completed.returncode == 2
-    assert "usage:" in completed.stderr
+    help_requested = args in (("-h",), ("--help",))
+    assert completed.returncode == (0 if help_requested else 2)
+    usage, other = (
+        (completed.stdout, completed.stderr)
+        if help_requested
+        else (completed.stderr, completed.stdout)
+    )
+    assert "usage:" in usage
+    assert "jobs/scripts/publish.sh --help" in usage
+    assert "push-app" not in usage
+    assert other == ""
     assert not log.exists()
 
 
@@ -1037,3 +1053,65 @@ def test_explicit_fred_recovery_is_bound_to_the_fresh_download_and_conditional_p
     assert "--canonical" in commands[recheck]
     assert "--recheck-source fred-vixcls --recheck-source fred-payems" in commands[recheck]
     assert '--if-match "etag-stable"' in commands[upload]
+
+
+@pytest.mark.parametrize(
+    "failure", ["no", "dotenv", "inherited", "misassigned", "id", "stale", "raced-put"]
+)
+def test_guarded_app_push_checks_effective_bucket_and_sealed_body(
+    tmp_path: Path, failure: str
+) -> None:
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env.pop("R2_STORES_BUCKET", None)
+    env["R2_SERVING_BUCKET"] = "baibai-serving"
+    env["UV_EXPECTED_CWD"] = str(root)
+    marker = Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag"
+    marker.write_text('"etag-stable"\n')
+    if failure == "dotenv":
+        env.pop("R2_SECRET_ACCESS_KEY")
+        (root / ".env").write_text("R2_SECRET_ACCESS_KEY=fake\nR2_STORES_BUCKET=baibai-serving\n")
+    if failure == "inherited":
+        env["R2_STORES_BUCKET"] = "baibai-serving"
+    if failure == "misassigned":
+        env["R2_STORES_BUCKET"] = "sensitive-test-value"
+    if failure == "id":
+        env["FAKE_PROPOSAL_REJECT"] = "1"
+    if failure == "stale":
+        env["AWS_FAKE_ETAG_OVERRIDE"] = '"different"'
+    if failure == "raced-put":
+        env["AWS_FAKE_REJECT_CONDITIONAL_PUT"] = "1"
+    args = [
+        root / "jobs/scripts/r2_transfer.sh",
+        "push-app",
+        "--expect-bucket",
+        "baibai-stores",
+        "--proposal-id",
+        "us-proposal-known",
+    ]
+    if failure == "no":
+        args.append("--check")
+    result = subprocess.run(
+        args, cwd=tmp_path, env=env, check=False, capture_output=True, text=True
+    )
+    calls = _transfer_commands(log)
+    checked = Path(env["AWS_FAKE_STATE"]) / "proposal-id-checked"
+    assert marker.read_text().strip() == '"etag-stable"'
+    if failure == "no":
+        assert result.returncode == 0, result.stderr
+        assert "proposal=us-proposal-known; no upload or dispatch" in result.stdout
+        assert checked.read_text().strip() == "us-proposal-known"
+    else:
+        assert result.returncode != 0
+    if failure in {"dotenv", "inherited", "misassigned"}:
+        assert calls == []
+        assert "expected bucket baibai-stores" in result.stderr
+        assert "baibai-serving" not in result.stderr
+        assert "sensitive-test-value" not in result.stderr
+    else:
+        assert all("--bucket baibai-stores" in line for line in calls)
+    if failure == "raced-put":
+        assert any("put-object" in line and '--if-match "etag-stable"' in line for line in calls)
+    else:
+        assert not any("put-object" in line for line in calls)
