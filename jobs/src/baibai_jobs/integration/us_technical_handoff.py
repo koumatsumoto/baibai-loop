@@ -49,6 +49,7 @@ from baibai_jobs.integration.us_daily_plan import (
     TECHNICAL_CALENDAR_CHUNKS,
     TECHNICAL_WINDOW_SESSIONS,
     USTechnicalScope,
+    has_us_price_scope,
     plan_us_technical_scope,
 )
 
@@ -168,7 +169,7 @@ def acquire_us_technical(
     with listing_master.open("rb") as stream:
         listing_bytes = stream.read(LISTING_MASTER_MAX_BYTES + 1)
     current = decode_current_listing_master(listing_bytes).get("US")
-    if current is None or current.rakuten is None:
+    if not has_us_price_scope(current):
         return {"source": SOURCE, "status": "scope_unavailable"}
     now = clock()
     if now.utcoffset() is None:
