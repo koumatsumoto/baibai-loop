@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -8,6 +8,7 @@ from baibai_engine.data_collection.providers.nasdaq_symbols import read_us_symbo
 from baibai_engine.machine_analysis.observations.stocks.us_universe import (
     RakutenOrdinaryRow,
     cover_rakuten_us_ordinary_shares,
+    parse_rakuten_ordinary_snapshot,
 )
 
 _NASDAQ = b"""Symbol|Security Name|Market Category|Test Issue|Financial Status|Round Lot Size|ETF|NextShares
@@ -219,3 +220,108 @@ def test_a_confirmed_alias_cannot_double_count_or_disagree_on_buyability():
             cover_rakuten_us_ordinary_shares(
                 rows, reported_count=2, directories=_with_nyse_classes()
             )
+
+
+_RECEIVED = datetime.fromisoformat("2026-11-28T11:55:00+09:00")
+_CATALOG = "ticker,exchange\nMSTA,NASDAQ\nMSTB,NASDAQ\nPR B,NYSE\nCT,NYSE\n"
+_EXCLUSION_HEADER = "ticker,exchange,restriction\n"
+_TRADABLE = "cash_ordinary_tradable"
+_CATALOG_ONLY = "cash_ordinary_catalog"
+
+
+def _parsed_snapshot(
+    *, mode=_TRADABLE, catalog=_CATALOG, count=4, exclusions=None, excluded_count=None
+):
+    return parse_rakuten_ordinary_snapshot(
+        catalog,
+        catalog_mode=mode,
+        observed_at=_RECEIVED,
+        reported_count=count,
+        exclusions_csv=exclusions,
+        exclusions_reported_count=excluded_count,
+    )
+
+
+def _coverage(snapshot):
+    return cover_rakuten_us_ordinary_shares(
+        snapshot.rows, reported_count=snapshot.reported_count, directories=_directories()
+    )
+
+
+def test_complete_cash_catalog_and_official_restrictions_join_before_the_alpaca_query():
+    exclusions = (
+        f"{_EXCLUSION_HEADER}MSTB,NASDAQ,sell_only\nPR.B,NYSE,buy_suspended\n"
+        "MSTA,NYSE,sell_only\nOLD,OTC,sell_only\n"
+    )
+    snapshot = _parsed_snapshot(
+        catalog="\ufeff" + _CATALOG.replace("\n", "\r\n"),
+        exclusions=exclusions,
+        excluded_count=4,
+    )
+    assert (snapshot.catalog_mode, snapshot.observed_at) == (_TRADABLE, _RECEIVED)
+    assert (snapshot.reported_count, snapshot.exclusions_reported_count) == (4, 4)
+    assert [(row.ticker, row.state, row.alpaca_symbol) for row in _coverage(snapshot)] == [
+        ("MSTA", "eligible", "MSTA"),
+        ("MSTB", "sell_only", None),
+        ("CT", "eligible", "CT"),
+        ("PR B", "buy_suspended", None),
+    ]
+    symbols = tuple(row.alpaca_symbol for row in _coverage(snapshot) if row.alpaca_symbol)
+    day = date(2026, 11, 27)
+    params = parse_qs(urlsplit(DailyBarsQuery(symbols, day, day, "-", "split").url()).query)
+    assert params["symbols"] == ["MSTA,CT"]
+
+
+def test_catalog_only_never_derives_positive_status_even_with_an_empty_exclusion_capture():
+    snapshot = _parsed_snapshot(mode=_CATALOG_ONLY, exclusions=_EXCLUSION_HEADER, excluded_count=0)
+    assert {row.state for row in _coverage(snapshot)} == {"unknown_buyability"}
+    assert all(row.alpaca_symbol is None for row in _coverage(snapshot))
+
+
+def test_completed_zero_restrictions_is_not_a_missing_capture():
+    with pytest.raises(ValueError, match="incomplete Rakuten buy restriction"):
+        _parsed_snapshot()
+    snapshot = _parsed_snapshot(exclusions=_EXCLUSION_HEADER, excluded_count=0)
+    assert all(row.state == "eligible" for row in _coverage(snapshot))
+
+
+@pytest.mark.parametrize(
+    ("overrides", "error"),
+    [
+        ({"mode": "cash_ordinary_tradable_nasdaq_only"}, "snapshot mode"),
+        ({"count": 5}, "incomplete Rakuten snapshot"),
+        ({"count": True}, "incomplete Rakuten snapshot"),
+        ({"catalog": "ticker,exchange\n", "count": 0}, "empty Rakuten ordinary catalog"),
+        ({"catalog": "ticker,exchange,buy_status\n", "count": 0}, "CSV header"),
+        ({"catalog": _CATALOG.replace("MSTA,NASDAQ", "MSTA,NASDAQ,○")}, "CSV row"),
+        ({"catalog": _CATALOG.replace("MSTA,NASDAQ", "MSTB,NASDAQ")}, "duplicate Rakuten"),
+        ({"catalog": _CATALOG.replace("PR B,NYSE", '"PR B,NYSE')}, "snapshot CSV"),
+        ({"excluded_count": 1}, "incomplete Rakuten snapshot"),
+        ({"excluded_count": None}, "incomplete Rakuten buy restriction"),
+        (
+            {"exclusions": _EXCLUSION_HEADER + "MSTA,NASDAQ,buyable\n", "excluded_count": 1},
+            "unknown Rakuten buy restriction",
+        ),
+        (
+            {
+                "exclusions": _EXCLUSION_HEADER + "PR B,NYSE,sell_only\nPR.B,NYSE,buy_suspended\n",
+                "excluded_count": 2,
+            },
+            "duplicate Rakuten",
+        ),
+    ],
+)
+def test_incomplete_or_wrong_snapshot_has_no_screening_result(overrides, error):
+    arguments = {"exclusions": _EXCLUSION_HEADER, "excluded_count": 0, **overrides}
+    with pytest.raises(ValueError, match=error):
+        _parsed_snapshot(**arguments)
+
+
+def test_rakuten_snapshot_provenance_requires_an_observed_clock_with_offset():
+    with pytest.raises(ValueError, match="UTC offset"):
+        parse_rakuten_ordinary_snapshot(
+            _CATALOG,
+            catalog_mode=_CATALOG_ONLY,
+            reported_count=4,
+            observed_at=_RECEIVED.replace(tzinfo=None),
+        )
