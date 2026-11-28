@@ -399,7 +399,9 @@ def model_input(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        prog="baibai-jobs rebuild-short-sale-reports-native", description=__doc__
+    )
     parser.add_argument("--saved-input", type=Path)
     parser.add_argument("--work-directory", type=Path, required=True)
     parser.add_argument("--start", type=date.fromisoformat, required=True)

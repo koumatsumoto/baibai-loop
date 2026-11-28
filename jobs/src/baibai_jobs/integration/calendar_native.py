@@ -466,7 +466,9 @@ def rebuild_saved_input(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        prog="baibai-jobs rebuild-calendar-native", description=__doc__
+    )
     parser.add_argument("--saved-input", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     return parser

@@ -79,7 +79,9 @@ def acquire_master_native(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = build_full_day_parser(__doc__ or "", directory_required=False)
+    parser = build_full_day_parser(
+        __doc__ or "", prog="baibai-jobs jquants-master-native", directory_required=False
+    )
     parser.set_defaults(revision_overlap_days=0)
     parser.add_argument("--force", action="store_true", help="recheck explicitly requested dates")
     parser.add_argument(

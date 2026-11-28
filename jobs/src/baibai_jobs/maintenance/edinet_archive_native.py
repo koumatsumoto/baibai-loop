@@ -74,7 +74,7 @@ def commit_stage(owner: EdinetArchiveL1, store: ReceiptStore, stage_id: str) -> 
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(prog="baibai-jobs edinet-archives-native", description=__doc__)
     parser.add_argument(
         "command",
         choices=(

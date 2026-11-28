@@ -451,7 +451,7 @@ def integrate_models(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(prog="baibai-jobs model-integration", description=__doc__)
     parser.add_argument("--asof", type=date.fromisoformat, required=True)
     parser.add_argument("--market", type=Path, default=MARKET_DB_PATH)
     parser.add_argument("--economic", type=Path, default=DEFAULT_ECONOMIC_DB_PATH)

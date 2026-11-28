@@ -164,7 +164,7 @@ def validate_packet(directory: Path, *, canonical: Path | None = None) -> dict[s
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(prog="baibai-jobs market-evidence", description=__doc__)
     parser.add_argument("command", choices=("prepare", "stage", "download", "read"))
     parser.add_argument("--capture", type=Path, action="append", default=[], help="prepare only")
     parser.add_argument("--expected-captures", type=int, help="prepare only")

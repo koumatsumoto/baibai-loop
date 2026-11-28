@@ -102,7 +102,8 @@ def validate_store(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="validate collected economic source payloads and record counts"
+        prog="baibai-jobs validate-market-context-stores",
+        description="validate collected economic source payloads and record counts",
     )
     parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
     return parser

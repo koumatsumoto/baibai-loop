@@ -44,7 +44,7 @@ def acquire_price_native(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    return build_full_day_parser(__doc__ or "")
+    return build_full_day_parser(__doc__ or "", prog="baibai-jobs jquants-price-native")
 
 
 def main(argv: list[str] | None = None) -> int:
