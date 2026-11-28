@@ -17,6 +17,9 @@ from baibai_engine.machine_analysis.screening.policies.technical_financial impor
     TechnicalFinancialSelection,
 )
 from baibai_engine.machine_analysis.screening.selection_query import (
+    ScreeningGenerationMismatch as ScreeningGenerationMismatch,
+)
+from baibai_engine.machine_analysis.screening.selection_query import (
     read_case_publication_from_connection,
 )
 from baibai_engine.primitives.json import encode_json
