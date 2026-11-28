@@ -4,14 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       expected_date:
-        description: "Expected IEX trading date in New York (YYYY-MM-DD)"
+        description: "New York price session (YYYY-MM-DD; ignored for assets)"
         required: true
         type: string
       feed:
-        description: "IEX compatibility check or SIP access and sample daily coverage"
+        description: "Check Alpaca assets, or verify IEX/SIP sample prices"
         type: choice
         default: iex
-        options: [iex, sip]
+        options: [iex, sip, assets]
 
 permissions:
   contents: read
@@ -127,4 +127,69 @@ jobs:
           print(f"feed=sip session={expected} symbols_ok={len(matched)}/{len(symbols)} "
                 f"matched={','.join(matched) or '-'}")
           raise SystemExit(0 if len(matched) == len(symbols) else 1)
+          PY
+
+  check-assets:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'koumatsumoto/baibai-loop' && github.ref == 'refs/heads/main' && inputs.feed == 'assets' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          enable-cache: false
+
+      - name: Prepare locked dependencies
+        run: uv sync --locked --no-dev
+
+      - name: Count active US equity assets without retaining the listing
+        env:
+          APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+        run: |
+          uv run --offline --no-sync python - <<'PY'
+          import json
+          from collections import Counter
+          from datetime import UTC, datetime
+          from time import monotonic
+          
+          from httpx2 import HTTPTransport
+          
+          from baibai_engine.data_collection.providers.alpaca_http import receive_paper_us_assets
+          from baibai_jobs.integration.us_daily_handoff import alpaca_paper_credentials_from_env
+          
+          started = monotonic()
+          try:
+              credentials = alpaca_paper_credentials_from_env()
+          except ValueError:
+              raise SystemExit("assets status=missing_credentials") from None
+          try:
+              with HTTPTransport(trust_env=False, retries=0) as transport:
+                  receipt = receive_paper_us_assets(
+                      credentials=credentials,
+                      transport=transport,
+                      clock=lambda: datetime.now(UTC),
+                  )
+          except OSError:
+              raise SystemExit("assets status=transport_or_http_failure") from None
+          except ValueError:
+              raise SystemExit("assets status=invalid_or_incomplete_response") from None
+          rows = receipt.assets
+          print(json.dumps({
+              "source": "alpaca_paper_assets",
+              "received_at": receipt.received_at.isoformat(),
+              "elapsed_ms": round((monotonic() - started) * 1000),
+              "bytes": len(receipt.body),
+              "asset_count": len(rows),
+              "tradable_count": sum(row.tradable for row in rows),
+              "by_exchange": dict(sorted(Counter(row.exchange for row in rows).items())),
+          }))
           PY
