@@ -47,6 +47,7 @@ from baibai_engine.machine_analysis.observations.financials.sec_companyfacts imp
 )
 from baibai_engine.machine_analysis.observations.financials.sec_fiscal_observations import (
     SecFiscalQuarterInput,
+    SecFiscalYearInput,
     observe_sec_issuer_financials,
 )
 from baibai_engine.machine_analysis.observations.prices.alpaca_normalization import (
@@ -455,16 +456,28 @@ def _public_index(
     )
 
 
-def _sec_proof(filing: SecFilingWitness, observed: SecPublicFilingObservation | None) -> str:
+def _sec_proof(
+    filing: SecFilingWitness,
+    observed: SecPublicFilingObservation | None,
+    *,
+    show_period_index: bool = False,
+) -> str:
+    proof = []
     if filing.publication_ref is not None:
-        return f"独立公表証拠 `{_label(filing.publication_ref)}`"
-    if observed is not None:
-        return (
-            f"SEC提出索引の公開確認: {observed.observed_at.isoformat()}"
+        proof.append(f"独立公表証拠 `{_label(filing.publication_ref)}`")
+    if observed is not None and (not proof or show_period_index):
+        period = f"当期末照合: {observed.report_end}; " if show_period_index else ""
+        proof.append(
+            f"{period}SEC提出索引の公開確認: {observed.observed_at.isoformat()}"
             "（初回公表の証明ではない）; "
             f"`{observed.receipt_id}`; {observed.index_url}"
         )
-    raise ValueError("SEC observation has no publication evidence")
+    if not proof:
+        raise ValueError("SEC observation has no publication evidence")
+    return "; ".join(proof)
+
+
+type _SecComparison = tuple[str, SecReportedDuration, date, date] | SecReportedDuration
 
 
 def _sec(
@@ -472,7 +485,7 @@ def _sec(
     load: _Loader,
     cutoff: datetime,
     *,
-    compare: tuple[str, SecReportedDuration, date, date] | None = None,
+    compare: _SecComparison | None = None,
 ) -> tuple[list[str], str | None]:
     source = subject.get("companyfacts")
     if source is None:
@@ -503,7 +516,9 @@ def _sec(
         if filing_record["published_at"] is None:
             evidence.append("独立した初回公表時刻は未確認。")
         form = filing_record["form"]
-        if form == "10-K/A" or (compare is not None and form == "10-K"):
+        if form == "10-K/A" or (
+            compare is not None and (form == "10-K") != isinstance(compare, SecReportedDuration)
+        ):
             return evidence, "sec_filing_form_not_covered"
         filing = _filing(filing_record)
         period = SecReportedDuration(_day(subject["period_start"]), _day(subject["period_end"]))
@@ -517,26 +532,33 @@ def _sec(
         )
         observed = _public_index(public_index, load, filing, cutoff)
         if compare is not None:
-            reporting_quarter, prior, current_fiscal_start, prior_fiscal_start = compare
-            quarter = SecFiscalQuarterInput(
-                capture=capture,
-                filing=filing,
-                reporting_quarter=reporting_quarter,
-                publicly_observed_by=observed,
-                current_quarter=period,
-                prior_quarter=prior,
-                current_fiscal_start=current_fiscal_start,
-                prior_fiscal_start=prior_fiscal_start,
-            )
-            (observation,) = observe_sec_issuer_financials((), {query.cik: quarter}, cutoff=cutoff)
+            selected: SecFiscalQuarterInput | SecFiscalYearInput
+            if isinstance(compare, SecReportedDuration):
+                selected = SecFiscalYearInput(capture, filing, period, compare, observed)
+                period_label = "指定会計年度 FY（報告額。日数差は調整しない）"
+            else:
+                reporting_quarter, prior, current_fiscal_start, prior_fiscal_start = compare
+                selected = SecFiscalQuarterInput(
+                    capture=capture,
+                    filing=filing,
+                    reporting_quarter=reporting_quarter,
+                    publicly_observed_by=observed,
+                    current_quarter=period,
+                    prior_quarter=prior,
+                    current_fiscal_start=current_fiscal_start,
+                    prior_fiscal_start=prior_fiscal_start,
+                )
+                period_label = f"指定会計四半期 `{reporting_quarter}`"
+            (observation,) = observe_sec_issuer_financials((), {query.cik: selected}, cutoff=cutoff)
             comparison = observation.periodic
             if comparison == "invalid_periodic_evidence":
                 return evidence, "sec_invalid_fixed_evidence"
             if isinstance(comparison, str):
                 return evidence, f"sec_{comparison}"
+            proof = _sec_proof(filing, observed, show_period_index=is_annual)
             evidence.append(
                 f"CIK `{query.cik}`; 提出 `{filing.accession}` ({filing.form}); "
-                f"指定会計四半期 `{reporting_quarter}`; {_sec_proof(filing, observed)}"
+                f"{period_label}; {proof}"
             )
             for row in comparison:
                 for column, period, fact in (
@@ -898,7 +920,19 @@ def _fixture() -> tuple[_Record, dict[str, bytes]]:
 def _compare_sec_report(bundle: _Record, load: _Loader, args: Sequence[str]) -> str:
     if bundle["schema"] != _SCHEMA:
         raise ValueError("unknown fixed receipt schema")
-    cik, quarter, prior_start, prior_end, current_fiscal_start, prior_fiscal_start = args
+    comparison: _SecComparison
+    match args:
+        case [cik, "FY", start, end]:
+            comparison = SecReportedDuration(_day(start), _day(end))
+        case [cik, ("Q1" | "Q2" | "Q3") as quarter, start, end, fiscal_start, previous_start]:
+            comparison = (
+                quarter,
+                SecReportedDuration(_day(start), _day(end)),
+                _day(fiscal_start),
+                _day(previous_start),
+            )
+        case _:
+            raise ValueError("specify FY and its prior dates, or Q1-Q3 and both fiscal starts")
     issuer = SecEdgarQuery("companyfacts", cik).cik
     fields = ("period_start", "period_end", "companyfacts", "filing")
     fixed = []
@@ -921,12 +955,11 @@ def _compare_sec_report(bundle: _Record, load: _Loader, args: Sequence[str]) -> 
     # Mapping equality conflates JSON booleans and numbers used by receipt validation.
     if len({json.dumps(entry, sort_keys=True, allow_nan=False) for entry in fixed}) != 1:
         raise ValueError("one fixed filing per SEC comparison")
-    prior = SecReportedDuration(_day(prior_start), _day(prior_end))
     notes, problem = _sec(
         fixed[0],
         load,
         _clock(bundle["cutoff"]),
-        compare=(quarter, prior, _day(current_fiscal_start), _day(prior_fiscal_start)),
+        compare=comparison,
     )
     if problem is not None:
         notes.append(f"- 未採用: `{problem}`")
@@ -941,16 +974,12 @@ def build_parser() -> argparse.ArgumentParser:
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument(
         "--compare-sec",
-        nargs=6,
-        metavar=(
-            "CIK",
-            "Q1_OR_Q2_OR_Q3",
-            "PRIOR_Q_START",
-            "PRIOR_Q_END",
-            "CURRENT_FY_START",
-            "PRIOR_FY_START",
+        nargs="+",
+        metavar="ARG",
+        help=(
+            "CIK FY PRIOR_START PRIOR_END, or CIK Q1/Q2/Q3 PRIOR_START PRIOR_END "
+            "CURRENT_FY_START PRIOR_FY_START"
         ),
-        help="report only fixed-issuer SEC comparative facts from --bundle",
     )
     modes.add_argument(
         "--accept-iex-session",
