@@ -102,6 +102,15 @@ class MarketContextAssessment(_Model):
                 raise ValueError("claim cites an unknown input")
         return self
 
+    def validate_new_change_evidence(self) -> None:
+        # New observed-change claims cannot turn solely missing/failed sources into evidence.
+        # Stored bodies and qualitative or unresolved context retain their original meaning.
+        observed = {item.input_id for item in self.inputs if item.status == "ok"}
+        if any(
+            claim.source_ids and observed.isdisjoint(claim.source_ids) for claim in self.changes
+        ):
+            raise ValueError("market change cites only missing or failed inputs")
+
     def payload(self) -> dict[str, Any]:
         return self.model_dump(mode="json")
 

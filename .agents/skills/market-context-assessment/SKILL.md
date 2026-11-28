@@ -11,7 +11,7 @@ description: 人間の明示開始から市場入力を固定し、重要な環�
 
 ## 入力・作成・発行
 
-[applicationの作業DBと反映手順](../../../jobs/OPERATIONS.md#application-db-を反映する)を使う。確認と発行は同じ作業DBを指定し、L2の指標公開ではL3の判断を反映しない。
+[applicationの作業DBと反映手順](../../../jobs/OPERATIONS.md#application-db-を反映する)を使う。確認と発行は同じ作業DBを指定し、L2の指標公開ではL3の判断を反映しない。新しい変化の主張に出典を挙げるなら、欠測・取得失敗だけでは裏付けにならない。確認できなかったことは不確実性として残す。
 
 1. 対象日as_ofと入力確定時刻known_atを固定し、保存Reading・市場/業種/個社状態と一次資料を読む。[補助観測](../../../jobs/OPERATIONS.md#判断直前の多市場補助観測)も時点/用途を守り、同じsource-handoffをreviewerへ渡す。
 2. 個社への含意を記し、別sessionのreviewerがsource・因果・反証を確認する。数値/単位/日付/限定を保ち、新根拠/判断は再Review。最大3巡で未解決なら発行せず人間へ上げる。
