@@ -19,6 +19,7 @@ from baibai_engine.investment_judgment.trade_proposal.query import (
     load_proposal_with_assessments,
 )
 from baibai_engine.investment_judgment.workflow.case_screening import (
+    ScreeningGenerationMismatch,
     read_case_screening_from_connection,
     same_case_screening,
 )
@@ -55,7 +56,6 @@ from baibai_engine.machine_analysis.generation.query import (
     read_research_model_inputs_from_connection,
 )
 from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
-from baibai_engine.machine_analysis.screening.selection_query import ScreeningGenerationMismatch
 from baibai_engine.primitives.json import encode_json
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.paths import RUNS_DB_PATH
