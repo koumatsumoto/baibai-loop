@@ -19,6 +19,7 @@ from baibai_engine.investment_judgment.trade_proposal.query import (
     load_proposal_with_assessments,
 )
 from baibai_engine.investment_judgment.workflow.case_screening import (
+    ScreeningGenerationMismatch,
     read_case_screening_from_connection,
     same_case_screening,
 )
@@ -158,12 +159,16 @@ class OperationService:
             del canonical
             selection_id = selection.inputs.screening_selection_id
             if selection_id is not None:
-                proven = read_case_screening_from_connection(
-                    runs,
-                    selection_id,
-                    known_at=selection.input_known_at,
-                    subjects=subjects,
-                )
+                try:
+                    proven = read_case_screening_from_connection(
+                        runs,
+                        selection_id,
+                        known_at=selection.input_known_at,
+                        subjects=subjects,
+                        expected_generation_id=selection.inputs.generation.generation_id,
+                    )
+                except ScreeningGenerationMismatch:
+                    proven = None
                 if (
                     proven is None
                     or proven[0] != selection.inputs.screening_published_at

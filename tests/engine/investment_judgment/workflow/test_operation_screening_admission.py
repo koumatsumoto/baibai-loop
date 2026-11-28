@@ -3,11 +3,13 @@
 import gzip
 import json
 import sqlite3
-from datetime import datetime
+from contextlib import closing
+from datetime import datetime, timedelta
 
 import pytest
 from tests.helpers.generated_selection import seed_generated_selection
 
+from baibai_engine.investment_judgment.workflow.operation import service as operation_service
 from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
@@ -181,3 +183,54 @@ def test_finite_case_is_bound_to_the_actual_published_bytes(tmp_path, legacy_for
     before = runs.read_bytes()
     assert selection_binding(start(selected).payload) == selected
     assert runs.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "case", ["other", "other_corrupt", "own_corrupt", "future_other", "absent"]
+)
+def test_start_checks_visible_selection_owner_before_reading_its_body(tmp_path, monkeypatch, case):
+    runs, app = tmp_path / "runs", tmp_path / "app"
+    selected = seed_generated_selection(runs=runs, now=NOW, tickers=("1234",))
+    other = seed_generated_selection(runs=runs, now=NOW, tickers=("5678",))
+    assert selected.inputs.generation.generation_id != other.inputs.generation.generation_id
+    key = (
+        selected.inputs.screening_selection_id
+        if case == "own_corrupt"
+        else ("not-published" if case == "absent" else other.inputs.screening_selection_id)
+    )
+    if case in {"other_corrupt", "own_corrupt", "future_other"}:
+        published_at = NOW + timedelta(seconds=1) if case == "future_other" else NOW
+        with closing(sqlite3.connect(runs)) as connection, connection:
+            connection.execute(
+                "UPDATE screening_selection SET payload_gzip=?,published_at=? WHERE selection_id=?",
+                (b"broken body", published_at.isoformat(), key),
+            )
+    saved = selected.model_dump(mode="json")
+    saved["inputs"]["screening_selection_id"] = key
+    reads = set()
+    original = operation_service.connect_runs_read_only
+
+    def traced(path):
+        connection = original(path)
+
+        def observe(action, table, column, _database, _trigger):
+            if action == sqlite3.SQLITE_READ:
+                reads.add((table, column))
+            return sqlite3.SQLITE_OK
+
+        connection.set_authorizer(observe)
+        return connection
+
+    monkeypatch.setattr(operation_service, "connect_runs_read_only", traced)
+    error = gzip.BadGzipFile if case == "own_corrupt" else operation_service.OperationConflictError
+    message = "Not a gzipped file" if case == "own_corrupt" else "screening selection differs"
+    with pytest.raises(error, match=message):
+        OperationService(app, runs_path=runs).start(
+            session_kind="capital-allocation",
+            as_of=selected.research_as_of,
+            started_at=NOW,
+            payload=OperationPayload(checkpoint="start", artifacts=(saved,)),
+        )
+    assert ("screening_selection", "selection_id") in reads
+    assert (("screening_selection", "payload_gzip") in reads) == (case == "own_corrupt")
+    assert not app.exists()
