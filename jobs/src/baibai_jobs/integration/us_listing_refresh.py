@@ -22,9 +22,11 @@ from baibai_engine.machine_analysis.observations.stocks.us_listing_input import 
     normalize_us_listings,
 )
 from baibai_jobs.integration.listing_master_current import (
+    ListingMarketUpdate,
     ListingMasterStore,
     ListingUpdateStatus,
-    refresh_current_listing_master,
+    apply_listing_market_update,
+    prepare_listing_market_update,
 )
 from baibai_jobs.schedule import us_master_refresh_date
 
@@ -67,7 +69,19 @@ def refresh_current_us_listings(
     target = us_master_refresh_date(created_at, now(), scheduled=scheduled, is_open=is_open)
     if target is None:
         return "closed"
-    inputs = load_verified(target)
+    received_at, prepare = prepare_us_listing_update(load_verified(target), target=target)
+    checked_at = now()
+    if us_master_refresh_date(created_at, checked_at, scheduled=scheduled, is_open=is_open) is None:
+        return "closed"
+    if received_at > checked_at.astimezone(UTC):
+        raise ValueError("US listing receipt is after the current refresh")
+    return apply_listing_market_update(store, "US", prepare)
+
+
+def prepare_us_listing_update(
+    inputs: USListingInputs, *, target: date
+) -> tuple[datetime, ListingMarketUpdate]:
+    """Apply the exchange owner to a pair already verified for the target NY session."""
     new_york = ZoneInfo("America/New_York")
     if any(
         receipt.complete is not True
@@ -98,13 +112,7 @@ def refresh_current_us_listings(
         raise ValueError("US listing notice is outside the XNAS/XNYS scope")
 
     received_at = max(r.received_at.astimezone(UTC) for r in inputs.receipts)
-    checked_at = now()
-    if us_master_refresh_date(created_at, checked_at, scheduled=scheduled, is_open=is_open) is None:
-        return "closed"
-    if received_at > checked_at.astimezone(UTC):
-        raise ValueError("US listing receipt is after the current refresh")
-    return refresh_current_listing_master(
-        store,
+    return received_at, prepare_listing_market_update(
         market="US",
         session=target,
         source=NASDAQ_DIRECTORY_SOURCE,

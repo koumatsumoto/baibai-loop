@@ -302,7 +302,16 @@ uv run --offline baibai-jobs rakuten-universe-check \
   --restrictions-received-at "$RESTRICTIONS_RECEIVED_AT"
 ```
 
-[楽天証券の現物の取扱市場](https://www.rakuten-sec.co.jp/web/us/stock/rule/ground_rules.html)にはNYSE American、NYSE Arca、Cboeも含まれる。確認できた市場は `--venue-count "市場名=件数"` を追加する。出力の `catalog_count: null` は市場未確認、0は確認済み0件。後者3市場など上場照合の未対応は `listing_supported: false` で表示し、候補に数えない。終了0はNASDAQとNYSEの入力件数が合い、制限を除いた取込対象があることだけ。終了1は入力は読めたが初期対象が不足、2は件数・日時・CSV不整合や読取失敗。照合結果は指定日だけに有効で、過去日の通過は最新の取込根拠にならない。全市場取得・上場との結合・Alpaca取込・注文可否を証明しない。ネット接続・DB/R2更新・成果物保存は行わず、集計だけを出す。
+[楽天証券の現物の取扱市場](https://www.rakuten-sec.co.jp/web/us/stock/rule/ground_rules.html)にはNYSE American、NYSE Arca、Cboeも含まれる。確認できた市場は `--venue-count "市場名=件数"` を追加する。出力の `catalog_count: null` は市場未確認、0は確認済み0件。後者3市場など上場照合の未対応は `listing_supported: false` で表示し、候補に数えない。終了0はNASDAQとNYSEの入力件数が合い、制限を除いた取込対象があることだけ。終了1は入力は読めたが初期対象が不足、2は件数・日時・CSV不整合や読取失敗。照合結果は指定日だけに有効で、過去日の通過は最新の取込根拠にならない。全市場取得・上場との結合・Alpaca取込・注文可否を証明しない。通常は集計だけを出す。
+
+同じNY立会日の検証済みのNasdaq Trader原本2ファイル（`nasdaqlisted.txt`、`otherlisted.txt`）があれば、上のコマンドへ次を追加し、1回の取得に使う私有のマスターを組み立てられる。両ファイルは対象立会を覆う全件であることを取得側で確認し、別々の実受領時刻を渡す。ヘッダーと作成日だけでは全件性を証明しない。
+
+```text
+--listing-directory "$PRIVATE/nasdaq" --output-master "$PRIVATE/current.json"
+--nasdaqlisted-received-at "$NASDAQ_RECEIVED_AT" --otherlisted-received-at "$OTHERLISTED_RECEIVED_AT"
+```
+
+NY日付が変わる前に実行し、出力先は未作成の私有ファイルとする。既に固定した前回のマスターがある場合だけ `--previous-master` で指定し、継続が確認できる銘柄のIDとJP区画を残す。初回のIDに当日より前の価格を結び付けない。SIPに渡せる楽天買付対象数は `listing_sip_targets`。照合で0件ならファイルを作らない。ネット接続・DB/R2更新は行わず、[無調整SIPの取得](../docs/reference/us-research-mvp.md#現行対象の日足を作業用に取得する)に同じファイルを渡す。
 
 <a id="economic-acquisition"></a>
 ### 経済原本

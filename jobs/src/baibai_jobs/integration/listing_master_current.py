@@ -56,6 +56,7 @@ from baibai_engine.storage.objects.r2 import (
 LISTING_MASTER_CURRENT_KEY = "market/listing-master/current.json"
 
 type ListingUpdateStatus = Literal["updated", "unchanged", "stale"]
+type ListingMarketUpdate = Callable[[CurrentListingMarket | None], CurrentListingMarket | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,6 +131,11 @@ def pin_current_listing_master(store: CheckedObjectMetadataReader, *, output: Pa
     if saved is None:
         raise FileNotFoundError("the current listing master is not published")
     payload, _ = saved
+    write_private_listing_master_pin(output, payload)
+
+
+def write_private_listing_master_pin(output: Path, payload: bytes) -> None:
+    """Materialize a complete current file locally, without replacing any file."""
     decode_current_listing_master(payload)
     output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     with TemporaryDirectory(dir=output.parent, prefix=".listing-master-") as directory:
@@ -152,11 +158,32 @@ def refresh_current_listing_master(
     verified_events: Iterable[VerifiedListingEvent] = (),
     nasdaq_directories: tuple[NasdaqDirectoryVersion, ...] | None = None,
 ) -> ListingUpdateStatus:
-    """Replace just one market using a verified complete source observation.
+    """Replace just one market after validating a complete source observation."""
+    prepare = prepare_listing_market_update(
+        market=market,
+        session=session,
+        source=source,
+        received_at=received_at,
+        observations=observations,
+        complete=complete,
+        verified_events=verified_events,
+        nasdaq_directories=nasdaq_directories,
+    )
+    return apply_listing_market_update(store, market, prepare)
 
-    Reconcile again after one actual CAS conflict: the new prior may include
-    identity changes for this market as well as an update to the other market.
-    """
+
+def prepare_listing_market_update(
+    *,
+    market: ListingMarket,
+    session: date,
+    source: str,
+    received_at: datetime,
+    observations: Iterable[ObservedListing],
+    complete: bool,
+    verified_events: Iterable[VerifiedListingEvent] = (),
+    nasdaq_directories: tuple[NasdaqDirectoryVersion, ...] | None = None,
+) -> ListingMarketUpdate:
+    """Validate the input once and derive its replacement against a supplied prior."""
     if market not in ("JP", "US") or type(session) is not date or received_at.utcoffset() is None:
         raise ValueError("current listing update requires a market, local session and receipt")
     if complete is not True:
@@ -207,13 +234,13 @@ def refresh_current_listing_master(
             raise ValueError("different current listings claim the same market receipt")
         return replacement
 
-    return _update_market(store, market, prepare)
+    return prepare
 
 
-def _update_market(
+def apply_listing_market_update(
     store: ListingMasterStore,
     market: ListingMarket,
-    prepare: Callable[[CurrentListingMarket | None], CurrentListingMarket | None],
+    prepare: ListingMarketUpdate,
 ) -> ListingUpdateStatus:
     """Prepare one partition against the latest read on each conditional attempt."""
     for last_attempt in (False, True):
@@ -306,6 +333,25 @@ def refresh_current_us_rakuten_scope(
     cutoff: datetime,
 ) -> ListingUpdateStatus:
     """Replace only broker facts from a complete current pair; never create exchange listings."""
+    prepare = prepare_rakuten_scope_update(
+        snapshot=snapshot,
+        catalog_venue_counts=catalog_venue_counts,
+        bindings=bindings,
+        expected_session=expected_session,
+        cutoff=cutoff,
+    )
+    return apply_listing_market_update(store, "US", prepare)
+
+
+def prepare_rakuten_scope_update(
+    *,
+    snapshot: RakutenOrdinarySnapshot | None,
+    catalog_venue_counts: Mapping[str, int],
+    bindings: Iterable[RakutenListingBinding],
+    expected_session: date,
+    cutoff: datetime,
+) -> ListingMarketUpdate:
+    """Admit the counted broker facts for an exact listing-master section."""
     if cutoff.utcoffset() is None:
         raise ValueError("Rakuten cutoff requires a timezone")
     if (
@@ -373,7 +419,7 @@ def refresh_current_us_rakuten_scope(
                 return None  # A newer catalog alone cannot clear a known restriction.
         return replace(current, rakuten=scope)
 
-    return _update_market(store, "US", prepare)
+    return prepare
 
 
 def build_parser() -> argparse.ArgumentParser:

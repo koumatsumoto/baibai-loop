@@ -1,11 +1,22 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
+from httpx2 import MockTransport, Request, Response
+from tests.jobs.integration.test_us_daily_handoff import _SATURDAY_SLOT, _whole
+from tests.jobs.integration.test_us_daily_prices import _CALENDAR_ROWS, _payload
+from tests.jobs.integration.test_us_listing_refresh import _NASDAQ, _NYSE
 
+from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
+    read_local_listing_master,
+)
+from baibai_jobs.acquisition import rakuten_universe_check
 from baibai_jobs.cli import main
+from baibai_jobs.integration import source_handoff, us_daily_handoff
 
 _CATALOG = "ticker,exchange\nBRK B,NYSE\nKO,NYSE\nNVDA,NASDAQ\nHYP,NYSE American\n"
 _RESTRICTIONS = (
@@ -170,3 +181,148 @@ def test_missing_restriction_file_is_not_zero(
     result = capsys.readouterr()
     assert not result.out
     assert "cannot read the normalized UTF-8" in result.err
+
+
+def _assemble_args(
+    root: Path, *, output: Path, otherlisted_received_at: str = "2026-11-27T13:49:00Z"
+) -> list[str]:
+    directories = root / "verified-nasdaq"
+    directories.mkdir(exist_ok=True)
+    (directories / "nasdaqlisted.txt").write_bytes(_NASDAQ)
+    (directories / "otherlisted.txt").write_bytes(_NYSE)
+    return [
+        *_args(
+            root,
+            catalog="ticker,exchange\nGOOG,NASDAQ\nBRK B,NYSE\nQQEX,Cboe\n",
+            restrictions="ticker,exchange,restriction\nGOOG,NASDAQ,buy_suspended\n",
+            counts=("NASDAQ=1", "NYSE=1", "Cboe=1"),
+            catalog_count=3,
+            restrictions_count=1,
+        ),
+        "--listing-directory",
+        str(directories),
+        "--nasdaqlisted-received-at",
+        "2026-11-27T13:48:00Z",
+        "--otherlisted-received-at",
+        otherlisted_received_at,
+        "--output-master",
+        str(output),
+    ]
+
+
+def test_operator_assembles_a_master_the_raw_sip_entrypoint_reads(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = datetime(2026, 11, 27, 19, tzinfo=UTC)
+    monkeypatch.setattr(rakuten_universe_check, "_now", lambda: now)
+    output = tmp_path / "current.json"
+    args = _assemble_args(tmp_path, output=output)
+    assert main(args) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["listing_sip_targets"] == 1
+    assert report["unsupported_catalog_targets"] == 1
+    assert not output.stat().st_mode & 0o077
+    before = output.read_bytes()
+    current = read_local_listing_master(output)["US"]
+    assert current.rakuten is not None
+    assert {row.listing_key: row.state for row in current.rakuten.rows} == {
+        ("XNAS", "GOOG"): "buy_suspended",
+        ("XNYS", "BRK.B"): "catalog_target",
+    }
+
+    # Reuse an existing pin without changing its identity or copying raw data to a store.
+    next_output = tmp_path / "repeat.json"
+    with_previous = [*args[:-1], str(next_output), "--previous-master", str(output)]
+    assert main(with_previous) == 0
+    assert next_output.read_bytes() == before
+    capsys.readouterr()
+    assert main(args) == 2
+    assert "FileExistsError" in capsys.readouterr().err
+    assert output.read_bytes() == before
+
+    for env in ("APCA_API_KEY_ID", "APCA_API_SECRET_KEY"):
+        monkeypatch.setenv(env, "test-only")
+    monkeypatch.setattr(us_daily_handoff, "_now", lambda: _SATURDAY_SLOT)
+    calls: list[Request] = []
+
+    def get(request: Request) -> Response:
+        calls.append(request)
+        url = urlsplit(str(request.url))
+        params = parse_qs(url.query)
+        if url.path == "/v2/calendar":
+            assert params["end"] == ["2026-11-28"]
+            return _whole(request, _CALENDAR_ROWS[:1])
+        assert url.path == "/v2/stocks/bars"
+        assert params["symbols"] == ["BRK.B"]
+        assert params["start"] == params["end"] == ["2026-11-27"]
+        assert (params["feed"], params["adjustment"]) == (["sip"], ["raw"])
+        return _whole(request, _payload(("BRK.B",)))
+
+    monkeypatch.setattr(us_daily_handoff, "HTTPTransport", lambda **_: MockTransport(get))
+    assert (
+        source_handoff.main(
+            [
+                "acquire",
+                "--source",
+                "alpaca-us-daily",
+                "--asof",
+                "2026-11-27",
+                "--current-listing-master",
+                str(output),
+                "--directory",
+                str(tmp_path / "sip"),
+            ]
+        )
+        == 0
+    )
+    assert len(calls) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["expected"] == result["received"] == 1
+
+
+@pytest.mark.parametrize(
+    ("make_invalid", "reason"),
+    [
+        ("missing_native", "FileNotFoundError"),
+        ("other_native_day", "native creation date"),
+        ("late_clock", "after the current refresh"),
+        ("past_ny_session", "not current"),
+        ("unverified_nyse_count", "independently reported venue totals"),
+        ("no_positive_join", "no SIP-eligible Rakuten catalog targets"),
+        ("only_flagged_fund", "no SIP-eligible Rakuten catalog targets"),
+    ],
+)
+def test_mismatched_inputs_create_no_private_master(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    make_invalid: str,
+    reason: str,
+) -> None:
+    output = tmp_path / "never-created.json"
+    now = datetime(2026, 11, 27, 19, tzinfo=UTC)
+    if make_invalid == "past_ny_session":
+        now = _SATURDAY_SLOT
+    monkeypatch.setattr(rakuten_universe_check, "_now", lambda: now)
+    kwargs = (
+        {"otherlisted_received_at": "2026-11-27T21:00:00Z"} if make_invalid == "late_clock" else {}
+    )
+    args = _assemble_args(tmp_path, output=output, **kwargs)
+    other = tmp_path / "verified-nasdaq" / "otherlisted.txt"
+    if make_invalid == "missing_native":
+        other.unlink()
+    elif make_invalid == "other_native_day":
+        other.write_bytes(_NYSE.replace(b"11272026", b"11252026"))
+    elif make_invalid == "unverified_nyse_count":
+        index = args.index("NYSE=1")
+        del args[index - 1 : index + 1]
+    elif make_invalid == "no_positive_join":
+        catalog = tmp_path / "catalog.csv"
+        catalog.write_text(
+            catalog.read_text().replace("BRK B,NYSE", "OTHER,NYSE"), encoding="utf-8"
+        )
+    elif make_invalid == "only_flagged_fund":
+        other.write_bytes(_NYSE.replace(b"|BRK.B|N|100|", b"|BRK.B|Y|100|"))
+    assert main(args) == 2
+    assert reason in capsys.readouterr().err
+    assert not output.exists()
