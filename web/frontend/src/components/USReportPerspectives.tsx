@@ -17,15 +17,18 @@ export function USReportPerspectives({ perspectives }: { perspectives: USProposa
         <ReportPerspectiveTable rows={rows} />
         <details className="rounded-lg border p-4">
           <summary className="cursor-pointer font-medium focus-visible:outline-2 focus-visible:outline-offset-4">観点別の理由・根拠を読む</summary>
+          <p className="mt-3 text-muted-foreground">配信用に記録された要点と出典です。調査本文の前提や反証の全文は掲載していません。</p>
           <div className="mt-3 grid divide-y">
             {rows.map(({ model, label, authored }) => authored && <section key={model} className="grid min-w-0 gap-2 py-3">
               <h5 className="font-medium">{label}</h5>
               <p className="whitespace-pre-wrap break-words">{authored.summary}</p>
-              {authored.sources.length > 0 && <ul className="grid gap-1 text-xs leading-6 text-muted-foreground">
-                {authored.sources.map(({ label: source, observed_at }, index) => <li key={index} className="break-words">
-                  {source} ／ 資料の確認日時：<time dateTime={observed_at}>{formatJstDateTime(observed_at)} JST</time>
-                </li>)}
-              </ul>}
+              {authored.sources.length > 0
+                ? <ul className="grid gap-1 text-xs leading-6 text-muted-foreground">
+                  {authored.sources.map(({ label: source, observed_at }, index) => <li key={index} className="break-words">
+                    {source} ／ 資料の確認日時：<time dateTime={observed_at}>{formatJstDateTime(observed_at)} JST</time>
+                  </li>)}
+                </ul>
+                : <p className="text-xs text-muted-foreground">この観点に掲載された出典はありません。</p>}
             </section>)}
           </div>
         </details>
