@@ -741,7 +741,7 @@ def test_retained_acquisition_failure_is_a_gap_not_failed_publication(
     assert check(["check", "--directory", str(tmp_path / "run")]) == 0
     checked = json.loads(capsys.readouterr().out)
     assert checked["integration_status"] == "completed_with_source_gaps"
-    assert "受領1" in render_source_failures(report)[0]
+    assert "取得失敗1件" in render_source_failures(report)[0]
     assert "private provider failure" not in json.dumps(report)
 
 

@@ -111,7 +111,7 @@ ParquetのSQLite由来をコードでは `sqlite_snapshot` と呼ぶ。公開済
 1. 検証CLIのcommitと日次runのcommitを別々に記録し、日次の同一run/attempt、[現行ポインタ](#machine-publication)のETag・Lake release ID・manifest SHA・Machine UUIDとMarket/Runsの各SHAを固定する。同じポインタに合うMarketのorigin、RunsのGenerationとSelectionを確認する。現行が進んで元の組を取得できない場合は、元runの再現とはみなさない。Appは別正本なので、[取得元・取得版・時刻を固定した作業copy](#application-db-を反映する)を使う。保存先は隔離Appのみ。必要な入力を同じ出所で読めない場合は、別日や最新のデータで補わず、そこで止める。
 2. 隔離Appを指定して `operation --db <APP_DB> --format json show --status active` を先に確認する。同じ案件は[保存したOperation IDで再開](../.agents/skills/investment-judgment/SKILL.md#完了と再開)し、別案件なら新規の `prepare` は止める。受入のためだけに別案件を閉じず、本番Appも変更しない。
    新規案件は `selection-context` にそのGeneration・Selection・研究基準日・情報締切を明示し、`selection-context` と `prepare` には同じ `--runs-path` を渡して[選定と調査・評価の保存](../.agents/skills/investment-judgment/SKILL.md#開始と固定対象)へ進む。正式終値と一次資料は別に照合し、終値の価格日と資料の公表時刻を記録する。選定・prepare・評価保存・Operation操作にも同じ隔離Appを `--db` で明示する。価値と価格の差、市場・同業との比較、欠測、判断を変える条件を確認し、評価を独立査読する。買いを件数目標にしない。
-3. [提案の手順](../.agents/skills/investment-judgment/SKILL.md#trade-proposal)に沿って `trade-proposal-context` → `trade-proposal-check` → 提案本文の独立査読 → `trade-proposal-check` で `valid=true` と `review_binding=match` を確認 → `trade-proposal-publish` → [`operation complete`](../.agents/skills/investment-judgment/SKILL.md#完了と再開)（同じ提案ID、結果、次の手を指定）。提案コマンドには同じ `--db`、`--sqlite-path`、`--current-listing-master` を明示する。正式保存された同じ提案IDを読戻す。ここでのpublishは隔離Appへの保存であり、R2や実配信への公開・発注ではない。
+3. [Appの反映手順](#application-db-を反映する)の「作成・査読・App保存」の日本株の列に従い、`--db` には隔離Appを指定する。[`operation complete`](../.agents/skills/investment-judgment/SKILL.md#完了と再開)に同じ提案ID・結果・次の手を渡し、保存された同じ提案IDを読戻す。ここでは本番に反映しない。
 4. 隔離checkoutでローカル表示を生成し、同じAppと提案IDで照合する。複数ケースは各提案がそのAppのlatestのうちに照合する。同じIDで保存・Operation完了・表示を確認できても、売買や資金配分の判断の有無までは分からない。
    発行した提案の `research_scope.outcomes[].status` と `items[].action` を銘柄コードで照合する。買い・売り・保有継続・根拠のある見送り（`no_action`）と、査読後も判断を保留した対象（`reviewed` / `defer`）、調査未完の対象（`unfinished` / `defer`）を分けて報告する。表示側の未完理由と参照は `items[].unfinished` を確認する。調査未完は評価済みに数えず、発行した提案の全項目が保留なら「経路は確認済み、売買判断は未確認」とする。対象0件で提案なしのOperation完了は、正式提案の受入には数えない。
    受入で見つけた問題は、根拠と再現条件を残して修正後に同じ入力で再確認する。実配信まで確認する場合だけ [Webの照合](#web-serving) を別に行う。
@@ -229,13 +229,27 @@ FRED確認state自体の欠落は[通常recheck-source](#経済原本)へ。他s
 
 空の作業領域へpullし、DBとstores/.r2-generations/baibai.sqlite.etagを同じ組で使う。版は取得した本文と同じ応答から取り、配置前に現正本と異なれば中止する。同じ作業領域に対する `pull-app` が重なった場合、後から来た取得はDB・取得世代を変えずに停止する。別の作業領域やR2側のwriterを止めるロックではない。更新済みの組があれば再pullしない。
 
+日米とも、提案の作成・査読とWebへの反映は別です。この手順での `r2_transfer.sh` は取得用。本番反映には `publish.sh` を使う。内部のDB転送だけではWeb更新は起動しない。
+
+1. **取得**: `R2_STORES_BUCKET=baibai-stores jobs/scripts/r2_transfer.sh pull-app`。この段階は読み取り鍵で足りる。
+2. **作成・査読・App保存**: `--db`（米国株手順の `$APP_COPY`）には取得した `stores/application/baibai.sqlite` を指定する。起動方法と引数は各市場の手順を参照。
+
+   | 作業 | [日本株の手順](../.agents/skills/investment-judgment/SKILL.md#trade-proposal) | [米国株の手順](../docs/reference/us-research-mvp.md) |
+   | --- | --- | --- |
+   | 原稿と独立査読 | `trade-proposal-context` → `trade-proposal-check` → 提案査読 → 再度 `trade-proposal-check`（`valid=true`、`review_binding=match`） | `draft-digest` → 分析査読 → `save`（私有の分析ファイルだけ）→ `proposal-digest` → 判断査読 |
+   | App保存 | `trade-proposal-publish` | `proposal-save`。出力されたIDは `proposal-show` の `--proposal-id` に指定して読戻す。 |
+
+   日本株は準備済みのOperationから始め、3コマンドには同じApp・Market・固定済み銘柄マスター（`--db`、`--sqlite-path`、`--current-listing-master`）を渡す。どちらのApp保存もR2への反映や発注は行わない。
+3. **本番反映（日米共通）**: App保存が返した `proposal_id` を `PROPOSAL_ID` に設定する。任意の `--check` は読み取り鍵で対象バケット・R2の版・一時Appスナップショット中の提案IDを確認し、PUTもActions起動もしない。実反映は版を改めて照合し、R2書き込み鍵とこのリポジトリのActionsを実行できるGitHub CLI認証を使う。
+
 ```bash
-jobs/scripts/r2_transfer.sh pull-app
-# 正規CLIでこのDBを更新した後
-jobs/scripts/publish.sh
+jobs/scripts/publish.sh --bucket baibai-stores --proposal-id "$PROPOSAL_ID" --check
+jobs/scripts/publish.sh --bucket baibai-stores --proposal-id "$PROPOSAL_ID"
 ```
 
-[`publish.sh`](scripts/publish.sh)は引数なしで、台帳preflight → 取得ETagを条件とする本体PUT → PUT応答のETagを記録 → Web生成の依頼、の順に進む。時価不足と台帳破損は別。DBとETagは組で扱い、未確認世代を現HEADから補わない。通常のApp反映ではR2に日付別backupを作成せず、過去の退避物の整理もしない。
+取引記録など、提案以外のApp反映は `jobs/scripts/publish.sh --bucket baibai-stores --app-only` と明示する。引数なしでは反映しない。 `--bucket` は実行時の対象との照合であり、設定を上書きする指定ではない。設定から導いた実際のバケットが違えば停止する。本番Webを起動するこの入口は `baibai-stores` 専用。書き込み鍵が `baibai-serving` を含んでいても、そこへ直接書かず、既存のGitHub Actionsが配信を更新する。
+
+[`publish.sh`](scripts/publish.sh)は、台帳事前確認 → 取得ETagとR2の比較 → Appのスナップショット作成・指定ID確認 → 取得ETagで条件付きPUT → PUT応答のETagを記録 → Web生成依頼の順。ID確認はアップロードするDBに指定した提案があることだけを確かめる。他の行が変わっていないことや、IDが新規・最新であることまでは判定しない。DBとETagは、取得時と同じ作業領域・R2アカウント・バケットで使う。ETag自体はアカウントやバケットを照合しないため、別環境の取得物や版を持ち込まない。未確認世代を現HEADから補わない。通常のApp反映ではR2に日付別バックアップは作らない。
 
 成功は正本から対象Proposal/評価等のIDで読戻す。競合したら未公開差分を保ち、fresh正本へ正規serviceで再適用する。非0・応答不明では元世代と対象IDを確認し、盲再送しない。PUT済みで表示runがない時だけ`cloud-materialize`を再依頼する。旧schemaや未公開の事実のあるDBは原copyを保ち、正本へ丸ごと戻さない。
 

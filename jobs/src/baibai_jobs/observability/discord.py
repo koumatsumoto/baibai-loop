@@ -328,7 +328,8 @@ def render_source_failures(report: Mapping[str, object]) -> list[str]:
             if isinstance(failures, list) and not (index == 0 and expected_unavailable):
                 counts[index] += len(failures)
     return [
-        f"source不備: {source} / 受領{counts[0]}・投影{counts[1]}・意味抽出{counts[2]}件"
+        f"要確認: {source} / 取得失敗{counts[0]}件・投影失敗{counts[1]}件"
+        f"・意味抽出失敗{counts[2]}件"
         + (" / " + ",".join(sorted(issues[source])) if issues.get(source) else "")
         for source, counts in sorted(grouped.items())
         if any(counts) or issues.get(source)
