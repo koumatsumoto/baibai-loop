@@ -40,6 +40,7 @@ shellを開き直したらenv.shをsourceする。checkoutを移動したらsetu
 ```bash
 fnm exec --using=26 npm install --global @koumatsumoto/envshare
 (
+  set +x
   read -rs -p 'envshare key: ' ENVSHARE_KEY && printf '\n' &&
     ENVSHARE_KEY="$ENVSHARE_KEY" fnm exec --using=26 envshare sync --bootstrap
 )
@@ -47,7 +48,7 @@ fnm exec --using=26 npm install --global @koumatsumoto/envshare
 
 鍵は別経路で受け取り、コマンドの引数や履歴に直接書かない。すでに `.env` に鍵がある場合は `fnm exec --using=26 envshare sync` だけ。同期で `.env` の既存の無関係な設定は消えない。Gitには必要な場合だけ暗号文を置き、鍵・`.env`・平文の配布元は追加しない。CLIの単体テストには同期不要。
 
-本番データを読む場合だけ、[運用手順の実行前確認](../jobs/OPERATIONS.md#actions-write-boundary)へ。提案のAppデータだけなら [`pull-app`](../jobs/OPERATIONS.md#application-db-を反映する) を使う（AWS CLIと空の作業領域が必要）。セットアップ確認のために全DBをダウンロードしたり、`publish.sh` や本番バッチを実行したりしない。
+本番データを読む場合だけ、[運用手順の実行前確認](../jobs/OPERATIONS.md#actions-write-boundary)へ。提案のAppデータだけなら [`pull-app`](../jobs/OPERATIONS.md#application-db-を反映する) を使う（AWS CLIと空の作業領域が必要）。`pull-app` は必要なR2変数が未設定なら `.env` をBashで読むため、信頼できる設定だけを使い、R2の各行は設定例どおりの単純な `名前=値` にする。セットアップ確認のために全DBをダウンロードしたり、`publish.sh` や本番バッチを実行したりしない。
 
 ## 変更を検証する
 
