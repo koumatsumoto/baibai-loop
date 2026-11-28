@@ -214,10 +214,14 @@ def test_application_can_publish_again_using_its_put_response(tmp_path: Path) ->
     assert '--if-match "etag-put-1"' in puts[1]
 
 
-def test_application_put_without_etag_removes_stale_marker(tmp_path: Path) -> None:
+@pytest.mark.parametrize("ack", ["", "null", '"broken'])
+def test_application_put_without_usable_etag_removes_stale_marker(tmp_path: Path, ack: str) -> None:
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
-    env["AWS_FAKE_MISSING_PUT_ETAG"] = "1"
+    if ack:
+        env["AWS_FAKE_PUT_ETAG_OVERRIDE"] = ack
+    else:
+        env["AWS_FAKE_MISSING_PUT_ETAG"] = "1"
     generation = Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag"
     generation.write_text('"etag-stable"\n')
     result = subprocess.run(
@@ -229,7 +233,7 @@ def test_application_put_without_etag_removes_stale_marker(tmp_path: Path) -> No
         text=True,
     )
     assert result.returncode != 0
-    assert "application uploaded but no ETag returned" in result.stderr
+    assert "application uploaded but no usable ETag returned" in result.stderr
     assert not generation.exists()
     assert (Path(env["AWS_FAKE_STATE"]) / "generation-baibai.sqlite").exists()
 

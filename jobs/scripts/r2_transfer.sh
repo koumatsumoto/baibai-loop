@@ -261,8 +261,8 @@ push_key_if_version() {
   if [[ "${key}" == "baibai.sqlite" ]]; then
     # A later HEAD could observe a different writer and authorize a stale copy.
     clear_pulled_versions "${key}"
-    if [[ -z "${uploaded_version}" || "${uploaded_version}" == "None" ]]; then
-      printf 'application uploaded but no ETag returned; pull before next update\n' >&2
+    if ! etag_body "${uploaded_version}" >/dev/null 2>&1; then
+      printf 'application uploaded but no usable ETag returned; check the remote App before retrying\n' >&2
       return 1
     fi
     record_pulled_version "${key}" "${uploaded_version}"

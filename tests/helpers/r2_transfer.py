@@ -152,7 +152,9 @@ if [[ "$1 $2" == "s3api put-object" ]]; then
   fi
   cp "$body" "${AWS_FAKE_STATE}/put-${slug}" || exit 97
   printf 'x' >> "${AWS_FAKE_STATE}/generation-${slug}"
-  if [[ -n "$wants_etag" && -z "${AWS_FAKE_MISSING_PUT_ETAG:-}" ]]; then
+  if [[ -n "$wants_etag" && -n "${AWS_FAKE_PUT_ETAG_OVERRIDE:-}" ]]; then
+    printf '%s\\n' "$AWS_FAKE_PUT_ETAG_OVERRIDE"
+  elif [[ -n "$wants_etag" && -z "${AWS_FAKE_MISSING_PUT_ETAG:-}" ]]; then
     object_etag "$slug"
   fi
   exit 0
