@@ -12,6 +12,11 @@ from typing import Literal
 from httpx2 import BaseTransport, Headers, Request, StreamError, TransportError
 
 from baibai_engine.data_collection.providers.alpaca import BARS_URL, BarsResponse
+from baibai_engine.data_collection.providers.alpaca_assets import (
+    ASSETS_BODY_MAX_BYTES,
+    ASSETS_URL,
+    AlpacaAssetsReceipt,
+)
 from baibai_engine.data_collection.providers.alpaca_calendar import (
     CALENDAR_URL,
     AlpacaCalendarReading,
@@ -21,7 +26,11 @@ from baibai_engine.data_collection.providers.alpaca_calendar import (
 from baibai_engine.data_collection.transport.http import check_acquisition_deadline
 
 BARS_BODY_MAX_BYTES = 128 * 1024
-_ENDPOINTS = {"bars": (BARS_URL, BARS_BODY_MAX_BYTES), "calendar": (CALENDAR_URL, 16 * 1024)}
+_ENDPOINTS = {
+    "bars": (BARS_URL, BARS_BODY_MAX_BYTES),
+    "calendar": (CALENDAR_URL, 16 * 1024),
+    "assets": (ASSETS_URL, ASSETS_BODY_MAX_BYTES),
+}
 _TIMEOUT = {"connect": 10.0, "read": 15.0, "write": 10.0, "pool": 10.0}
 _CONTENT_HEADERS = frozenset(
     {"content-type", "content-length", "content-encoding", "content-range", "transfer-encoding"}
@@ -71,7 +80,7 @@ def _require_whole_body(headers: Headers, size: int) -> None:
 def receive_alpaca(
     url: str,
     *,
-    endpoint: Literal["bars", "calendar"],
+    endpoint: Literal["bars", "calendar", "assets"],
     credentials: AlpacaCredentials,
     transport: BaseTransport,
     clock: Callable[[], datetime],
@@ -82,7 +91,8 @@ def receive_alpaca(
     The caller owns provider-specific authentication, retries, and any persistence.
     """
     base, limit = _ENDPOINTS[endpoint]
-    if not url.startswith(base + "?") or "#" in url:
+    allowed = url == base if endpoint == "assets" else url.startswith(base + "?")
+    if not allowed or "#" in url:
         raise OSError("Alpaca request is outside its authorized endpoint")
     request = Request(
         "GET",
@@ -157,3 +167,19 @@ def receive_paper_calendar(
 
     reading = read_paper_us_calendar(start, end, get_authorized=read_calendar)
     return reading, wire
+
+
+def receive_paper_us_assets(
+    *,
+    credentials: AlpacaCredentials,
+    transport: BaseTransport,
+    clock: Callable[[], datetime],
+) -> AlpacaAssetsReceipt:
+    """Read the active US equity list once from Paper, not Trading or Market Data."""
+    wire = receive_alpaca(
+        ASSETS_URL, endpoint="assets", credentials=credentials, transport=transport, clock=clock
+    )
+    response = wire.response
+    if response.status_code != 200:
+        raise OSError(f"Alpaca Assets HTTP {response.status_code}")
+    return AlpacaAssetsReceipt(response.received_at, response.body)
