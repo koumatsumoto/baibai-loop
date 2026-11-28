@@ -12,15 +12,12 @@ from zoneinfo import ZoneInfo
 
 from httpx2 import BaseTransport, HTTPTransport
 
-from baibai_engine.data_collection.providers.alpaca import BarsResponse
-from baibai_engine.data_collection.providers.alpaca_calendar import (
-    AlpacaCalendarResponse,
-    read_paper_us_calendar,
-)
+from baibai_engine.data_collection.providers.alpaca import BarsCapture, BarsResponse
 from baibai_engine.data_collection.providers.alpaca_http import (
     AlpacaCredentials,
     AlpacaHTTPReceipt,
     receive_alpaca,
+    receive_paper_calendar,
 )
 from baibai_engine.machine_analysis.observations.stocks.listing_master_file import (
     LISTING_MASTER_MAX_BYTES,
@@ -51,6 +48,54 @@ def _page_spec(wire: AlpacaHTTPReceipt, *, digest: str) -> dict[str, object]:
         "received_at": wire.response.received_at.isoformat(),
         "sha256": digest,
     }
+
+
+def write_calendar_proof(path: Path, *, wire: AlpacaHTTPReceipt, start: date, end: date) -> str:
+    body = wire.response.body
+    write_json_atomic(
+        path,
+        {
+            **_page_spec(wire, digest=sha256(body).hexdigest()),
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "body": body.decode("utf-8"),
+        },
+    )
+    return sha256(path.read_bytes()).hexdigest()
+
+
+def write_bars_proof(
+    directory: Path,
+    capture: BarsCapture,
+    pages: dict[str, AlpacaHTTPReceipt],
+    *,
+    bind_native_receipts: bool,
+) -> str:
+    manifest: list[dict[str, object]] = []
+    for page in capture.pages:
+        wire = pages[page.request_url]
+        name = f"page-{page.page_number:02d}.json"
+        write_bytes_atomic(directory / name, page.response.body)
+        member = {
+            **_page_spec(wire, digest=page.body_sha256),
+            "file": name,
+            "headers": dict(wire.headers),
+        }
+        if bind_native_receipts:
+            member["receipt_id"] = page.receipt_id
+        manifest.append(member)
+    data = canonical_json(
+        {
+            **({} if bind_native_receipts else {"source_handoff": _SOURCE}),
+            "request_id": capture.request_id,
+            "start": capture.query.start.isoformat(),
+            "end": capture.query.end.isoformat(),
+            "symbols": list(capture.query.symbols),
+            "pages": manifest,
+        }
+    )
+    write_bytes_atomic(directory / "capture.json", data)
+    return sha256(data).hexdigest()
 
 
 def _save(
@@ -88,15 +133,8 @@ def _save(
     if not observations:
         return {**report, "status": "unavailable", "calendar": None}
     directory.mkdir(mode=0o700, parents=True, exist_ok=False)
-    calendar_body = calendar.response.body
-    write_json_atomic(
-        directory / "calendar.json",
-        {
-            **_page_spec(calendar, digest=sha256(calendar_body).hexdigest()),
-            "start": calendar_start.isoformat(),
-            "end": calendar_end.isoformat(),
-            "body": calendar_body.decode("utf-8"),
-        },
+    write_calendar_proof(
+        directory / "calendar.json", wire=calendar, start=calendar_start, end=calendar_end
     )
     batches: list[dict[str, object]] = []
     for index, item in enumerate(collection.receipts, 1):
@@ -105,31 +143,10 @@ def _save(
         proof_sha: str | None = None
         if capture is not None and coverage.failure is None and coverage.observations:
             batch_directory = directory / f"batch-{index:03d}"
-            manifest: list[dict[str, object]] = []
-            for page in capture.pages:
-                wire = pages[page.request_url]
-                name = f"page-{page.page_number:02d}.json"
-                write_bytes_atomic(batch_directory / name, page.response.body)
-                manifest.append(
-                    {
-                        **_page_spec(wire, digest=page.body_sha256),
-                        "file": name,
-                        "headers": dict(wire.headers),
-                    }
-                )
             proof = f"{batch_directory.name}/capture.json"
-            proof_bytes = canonical_json(
-                {
-                    "source_handoff": _SOURCE,
-                    "request_id": capture.request_id,
-                    "start": capture.query.start.isoformat(),
-                    "end": capture.query.end.isoformat(),
-                    "symbols": list(capture.query.symbols),
-                    "pages": manifest,
-                }
+            proof_sha = write_bars_proof(
+                batch_directory, capture, pages, bind_native_receipts=False
             )
-            write_bytes_atomic(directory / proof, proof_bytes)
-            proof_sha = sha256(proof_bytes).hexdigest()
         batches.append(
             {
                 "proof": proof,
@@ -170,27 +187,9 @@ def acquire_us_daily(
     if current.slice.session != end:
         return {"source": _SOURCE, "status": "scope_unavailable"}
     start = end - timedelta(days=7)
-    calendar_wire: AlpacaHTTPReceipt | None = None
-
-    def read_calendar(url: str) -> AlpacaCalendarResponse:
-        nonlocal calendar_wire
-        calendar_wire = receive_alpaca(
-            url,
-            endpoint="calendar",
-            credentials=credentials,
-            transport=transport,
-            clock=clock,
-        )
-        receipt = calendar_wire.response
-        return AlpacaCalendarResponse(
-            calendar_wire.url,
-            receipt.status_code,
-            receipt.received_at,
-            receipt.body,
-            receipt.status_code == 200,
-        )
-
-    calendar = read_paper_us_calendar(start, end, get_authorized=read_calendar)
+    calendar, calendar_wire = receive_paper_calendar(
+        start, end, credentials=credentials, transport=transport, clock=clock
+    )
     if calendar.problem is not None:
         report: dict[str, object] = {
             "source": _SOURCE,
@@ -230,12 +229,16 @@ def acquire_us_daily(
     )
 
 
+def alpaca_paper_credentials_from_env() -> AlpacaCredentials:
+    return AlpacaCredentials(
+        os.environ.get("APCA_API_KEY_ID", ""), os.environ.get("APCA_API_SECRET_KEY", "")
+    )
+
+
 def acquire_us_daily_from_env(
     *, listing_master: Path, directory: Path, expected_session: date | None
 ) -> dict[str, object]:
-    credentials = AlpacaCredentials(
-        os.environ.get("APCA_API_KEY_ID", ""), os.environ.get("APCA_API_SECRET_KEY", "")
-    )
+    credentials = alpaca_paper_credentials_from_env()
     with HTTPTransport(trust_env=False, retries=0) as transport:
         return acquire_us_daily(
             listing_master=listing_master,

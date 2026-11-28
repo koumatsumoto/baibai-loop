@@ -199,11 +199,17 @@ def _daily_close_proof(
     return capture, listing_pin
 
 
+CALENDAR_PROOF_MAX_BYTES = 32 * 1024
+
+
 def _calendar_proof(path: Path) -> AlpacaCalendarReading:
     # This is a run-local capture, not a new live request or a calendar store.
     with path.open("rb") as stream:
-        data = stream.read(32769)
-    if len(data) > 32768:
+        return calendar_proof_from_bytes(stream.read(CALENDAR_PROOF_MAX_BYTES + 1))
+
+
+def calendar_proof_from_bytes(data: bytes) -> AlpacaCalendarReading:
+    if len(data) > CALENDAR_PROOF_MAX_BYTES:
         raise ValueError("US calendar receipt exceeds its size bound")
     spec = json.loads(data, object_pairs_hook=_unique_fields)
     if not isinstance(spec, dict) or set(spec) != {

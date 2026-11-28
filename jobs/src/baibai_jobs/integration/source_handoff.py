@@ -35,6 +35,7 @@ FINANCIAL_REVISION_OVERLAP_DAYS = 7
 SOURCES = (
     "tradingview",
     "alpaca-us-daily",
+    "alpaca-us-technical",
     *NATIVE_JQUANTS_MARKET_SOURCES,
     "jpx-earnings",
     "jpx-regulations",
@@ -462,14 +463,21 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     directory = args.directory
     try:
-        if args.source == "alpaca-us-daily":
-            from baibai_jobs.integration.us_daily_handoff import acquire_us_daily_from_env
-
+        if args.source in {"alpaca-us-daily", "alpaca-us-technical"}:
             if args.command != "acquire" or args.current_listing_master is None:
                 raise ValueError(
                     "US price handoff requires acquire and a pinned current listing master"
                 )
-            us_report = acquire_us_daily_from_env(
+            if args.source == "alpaca-us-daily":
+                from baibai_jobs.integration.us_daily_handoff import (
+                    acquire_us_daily_from_env as acquire_alpaca,
+                )
+            else:
+                from baibai_jobs.integration.us_technical_handoff import (
+                    acquire_us_technical_from_env as acquire_alpaca,
+                )
+
+            us_report = acquire_alpaca(
                 listing_master=args.current_listing_master,
                 directory=directory,
                 expected_session=args.asof,

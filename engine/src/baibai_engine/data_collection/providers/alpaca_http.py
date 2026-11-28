@@ -6,16 +6,22 @@ import re
 from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from httpx2 import BaseTransport, Headers, Request, StreamError, TransportError
 
 from baibai_engine.data_collection.providers.alpaca import BARS_URL, BarsResponse
-from baibai_engine.data_collection.providers.alpaca_calendar import CALENDAR_URL
+from baibai_engine.data_collection.providers.alpaca_calendar import (
+    CALENDAR_URL,
+    AlpacaCalendarReading,
+    AlpacaCalendarResponse,
+    read_paper_us_calendar,
+)
 from baibai_engine.data_collection.transport.http import check_acquisition_deadline
 
-_ENDPOINTS = {"bars": (BARS_URL, 128 * 1024), "calendar": (CALENDAR_URL, 16 * 1024)}
+BARS_BODY_MAX_BYTES = 128 * 1024
+_ENDPOINTS = {"bars": (BARS_URL, BARS_BODY_MAX_BYTES), "calendar": (CALENDAR_URL, 16 * 1024)}
 _TIMEOUT = {"connect": 10.0, "read": 15.0, "write": 10.0, "pool": 10.0}
 _CONTENT_HEADERS = frozenset(
     {"content-type", "content-length", "content-encoding", "content-range", "transfer-encoding"}
@@ -122,3 +128,32 @@ def receive_alpaca(
             )
     except (StreamError, TransportError, ValueError):
         raise OSError("Alpaca response could not be fully read") from None
+
+
+def receive_paper_calendar(
+    start: date,
+    end: date,
+    *,
+    credentials: AlpacaCredentials,
+    transport: BaseTransport,
+    clock: Callable[[], datetime],
+) -> tuple[AlpacaCalendarReading, AlpacaHTTPReceipt | None]:
+    """Use the fixed Paper route and preserve its original receipt when reached."""
+    wire: AlpacaHTTPReceipt | None = None
+
+    def read_calendar(url: str) -> AlpacaCalendarResponse:
+        nonlocal wire
+        wire = receive_alpaca(
+            url, endpoint="calendar", credentials=credentials, transport=transport, clock=clock
+        )
+        receipt = wire.response
+        return AlpacaCalendarResponse(
+            wire.url,
+            receipt.status_code,
+            receipt.received_at,
+            receipt.body,
+            receipt.status_code == 200,
+        )
+
+    reading = read_paper_us_calendar(start, end, get_authorized=read_calendar)
+    return reading, wire

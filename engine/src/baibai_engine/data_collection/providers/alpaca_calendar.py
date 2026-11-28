@@ -16,7 +16,7 @@ CALENDAR_URL = "https://paper-api.alpaca.markets/v2/calendar"
 _NY = ZoneInfo("America/New_York")
 _FIRST = date(1970, 1, 1)
 _LAST = date(2029, 12, 31)
-_MAX_DAYS = 31
+CALENDAR_WINDOW_MAX_DAYS = 31
 _MAX_BODY = 16 * 1024
 _CORE_OPEN = time(9, 30)
 _CORE_CLOSE = time(16)
@@ -113,7 +113,7 @@ def read_paper_us_calendar(
     """
     if type(start) is not date or type(end) is not date or end < start:
         raise ValueError("US calendar requires ordered NY dates")
-    if not _FIRST <= start <= end <= _LAST or (end - start).days >= _MAX_DAYS:
+    if not _FIRST <= start <= end <= _LAST or (end - start).days >= CALENDAR_WINDOW_MAX_DAYS:
         return AlpacaCalendarReading(start, end, problem="unsupported_window")
     params = urlencode({"start": start.isoformat(), "end": end.isoformat(), "date_type": "TRADING"})
     url = f"{CALENDAR_URL}?{params}"
