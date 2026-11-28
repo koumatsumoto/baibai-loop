@@ -227,11 +227,12 @@ FRED確認state自体の欠落は[通常recheck-source](#経済原本)へ。他s
    | App保存 | `trade-proposal-publish` | `proposal-save`。出力されたIDは `proposal-show` の `--proposal-id` に指定して読戻す。 |
 
    日本株は準備済みのOperationから始め、3コマンドには同じApp・Market作業コピー（`--db`、`--sqlite-path`）を渡す。どちらのApp保存もR2への反映や発注は行わない。
-3. **本番反映（日米共通）**: App保存が返した `proposal_id` を `PROPOSAL_ID` に設定する。任意の `--check` は読み取り鍵で対象バケット・R2の版・一時Appスナップショット中の提案IDを確認し、PUTもActions起動もしない。実反映は版を改めて照合し、R2書き込み鍵とこのリポジトリのActionsを実行できるGitHub CLI認証を使う。
+3. **本番反映（日米共通）**: App保存が返した `proposal_id` を `PROPOSAL_ID` に設定する。任意の `--check` は読み取り鍵で対象バケット・R2の版・一時Appスナップショット中の提案IDを確認し、PUTもActions起動もしない。実反映は版を改めて照合し、R2書き込み鍵と[開発手順で読み込んだActions専用キー](../docs/development.md#3-運用する端末に-env-を用意する)を使う。
 
 ```bash
 jobs/scripts/publish.sh --bucket baibai-stores --proposal-id "$PROPOSAL_ID" --check
-jobs/scripts/publish.sh --bucket baibai-stores --proposal-id "$PROPOSAL_ID"
+GH_TOKEN="${GH_ACTIONS_TOKEN:?GH_ACTIONS_TOKENを設定してください}" \
+  jobs/scripts/publish.sh --bucket baibai-stores --proposal-id "$PROPOSAL_ID"
 ```
 
 取引記録など、提案以外のApp反映は `jobs/scripts/publish.sh --bucket baibai-stores --app-only` と明示する。引数なしでは反映しない。 `--bucket` は実行時の対象との照合であり、設定を上書きする指定ではない。設定から導いた実際のバケットが違えば停止する。本番Webを起動するこの入口は `baibai-stores` 専用。書き込み鍵が `baibai-serving` を含んでいても、そこへ直接書かず、既存のGitHub Actionsが配信を更新する。
